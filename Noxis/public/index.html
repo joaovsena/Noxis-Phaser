@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Meu MMORPG Profissional</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div id="ui-container">
+        <div id="char-creation" class="screen">
+            <h1>Criação de Personagem</h1>
+            <div class="setup-box">
+                <div id="preview-box">
+                    <div id="class-preview" class="preview-knight"></div>
+                </div>
+                <div class="controls">
+                    <input type="text" id="char-name" placeholder="Nome do herói..." maxlength="12">
+                    <select id="char-gender">
+                        <option value="male">Masculino</option>
+                        <option value="female">Feminino</option>
+                    </select>
+                    <select id="char-class">
+                        <option value="knight">Cavaleiro (Azul)</option>
+                        <option value="shifter">Metamorfo (Verde)</option>
+                    </select>
+                    <button id="btn-start">Iniciar Jornada</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <canvas id="gameCanvas" style="display:none;"></canvas>
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>
