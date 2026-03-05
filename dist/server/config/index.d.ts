@@ -2,10 +2,10 @@ export declare const WORLD: {
     width: number;
     height: number;
 };
-export declare const INSTANCE_IDS: readonly ["E1", "E2"];
+export declare const INSTANCE_IDS: readonly ["a1", "a2"];
 export declare const MAP_KEYS: readonly ["forest", "lava"];
-export declare const MAP_IDS: ("E1" | "E2")[];
-export declare const DEFAULT_MAP_ID = "E1";
+export declare const MAP_IDS: ("a1" | "a2")[];
+export declare const DEFAULT_MAP_ID = "a1";
 export declare const DEFAULT_MAP_KEY = "forest";
 export declare const TICK_MS = 50;
 export declare const MOB_COUNTS: {

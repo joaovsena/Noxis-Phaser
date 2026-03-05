@@ -1,8 +1,6 @@
-import { User, Player, Item, MobTemplate } from '@prisma/client';
-
 export interface PlayerRuntime {
-    id: string;
-    userId: string;
+    id: number;
+    userId: number;
     username: string;
     name: string;
     class: string;
@@ -99,6 +97,10 @@ export interface InventoryMoveMessage {
     toSlot: number;
 }
 
+export interface InventorySortMessage {
+    type: 'inventory_sort';
+}
+
 export interface InventoryDeleteMessage {
     type: 'inventory_delete';
     itemId: string;
@@ -128,6 +130,7 @@ export type WSMessage =
     | PickupItemMessage
     | EquipItemMessage
     | InventoryMoveMessage
+    | InventorySortMessage
     | InventoryDeleteMessage
     | InventoryUnequipToSlotMessage
     | SwitchInstanceMessage

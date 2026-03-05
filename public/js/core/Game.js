@@ -21,7 +21,7 @@ export class Game {
         this.mapWidth = 6400;
         this.mapHeight = 6400;
         this.camera = { x: 0, y: 0 };
-        this.currentMapId = 'E1';
+        this.currentMapId = 'a1';
         this.currentMapKey = 'forest';
         this.currentMapTheme = 'forest';
         this.mapPortals = [];
@@ -629,6 +629,13 @@ export class Game {
         }
         if (message.mapId) {
             this.currentMapId = message.mapId;
+            const hasOption = [...this.instanceSelect.options].some((option) => option.value === message.mapId);
+            if (!hasOption) {
+                const option = document.createElement('option');
+                option.value = message.mapId;
+                option.textContent = message.mapId;
+                this.instanceSelect.appendChild(option);
+            }
             this.instanceSelect.value = message.mapId;
         }
         if (message.mapKey) this.currentMapKey = message.mapKey;
@@ -1159,7 +1166,7 @@ export class Game {
     drawWorldMapPanel() {
         if (this.worldmapPanel.classList.contains('hidden')) return;
         const worldRect = { x: 0, y: 0, w: this.mapWidth, h: this.mapHeight };
-        this.drawWorldPreview(this.worldmapCtx, this.worldmapCanvas, worldRect, true);
+        this.drawWorldPreview(this.worldmapCtx, this.worldmapCanvas, worldRect, false);
     }
 
     /**

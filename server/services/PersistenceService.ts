@@ -29,7 +29,7 @@ export class PersistenceService {
 
     async savePlayer(player: PlayerRuntime) {
         await prisma.player.update({
-            where: { id: player.id },
+            where: { id: player.id as any },
             data: {
                 level: player.level,
                 xp: player.xp,

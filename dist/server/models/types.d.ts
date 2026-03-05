@@ -1,6 +1,6 @@
 export interface PlayerRuntime {
-    id: string;
-    userId: string;
+    id: number;
+    userId: number;
     username: string;
     name: string;
     class: string;
@@ -87,6 +87,9 @@ export interface InventoryMoveMessage {
     itemId: string;
     toSlot: number;
 }
+export interface InventorySortMessage {
+    type: 'inventory_sort';
+}
 export interface InventoryDeleteMessage {
     type: 'inventory_delete';
     itemId: string;
@@ -104,5 +107,5 @@ export interface AdminCommandMessage {
     type: 'admin_command';
     command: string;
 }
-export type WSMessage = AuthMessage | MoveMessage | TargetMobMessage | ChatMessage | PickupItemMessage | EquipItemMessage | InventoryMoveMessage | InventoryDeleteMessage | InventoryUnequipToSlotMessage | SwitchInstanceMessage | AdminCommandMessage;
+export type WSMessage = AuthMessage | MoveMessage | TargetMobMessage | ChatMessage | PickupItemMessage | EquipItemMessage | InventoryMoveMessage | InventorySortMessage | InventoryDeleteMessage | InventoryUnequipToSlotMessage | SwitchInstanceMessage | AdminCommandMessage;
 //# sourceMappingURL=types.d.ts.map

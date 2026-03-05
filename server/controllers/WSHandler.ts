@@ -1,7 +1,7 @@
 import { WebSocket } from 'ws';
 
 interface ExtendedWebSocket extends WebSocket {
-    playerId?: string;
+    playerId?: number;
 }
 import { GameController } from './GameController';
 import { WSMessage } from '../models/types';
@@ -37,11 +37,32 @@ export class WSHandler {
             case 'target_mob':
                 this.controller.handleTargetMob(player, msg as any);
                 break;
+            case 'chat_send':
+                this.controller.handleChat(player, msg as any);
+                break;
             case 'pickup_item':
                 this.controller.handlePickupItem(player, msg as any);
                 break;
+            case 'equip_item':
+                this.controller.handleEquipItem(player, msg as any);
+                break;
+            case 'inventory_move':
+                this.controller.handleInventoryMove(player, msg as any);
+                break;
+            case 'inventory_sort':
+                this.controller.handleInventorySort(player);
+                break;
+            case 'inventory_delete':
+                this.controller.handleInventoryDelete(player, msg as any);
+                break;
+            case 'inventory_unequip_to_slot':
+                this.controller.handleInventoryUnequipToSlot(player, msg as any);
+                break;
             case 'switch_instance':
                 this.controller.handleSwitchInstance(player, msg as any);
+                break;
+            case 'admin_command':
+                this.controller.handleAdminCommand(player, msg as any);
                 break;
             // Adicionar outros cases...
         }

@@ -107,13 +107,15 @@ class GameController {
     }
     createRuntimePlayer(username, profile) {
         const spawn = { x: 400 + Math.floor(Math.random() * 600), y: 400 + Math.floor(Math.random() * 600) };
-        const id = String(profile?.id || (0, crypto_1.randomUUID)());
+        const parsedId = Number(profile?.id);
+        const id = Number.isInteger(parsedId) ? parsedId : Math.floor(Date.now() % 2147483647);
         const maxHp = profile.stats.maxHp || profile.baseStats.maxHp || 100;
-        return {
+        const runtime = {
             ...profile,
             id,
             ws: null,
             username,
+            inventory: this.normalizeInventorySlots(Array.isArray(profile.inventory) ? profile.inventory : []),
             mapKey: config_1.DEFAULT_MAP_KEY,
             mapId: config_1.DEFAULT_MAP_ID,
             x: spawn.x,
@@ -126,6 +128,8 @@ class GameController {
             lastCombatAt: 0,
             lastPortalAt: 0
         };
+        this.recomputePlayerStats(runtime);
+        return runtime;
     }
     handleMove(player, msg) {
         const incomingX = Number(msg.x);
@@ -151,6 +155,43 @@ class GameController {
         }
         player.autoAttackActive = true;
         player.attackTargetId = mob.id;
+    }
+    handleChat(player, msg) {
+        const scope = msg.scope === 'global' || msg.scope === 'map' ? msg.scope : 'local';
+        const text = String(msg.text || '').trim();
+        if (!text)
+            return;
+        const payload = {
+            type: 'chat_message',
+            id: (0, crypto_1.randomUUID)(),
+            fromId: player.id,
+            scope,
+            from: player.name,
+            mapId: player.mapId,
+            mapKey: player.mapKey,
+            text: text.slice(0, 180),
+            at: Date.now()
+        };
+        if (scope === 'global') {
+            this.broadcastRaw(payload);
+            return;
+        }
+        this.sendRaw(player.ws, payload);
+        for (const receiver of this.players.values()) {
+            if (receiver.id === player.id)
+                continue;
+            if (scope === 'map') {
+                if (receiver.mapId !== player.mapId || receiver.mapKey !== player.mapKey)
+                    continue;
+                this.sendRaw(receiver.ws, payload);
+                continue;
+            }
+            if (receiver.mapId !== player.mapId || receiver.mapKey !== player.mapKey)
+                continue;
+            if ((0, math_1.distance)(receiver, player) > config_1.LOCAL_CHAT_RADIUS)
+                continue;
+            this.sendRaw(receiver.ws, payload);
+        }
     }
     handleSwitchInstance(player, msg) {
         const target = config_1.MAP_IDS.includes(msg.mapId) ? msg.mapId : null;
@@ -182,11 +223,116 @@ class GameController {
             return;
         this.groundItems.splice(index, 1);
         player.inventory.push({ ...item, slotIndex: freeSlot });
-        player.ws.send(JSON.stringify({
-            type: 'inventory_state',
-            inventory: player.inventory,
-            equippedWeaponId: player.equippedWeaponId
-        }));
+        this.persistPlayer(player);
+        this.sendInventoryState(player);
+    }
+    handleEquipItem(player, msg) {
+        const itemId = msg.itemId ? String(msg.itemId) : null;
+        if (!itemId) {
+            player.equippedWeaponId = null;
+            this.recomputePlayerStats(player);
+            this.persistPlayer(player);
+            this.sendInventoryState(player);
+            return;
+        }
+        const found = player.inventory.find((it) => it.id === itemId && it.type === 'weapon');
+        if (!found)
+            return;
+        player.equippedWeaponId = found.id;
+        this.recomputePlayerStats(player);
+        this.persistPlayer(player);
+        this.sendInventoryState(player);
+    }
+    handleInventoryMove(player, msg) {
+        const itemId = String(msg.itemId || '');
+        const toSlot = Number(msg.toSlot);
+        if (!Number.isInteger(toSlot) || toSlot < 0 || toSlot >= config_1.INVENTORY_SIZE)
+            return;
+        const item = player.inventory.find((it) => it.id === itemId);
+        if (!item)
+            return;
+        const occupant = player.inventory.find((it) => it.slotIndex === toSlot);
+        const fromSlot = item.slotIndex;
+        item.slotIndex = toSlot;
+        if (occupant && occupant.id !== item.id)
+            occupant.slotIndex = fromSlot;
+        player.inventory = this.normalizeInventorySlots(player.inventory);
+        this.persistPlayer(player);
+        this.sendInventoryState(player);
+    }
+    handleInventorySort(player) {
+        const sorted = [...player.inventory].sort((a, b) => {
+            const byName = String(a.name || '').localeCompare(String(b.name || ''));
+            if (byName !== 0)
+                return byName;
+            return String(a.id).localeCompare(String(b.id));
+        });
+        for (let i = 0; i < sorted.length && i < config_1.INVENTORY_SIZE; i++) {
+            sorted[i].slotIndex = i;
+        }
+        player.inventory = this.normalizeInventorySlots(sorted);
+        this.persistPlayer(player);
+        this.sendInventoryState(player);
+    }
+    handleInventoryDelete(player, msg) {
+        const itemId = String(msg.itemId || '');
+        const index = player.inventory.findIndex((it) => it.id === itemId);
+        if (index === -1)
+            return;
+        if (player.equippedWeaponId === itemId) {
+            player.equippedWeaponId = null;
+            this.recomputePlayerStats(player);
+        }
+        player.inventory.splice(index, 1);
+        player.inventory = this.normalizeInventorySlots(player.inventory);
+        this.persistPlayer(player);
+        this.sendInventoryState(player);
+    }
+    handleInventoryUnequipToSlot(player, msg) {
+        const itemId = String(msg.itemId || '');
+        const toSlot = Number(msg.toSlot);
+        if (!Number.isInteger(toSlot) || toSlot < 0 || toSlot >= config_1.INVENTORY_SIZE)
+            return;
+        if (player.equippedWeaponId !== itemId)
+            return;
+        const item = player.inventory.find((it) => it.id === itemId);
+        if (!item)
+            return;
+        const occupant = player.inventory.find((it) => it.slotIndex === toSlot && it.id !== itemId);
+        const fromSlot = item.slotIndex;
+        item.slotIndex = toSlot;
+        if (occupant)
+            occupant.slotIndex = fromSlot;
+        player.equippedWeaponId = null;
+        this.recomputePlayerStats(player);
+        player.inventory = this.normalizeInventorySlots(player.inventory);
+        this.persistPlayer(player);
+        this.sendInventoryState(player);
+    }
+    handleAdminCommand(player, msg) {
+        if (player.role !== 'adm')
+            return;
+        const raw = String(msg.command || '').trim();
+        const parts = raw.split(/\s+/);
+        if (parts.length < 4 || parts[0].toLowerCase() !== 'setstatus') {
+            this.sendRaw(player.ws, { type: 'admin_result', ok: false, message: 'Uso: setstatus {id} {quantia} {jogador}' });
+            return;
+        }
+        const statusId = String(parts[1]);
+        const key = config_1.STATUS_BY_ID[statusId];
+        const value = Number(parts[2]);
+        const username = String(parts[3]).toLowerCase();
+        const target = [...this.players.values()].find((p) => p.username === username);
+        if (!key || !Number.isFinite(value) || !target) {
+            this.sendRaw(player.ws, { type: 'admin_result', ok: false, message: 'Comando invalido.' });
+            return;
+        }
+        target.statusOverrides = target.statusOverrides || {};
+        target.statusOverrides[key] = value;
+        this.recomputePlayerStats(target);
+        this.persistPlayer(target);
+        this.sendInventoryState(target);
+        this.sendRaw(player.ws, { type: 'admin_result', ok: true, message: `Status ${key} de ${username} = ${value}` });
     }
     tick(deltaSeconds, now) {
         for (const player of this.players.values()) {
@@ -201,7 +347,7 @@ class GameController {
         for (const [id, player] of this.players.entries()) {
             if (player.mapId !== mapId || player.mapKey !== mapKey)
                 continue;
-            publicPlayers[id] = this.sanitizePublicPlayer(player);
+            publicPlayers[String(id)] = this.sanitizePublicPlayer(player);
         }
         return {
             type: 'world_state',
@@ -228,7 +374,7 @@ class GameController {
     }
     firstFreeInventorySlot(items) {
         const used = new Set(items.map((it) => it.slotIndex).filter((n) => Number.isInteger(n)));
-        for (let i = 0; i < 36; i++) {
+        for (let i = 0; i < config_1.INVENTORY_SIZE; i++) {
             if (!used.has(i))
                 return i;
         }
@@ -312,6 +458,7 @@ class GameController {
         }
         const damage = Math.max(1, Math.floor(rawAttack - mobDefense * 0.5));
         mob.hp = Math.max(0, mob.hp - damage);
+        player.lastCombatAt = now;
         for (const receiver of this.players.values()) {
             if (receiver.mapId !== player.mapId || receiver.mapKey !== player.mapKey)
                 continue;
@@ -332,6 +479,9 @@ class GameController {
         }
         if (mob.hp === 0) {
             this.grantXp(player, mob.xpReward);
+            if (Math.random() < 0.5) {
+                this.dropWeaponAt(mob.x, mob.y, this.mapInstanceId(player.mapKey, player.mapId));
+            }
             this.mobService.removeMob(mob.id);
         }
     }
@@ -367,9 +517,89 @@ class GameController {
             player.level += 1;
             next = (0, math_1.xpRequired)(player.level);
         }
-        player.stats = (0, math_1.levelUpStats)(player.baseStats, player.level);
-        player.maxHp = Number(player.stats.maxHp || player.maxHp);
-        player.hp = (0, math_1.clamp)(player.hp, 1, player.maxHp);
+        this.recomputePlayerStats(player);
+        this.persistPlayer(player);
+    }
+    normalizeInventorySlots(items) {
+        const out = [];
+        const used = new Set();
+        for (const item of items) {
+            const clone = { ...item };
+            if (!Number.isInteger(clone.slotIndex) || clone.slotIndex < 0 || clone.slotIndex >= config_1.INVENTORY_SIZE || used.has(clone.slotIndex)) {
+                clone.slotIndex = this.firstFreeInventorySlot(out);
+            }
+            if (clone.slotIndex === -1)
+                continue;
+            used.add(clone.slotIndex);
+            out.push(clone);
+        }
+        return out;
+    }
+    getEquippedWeapon(player) {
+        if (!player.equippedWeaponId)
+            return null;
+        return Array.isArray(player.inventory) ? player.inventory.find((item) => item.id === player.equippedWeaponId) || null : null;
+    }
+    recomputePlayerStats(player) {
+        const leveled = (0, math_1.levelUpStats)(player.baseStats, player.level);
+        const overrides = player.statusOverrides && typeof player.statusOverrides === 'object' ? player.statusOverrides : {};
+        for (const [key, value] of Object.entries(overrides)) {
+            if (typeof leveled[key] === 'number' && Number.isFinite(value)) {
+                leveled[key] = value;
+            }
+        }
+        const weapon = this.getEquippedWeapon(player);
+        if (weapon && weapon.bonuses) {
+            player.stats = {
+                ...leveled,
+                physicalAttack: Number(leveled.physicalAttack || 0) + Number(weapon.bonuses.physicalAttack || 0),
+                magicAttack: Number(leveled.magicAttack || 0) + Number(weapon.bonuses.magicAttack || 0),
+                moveSpeed: Number(leveled.moveSpeed || 0) + Number(weapon.bonuses.moveSpeed || 0),
+                attackSpeed: Number(leveled.attackSpeed || 0) + Number(weapon.bonuses.attackSpeed || 0)
+            };
+        }
+        else {
+            player.stats = leveled;
+        }
+        player.maxHp = Number(leveled.maxHp || player.maxHp || 100);
+        player.hp = (0, math_1.clamp)(Number(player.hp || player.maxHp), 1, player.maxHp);
+    }
+    sendInventoryState(player) {
+        this.sendRaw(player.ws, {
+            type: 'inventory_state',
+            inventory: [...player.inventory].sort((a, b) => Number(a.slotIndex) - Number(b.slotIndex)),
+            equippedWeaponId: player.equippedWeaponId
+        });
+    }
+    dropWeaponAt(x, y, mapId) {
+        this.groundItems.push({
+            id: (0, crypto_1.randomUUID)(),
+            type: 'weapon',
+            name: config_1.WEAPON_TEMPLATE.name,
+            slot: config_1.WEAPON_TEMPLATE.slot,
+            bonuses: { ...config_1.WEAPON_TEMPLATE.bonuses },
+            x,
+            y,
+            mapId
+        });
+    }
+    persistPlayer(player) {
+        void this.persistence.savePlayer(player).catch((error) => {
+            (0, logger_1.logEvent)('ERROR', 'save_player_error', { playerId: player.id, error: String(error) });
+        });
+    }
+    sendRaw(ws, payload) {
+        try {
+            ws?.send(JSON.stringify(payload));
+        }
+        catch {
+            // Ignore socket send failures; cleanup happens on disconnect.
+        }
+    }
+    broadcastRaw(payload) {
+        for (const player of this.players.values()) {
+            this.sendRaw(player.ws, payload);
+        }
     }
 }
 exports.GameController = GameController;

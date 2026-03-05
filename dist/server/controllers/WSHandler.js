@@ -27,11 +27,32 @@ class WSHandler {
             case 'target_mob':
                 this.controller.handleTargetMob(player, msg);
                 break;
+            case 'chat_send':
+                this.controller.handleChat(player, msg);
+                break;
             case 'pickup_item':
                 this.controller.handlePickupItem(player, msg);
                 break;
+            case 'equip_item':
+                this.controller.handleEquipItem(player, msg);
+                break;
+            case 'inventory_move':
+                this.controller.handleInventoryMove(player, msg);
+                break;
+            case 'inventory_sort':
+                this.controller.handleInventorySort(player);
+                break;
+            case 'inventory_delete':
+                this.controller.handleInventoryDelete(player, msg);
+                break;
+            case 'inventory_unequip_to_slot':
+                this.controller.handleInventoryUnequipToSlot(player, msg);
+                break;
             case 'switch_instance':
                 this.controller.handleSwitchInstance(player, msg);
+                break;
+            case 'admin_command':
+                this.controller.handleAdminCommand(player, msg);
                 break;
             // Adicionar outros cases...
         }

@@ -84,6 +84,29 @@ O servidor estará rodando em `http://localhost:3000`.
   npm test
   ```
 
+## Rodar com Docker (app + banco)
+
+Este projeto possui `docker-compose.yml` com dois serviÃ§os:
+- `db` (PostgreSQL 16) com volume persistente `noxis_postgres_data`
+- `app` (Node.js) em `http://localhost:3000`
+
+Subir tudo:
+```bash
+docker compose up --build -d
+```
+
+Ver logs:
+```bash
+docker compose logs -f
+```
+
+Parar sem apagar dados:
+```bash
+docker compose down
+```
+
+Se usar `docker compose down -v`, o volume do banco Ã© removido e os dados serÃ£o perdidos.
+
 ## API WebSocket
 
 ### Mensagens de Autenticação

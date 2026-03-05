@@ -1,10 +1,10 @@
 // @ts-check
 
 export const WORLD = { width: 3200, height: 3200 };
-export const INSTANCE_IDS = ['E1', 'E2'] as const;
+export const INSTANCE_IDS = ['a1', 'a2'] as const;
 export const MAP_KEYS = ['forest', 'lava'] as const;
 export const MAP_IDS = [...INSTANCE_IDS];
-export const DEFAULT_MAP_ID = 'E1';
+export const DEFAULT_MAP_ID = 'a1';
 export const DEFAULT_MAP_KEY = 'forest';
 export const TICK_MS = 50;
 export const MOB_COUNTS = { normal: 25, elite: 15, subboss: 5, boss: 1 };

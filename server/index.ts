@@ -20,7 +20,7 @@ const server = createServer(app);
 const wss = new WebSocketServer({ server });
 
 interface ExtendedWebSocket extends WebSocket {
-    playerId?: string | null;
+    playerId?: number | null;
 }
 
 async function initializeServer() {

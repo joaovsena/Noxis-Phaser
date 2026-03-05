@@ -1,6 +1,6 @@
 import { WebSocket } from 'ws';
 interface ExtendedWebSocket extends WebSocket {
-    playerId?: string;
+    playerId?: number;
 }
 import { GameController } from './GameController';
 export declare class WSHandler {
