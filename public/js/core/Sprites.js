@@ -57,6 +57,12 @@ export class Sprites {
         );
     }
 
+    getClassTint(className) {
+        if (className === 'shifter') return 'rgba(75, 209, 55, 0.24)';
+        if (className === 'bandit') return 'rgba(35, 35, 42, 0.34)';
+        return null;
+    }
+
     /**
      * Carrega sprite unico (fallback).
      */
@@ -182,10 +188,12 @@ export class Sprites {
     getPlayerFrame(className, facing, moving, animTimeMs, attackAnimMs = null, attackMode = 'unarmed') {
         const atlas = this.atlasByClass[className];
         if (atlas) {
-            return this.getAtlasFrame(className, atlas, facing, moving, animTimeMs, attackAnimMs, attackMode);
+            const frame = this.getAtlasFrame(className, atlas, facing, moving, animTimeMs, attackAnimMs, attackMode);
+            frame.tint = this.getClassTint(className);
+            return frame;
         }
 
-        return { className, image: this.getPlayerSprite(className), mirror: false, source: null, head: null };
+        return { className, image: this.getPlayerSprite(className), mirror: false, source: null, head: null, tint: this.getClassTint(className) };
     }
 
     /**

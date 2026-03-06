@@ -44,7 +44,7 @@
                     <p id="auth-status"></p>
                 </div>
                 <div id="preview-box">
-                    <div id="class-preview" class="preview-knight"></div>
+                    <div id="class-preview" class="class-avatar preview-avatar class-knight">S</div>
                     <div class="preview-help">
                         Metamorfo: alcance de teste maior.
                         Cavaleiro: ataque apenas colado ao alvo.
@@ -82,25 +82,44 @@
     <div id="player-card" class="hud-card hidden">
         <div id="player-avatar"></div>
         <div class="player-meta">
-            <div id="player-name">-</div>
+            <div class="player-name-row">
+                <div id="player-name">-</div>
+                <button id="player-pvp-toggle" title="Modo PVP">Paz</button>
+            </div>
             <div class="hp-wrap"><div id="player-hp-fill"></div></div>
             <div id="player-hp-text">HP: -</div>
         </div>
     </div>
 
+    <div id="target-player-card" class="hud-target-player hidden">
+        <div class="target-card-top">
+            <div id="target-player-avatar"></div>
+            <div class="target-card-meta">
+                <div class="target-card-name-row">                    <button id="target-actions-toggle" class="target-actions-toggle" title="Acoes">▾</button>
+                </div>                <div class="hp-wrap"><div id="target-player-hp-fill"></div></div>            </div>
+        </div>
+        <div id="target-actions-menu" class="target-actions-menu hidden">
+            <button id="target-invite-btn">Convidar para grupo</button>
+            <button id="target-friend-btn">Adicionar amigo</button>
+        </div>
+    </div>
+
+    <div id="party-frames" class="hud-party-frames hidden"></div>
+
     <div id="minimap-wrap" class="hud-minimap hidden">
         <canvas id="minimap-canvas" width="190" height="190"></canvas>
+        <div id="map-code-label">Mapa A1</div>
         <div class="minimap-instance-bar">
             <label for="instance-select">Instancia</label>
             <select id="instance-select">
-                <option value="a1">a1</option>
-                <option value="a2">a2</option>
+                <option value="Z1">Z1</option>
+                <option value="Z2">Z2</option>
             </select>
         </div>
     </div>
 
     <div id="worldmap-panel" class="hud-worldmap hidden">
-        <div class="worldmap-header">
+        <div id="worldmap-header" class="worldmap-header">
             <div>Mapa Completo (M)</div>
             <button id="worldmap-close">Fechar</button>
         </div>
@@ -119,16 +138,98 @@
     </div>
 
     <div id="skillbar-wrap" class="hud-skillbar hidden">
-        <button id="skill-basic" class="skill-icon skill-basic" title="Ataque basico">A</button>
-        <button class="skill-icon skill-burst" title="Disparo em area">B</button>
-        <button class="skill-icon skill-dash" title="Avanco">D</button>
-        <button class="skill-icon skill-guard" title="Postura defensiva">G</button>
+        <div class="skill-row" id="skill-row-bottom">
+            <button class="skill-slot-btn" data-key="1"><span>1</span></button>
+            <button class="skill-slot-btn" data-key="2"><span>2</span></button>
+            <button class="skill-slot-btn" data-key="3"><span>3</span></button>
+            <button class="skill-slot-btn" data-key="4"><span>4</span></button>
+            <button class="skill-slot-btn" data-key="5"><span>5</span></button>
+            <button class="skill-slot-btn" data-key="6"><span>6</span></button>
+            <button class="skill-slot-btn" data-key="7"><span>7</span></button>
+            <button class="skill-slot-btn" data-key="8"><span>8</span></button>
+        </div>
+        <div class="skill-row" id="skill-row-top">
+            <button class="skill-slot-btn" data-key="q"><span>Q</span></button>
+            <button class="skill-slot-btn" data-key="w"><span>W</span></button>
+            <button class="skill-slot-btn" data-key="e"><span>E</span></button>
+            <button class="skill-slot-btn" data-key="r"><span>R</span></button>
+            <button class="skill-slot-btn" data-key="a"><span>A</span></button>
+            <button class="skill-slot-btn" data-key="s"><span>S</span></button>
+            <button class="skill-slot-btn" data-key="d"><span>D</span></button>
+            <button class="skill-slot-btn" data-key="f"><span>F</span></button>
+        </div>
     </div>
 
     <div id="menus-wrap" class="hud-menus hidden">
         <button id="menu-attrs" class="menu-btn">Personagem (C)</button>
         <button id="menu-inventory" class="menu-btn">Inventario (B)</button>
         <button id="menu-map" class="menu-btn">Mapa (M)</button>
+        <button id="menu-party" class="menu-btn">Grupo (G)</button>
+        <button id="menu-friends" class="menu-btn">Amigos (O)</button>
+    </div>
+
+    <div id="party-panel" class="panel hidden">
+        <div id="party-header">Grupo (G)</div>
+        <div class="party-tabs">
+            <button id="party-tab-area" class="active">Grupos na Area</button>
+            <button id="party-tab-my">Meu Grupo</button>
+        </div>
+        <div id="party-view-area">
+            <div id="party-area-list"></div>
+            <div id="party-request-wrap" class="party-actions">
+                <button id="party-request-join-btn">Solicitar entrada</button>
+            </div>
+            <div id="party-create-wrap">
+                <div class="party-gap"></div>
+                <div class="party-actions">
+                <input id="party-area-search" type="text" maxlength="24" placeholder="Nome do grupo">
+                </div>
+                <div class="party-actions">
+                    <button id="party-create">Criar Grupo</button>
+                </div>
+            </div>
+        </div>
+        <div id="party-view-my" class="hidden">
+            <div id="party-my-meta">Voce nao esta em grupo.</div>
+            <div id="party-my-leave-wrap" class="party-actions">
+                <button id="party-leave">Sair</button>
+            </div>
+            <div id="party-my-invite-wrap" class="party-actions">
+                <input id="party-invite-name" type="text" maxlength="20" placeholder="Nome do jogador">
+                <button id="party-invite-btn">Convidar nome</button>
+            </div>
+            <div id="party-members"></div>
+        </div>
+    </div>
+
+    <div id="party-notifications" class="hud-party-notify hidden">
+        <div class="party-notify-title">Grupo</div>
+        <div id="party-notifications-list"></div>
+    </div>
+
+    <div id="friends-notifications" class="hud-friend-notify hidden">
+        <div class="party-notify-title">Amizades</div>
+        <div id="friends-notifications-list"></div>
+    </div>
+
+    <div id="friends-panel" class="panel hidden">
+        <div id="friends-header">Amigos (O)</div>
+        <div class="party-tabs">
+            <button id="friends-tab-list" class="active">Amigos</button>
+            <button id="friends-tab-requests">Pedidos</button>
+        </div>
+        <div id="friends-view-list">
+            <div class="friends-add-wrap">
+                <input id="friends-add-name" type="text" maxlength="20" placeholder="Nome do jogador">
+                <button id="friends-add-btn">Adicionar</button>
+            </div>
+            <div id="friends-list"></div>
+        </div>
+        <div id="friends-view-requests" class="hidden">
+            <div id="friends-incoming-list"></div>
+            <div class="party-gap"></div>
+            <div id="friends-outgoing-list"></div>
+        </div>
     </div>
 
     <div id="inventory-panel" class="panel hidden">
@@ -149,11 +250,34 @@
         </div>
     </div>
 
+    <div id="revive-overlay" class="revive-overlay hidden">
+        <div class="revive-card">
+            <div>Voce morreu.</div>
+            <button id="revive-btn">Reviver aqui</button>
+        </div>
+    </div>
+
     <div id="item-tooltip" class="panel hidden"></div>
 
     <div id="admin-panel" class="panel hidden">
-        <div id="admin-header">Painel ADM (H)</div>
-        <div id="admin-help">setstatus {id} {quantia} {jogador}</div>
+        <div id="admin-header">
+            <span>Painel ADM (H)</span>
+            <span class="admin-help-wrap">
+                <button id="admin-help-icon" type="button" aria-label="Ajuda de comandos">?</button>
+                <div id="admin-help-popover">
+                    <div class="admin-help-title">Comandos</div>
+                    <ul id="admin-help-list">
+                        <li id="admin-status-help">setstatus {id} {quantia} {jogador}</li>
+                        <li>setrolelevel {nivel} {jogador}</li>
+                        <li>gotomap {A1|A2|A3} {jogador}</li>
+                        <li>teleport {jogador}</li>
+                        <li>summonplayer {jogador}</li>
+                        <li>additem {id} {quantia} {jogador}</li>
+                        <li>settag {player|adm} {jogador}</li>
+                    </ul>
+                </div>
+            </span>
+        </div>
         <input id="admin-command" placeholder="setstatus 1 100 sena">
         <button id="admin-send">Executar</button>
         <div id="admin-result"></div>
@@ -163,3 +287,4 @@
     <script type="module" src="js/main.js"></script>
 </body>
 </html>
+

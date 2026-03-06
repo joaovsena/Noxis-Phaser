@@ -1,6 +1,6 @@
 import { MobTemplate } from '@prisma/client';
 import { Mob, GroundItem } from '../models/types';
-import { DEFAULT_MOB, MOB_VARIANTS, WORLD } from '../config';
+import { DEFAULT_MOB, MOB_VARIANTS, WORLD, MAP_FEATURES_BY_KEY } from '../config';
 import { randomUUID } from 'crypto';
 
 export class MobService {
@@ -10,10 +10,11 @@ export class MobService {
     createMob(kind: string = 'normal', mapId: string): Mob {
         const variant = (MOB_VARIANTS as any)[kind] || MOB_VARIANTS.normal;
         const padding = 80;
+        const spawn = this.findValidSpawnPoint(mapId, padding);
         return {
             id: `mob-${randomUUID()}`,
-            x: padding + Math.random() * (WORLD.width - padding * 2),
-            y: padding + Math.random() * (WORLD.height - padding * 2),
+            x: spawn.x,
+            y: spawn.y,
             kind,
             color: variant.color,
             size: variant.size,
@@ -24,6 +25,39 @@ export class MobService {
             xpReward: Math.floor(DEFAULT_MOB.xpReward * variant.mult),
             mapId
         };
+    }
+
+    private findValidSpawnPoint(mapInstanceId: string, padding: number) {
+        const fallback = {
+            x: padding + Math.random() * (WORLD.width - padding * 2),
+            y: padding + Math.random() * (WORLD.height - padding * 2)
+        };
+        const mapKey = String(mapInstanceId || '').split('::')[0] || 'forest';
+        const features = MAP_FEATURES_BY_KEY[mapKey] || [];
+        const radius = 24;
+
+        const isBlocked = (x: number, y: number) => {
+            for (const feature of features) {
+                if (!feature.collision) continue;
+                if (feature.shape === 'rect') {
+                    const insideX = x >= (feature.x - radius) && x <= (feature.x + feature.w + radius);
+                    const insideY = y >= (feature.y - radius) && y <= (feature.y + feature.h + radius);
+                    if (insideX && insideY) return true;
+                    continue;
+                }
+                const dx = x - feature.x;
+                const dy = y - feature.y;
+                if (dx * dx + dy * dy <= (feature.r + radius) * (feature.r + radius)) return true;
+            }
+            return false;
+        };
+
+        for (let i = 0; i < 120; i++) {
+            const x = padding + Math.random() * (WORLD.width - padding * 2);
+            const y = padding + Math.random() * (WORLD.height - padding * 2);
+            if (!isBlocked(x, y)) return { x, y };
+        }
+        return fallback;
     }
 
     spawnMob(kind: string = 'normal', mapId: string): void {

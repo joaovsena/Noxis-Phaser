@@ -11,7 +11,10 @@ export interface PlayerRuntime {
     maxHp: number;
     baseStats: any;
     stats: any;
+    allocatedStats: any;
+    unspentPoints: number;
     statusOverrides: any;
+    pvpMode: 'peace' | 'evil';
     role: string;
     inventory: any;
     equippedWeaponId: string | null;
@@ -27,6 +30,13 @@ export interface PlayerRuntime {
     lastAttackAt: number;
     lastCombatAt: number;
     lastPortalAt?: number;
+    pvpAutoAttackActive?: boolean;
+    attackTargetPlayerId?: number | null;
+    dead?: boolean;
+    deathX?: number;
+    deathY?: number;
+    partyId?: string | null;
+    skillCooldowns?: Record<string, number>;
 }
 
 export interface Mob {
@@ -42,6 +52,8 @@ export interface Mob {
     magicDefense: number;
     xpReward: number;
     mapId: string;
+    targetPlayerId?: number | null;
+    lastAttackAt?: number;
 }
 
 export interface GroundItem {
@@ -53,6 +65,7 @@ export interface GroundItem {
     x: number;
     y: number;
     mapId: string;
+    expiresAt?: number;
 }
 
 export interface AuthMessage {
@@ -122,6 +135,121 @@ export interface AdminCommandMessage {
     command: string;
 }
 
+export interface PartyCreateMessage {
+    type: 'party.create';
+}
+
+export interface PartyInviteMessage {
+    type: 'party.invite';
+    targetName: string;
+}
+
+export interface PartyAcceptInviteMessage {
+    type: 'party.acceptInvite';
+    partyId: string;
+    inviteId?: string;
+}
+
+export interface PartyDeclineInviteMessage {
+    type: 'party.declineInvite';
+    partyId: string;
+    inviteId?: string;
+}
+
+export interface PartyLeaveMessage {
+    type: 'party.leave';
+}
+
+export interface PartyKickMessage {
+    type: 'party.kick';
+    targetPlayerId: number;
+}
+
+export interface PartyPromoteMessage {
+    type: 'party.promote';
+    targetPlayerId: number;
+}
+
+export interface PartyRequestAreaPartiesMessage {
+    type: 'party.requestAreaParties';
+}
+
+export interface PartyRequestJoinMessage {
+    type: 'party.requestJoin';
+    partyId: string;
+}
+
+export interface PartyApproveJoinMessage {
+    type: 'party.approveJoin';
+    requestId: string;
+    accept: boolean;
+}
+
+export interface FriendRequestMessage {
+    type: 'friend.request';
+    targetPlayerId?: number;
+    targetName?: string;
+}
+
+export interface FriendAcceptMessage {
+    type: 'friend.accept';
+    requestId: string;
+}
+
+export interface FriendDeclineMessage {
+    type: 'friend.decline';
+    requestId: string;
+}
+
+export interface FriendRemoveMessage {
+    type: 'friend.remove';
+    friendPlayerId: number;
+}
+
+export interface FriendListMessage {
+    type: 'friend.list';
+}
+
+export interface StatsAllocateMessage {
+    type: 'stats.allocate';
+    allocation: {
+        physicalAttack?: number;
+        magicAttack?: number;
+        physicalDefense?: number;
+        magicDefense?: number;
+    };
+}
+
+export interface PlayerSetPvpModeMessage {
+    type: 'player.setPvpMode';
+    mode: 'peace' | 'evil';
+}
+
+export interface CombatAttackMessage {
+    type: 'combat.attack';
+    targetPlayerId: number;
+}
+
+export interface CombatTargetPlayerMessage {
+    type: 'combat.targetPlayer';
+    targetPlayerId: number;
+}
+
+export interface CombatClearTargetMessage {
+    type: 'combat.clearTarget';
+}
+
+export interface PlayerReviveMessage {
+    type: 'player.revive';
+}
+
+export interface SkillCastMessage {
+    type: 'skill.cast';
+    skillId: string;
+    targetMobId?: string | null;
+    targetPlayerId?: number | null;
+}
+
 export type WSMessage =
     | AuthMessage
     | MoveMessage
@@ -134,4 +262,26 @@ export type WSMessage =
     | InventoryDeleteMessage
     | InventoryUnequipToSlotMessage
     | SwitchInstanceMessage
-    | AdminCommandMessage;
+    | AdminCommandMessage
+    | PartyCreateMessage
+    | PartyInviteMessage
+    | PartyAcceptInviteMessage
+    | PartyDeclineInviteMessage
+    | PartyLeaveMessage
+    | PartyKickMessage
+    | PartyPromoteMessage
+    | PartyRequestAreaPartiesMessage
+    | PartyRequestJoinMessage
+    | PartyApproveJoinMessage
+    | FriendRequestMessage
+    | FriendAcceptMessage
+    | FriendDeclineMessage
+    | FriendRemoveMessage
+    | FriendListMessage
+    | StatsAllocateMessage
+    | PlayerSetPvpModeMessage
+    | CombatAttackMessage
+    | CombatTargetPlayerMessage
+    | CombatClearTargetMessage
+    | PlayerReviveMessage
+    | SkillCastMessage;

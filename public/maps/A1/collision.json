@@ -1,0 +1,13 @@
+{
+  "features": [
+    { "id": "a1-river-main-1", "kind": "water", "shape": "rect", "x": 1410, "y": 300, "w": 260, "h": 900, "collision": true },
+    { "id": "a1-river-main-2", "kind": "water", "shape": "rect", "x": 1370, "y": 1160, "w": 320, "h": 960, "collision": true },
+    { "id": "a1-river-branch-left", "kind": "water", "shape": "rect", "x": 980, "y": 1060, "w": 380, "h": 220, "collision": true },
+    { "id": "a1-river-branch-right", "kind": "water", "shape": "rect", "x": 1690, "y": 980, "w": 420, "h": 210, "collision": true },
+    { "id": "a1-forest-north", "kind": "trees", "shape": "rect", "x": 280, "y": 120, "w": 2620, "h": 640, "collision": true },
+    { "id": "a1-forest-west", "kind": "trees", "shape": "rect", "x": 140, "y": 640, "w": 540, "h": 1080, "collision": true },
+    { "id": "a1-forest-east", "kind": "trees", "shape": "rect", "x": 2520, "y": 640, "w": 560, "h": 1020, "collision": true },
+    { "id": "a1-cliff-north-mid", "kind": "mountain", "shape": "rect", "x": 1220, "y": 760, "w": 760, "h": 220, "collision": true },
+    { "id": "a1-rock-garden-1", "kind": "mountain", "shape": "circle", "x": 1660, "y": 1780, "r": 90, "collision": true }
+  ]
+}

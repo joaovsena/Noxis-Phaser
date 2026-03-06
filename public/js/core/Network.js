@@ -90,6 +90,16 @@ export class Network {
             return;
         }
 
+        if (message.type === 'combat.playerHit') {
+            this.game.onCombatPlayerHit(message);
+            return;
+        }
+
+        if (message.type === 'combat.mobHitPlayer') {
+            this.game.onCombatMobHitPlayer(message);
+            return;
+        }
+
         if (message.type === 'system_message') {
             this.game.onSystemMessage(message);
             return;
@@ -97,6 +107,67 @@ export class Network {
 
         if (message.type === 'admin_result') {
             this.game.onAdminResult(message);
+            return;
+        }
+
+        if (message.type === 'party.inviteReceived') {
+            this.game.onPartyInviteReceived(message);
+            return;
+        }
+
+        if (message.type === 'party.state') {
+            this.game.onPartyState(message);
+            return;
+        }
+
+        if (message.type === 'party.areaList') {
+            this.game.onPartyAreaList(message);
+            return;
+        }
+
+        if (message.type === 'party.error') {
+            this.game.onPartyError(message);
+            return;
+        }
+
+        if (message.type === 'party.joinRequestReceived') {
+            this.game.onPartyJoinRequestReceived(message);
+            return;
+        }
+
+        if (message.type === 'party.joinRequestResult') {
+            this.game.onPartyJoinRequestResult(message);
+            return;
+        }
+
+        if (message.type === 'friend.state') {
+            this.game.onFriendState(message);
+            return;
+        }
+
+        if (message.type === 'friend.requestReceived') {
+            this.game.onFriendRequestReceived(message);
+            return;
+        }
+
+        if (message.type === 'friend.error') {
+            this.game.onFriendError(message);
+            return;
+        }
+
+        if (message.type === 'player.statsUpdated') {
+            this.game.onPlayerStatsUpdated(message);
+            return;
+        }
+
+        if (message.type === 'player.pvpModeUpdated') {
+            this.game.onPlayerPvpModeUpdated(message);
+            return;
+        }
+
+        if (message.type === 'player.dead') {
+            this.game.onPlayerDead(message);
+            return;
         }
     }
 }

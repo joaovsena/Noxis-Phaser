@@ -62,7 +62,73 @@ export class WSHandler {
                 this.controller.handleSwitchInstance(player, msg as any);
                 break;
             case 'admin_command':
-                this.controller.handleAdminCommand(player, msg as any);
+                void this.controller.handleAdminCommand(player, msg as any);
+                break;
+            case 'party.create':
+                this.controller.handlePartyCreate(player);
+                break;
+            case 'party.invite':
+                this.controller.handlePartyInvite(player, msg as any);
+                break;
+            case 'party.acceptInvite':
+                this.controller.handlePartyAcceptInvite(player, msg as any);
+                break;
+            case 'party.declineInvite':
+                this.controller.handlePartyDeclineInvite(player, msg as any);
+                break;
+            case 'party.leave':
+                this.controller.handlePartyLeave(player);
+                break;
+            case 'party.kick':
+                this.controller.handlePartyKick(player, msg as any);
+                break;
+            case 'party.promote':
+                this.controller.handlePartyPromote(player, msg as any);
+                break;
+            case 'party.requestAreaParties':
+                this.controller.handlePartyRequestAreaParties(player);
+                break;
+            case 'party.requestJoin':
+                this.controller.handlePartyRequestJoin(player, msg as any);
+                break;
+            case 'party.approveJoin':
+                this.controller.handlePartyApproveJoin(player, msg as any);
+                break;
+            case 'friend.request':
+                this.controller.handleFriendRequest(player, msg as any);
+                break;
+            case 'friend.accept':
+                this.controller.handleFriendAccept(player, msg as any);
+                break;
+            case 'friend.decline':
+                this.controller.handleFriendDecline(player, msg as any);
+                break;
+            case 'friend.remove':
+                this.controller.handleFriendRemove(player, msg as any);
+                break;
+            case 'friend.list':
+                this.controller.handleFriendList(player);
+                break;
+            case 'stats.allocate':
+                this.controller.handleStatsAllocate(player, msg as any);
+                break;
+            case 'player.setPvpMode':
+                this.controller.handleSetPvpMode(player, msg as any);
+                break;
+            case 'combat.attack':
+                this.controller.handleCombatAttack(player, msg as any);
+                break;
+            case 'combat.targetPlayer':
+                this.controller.handleCombatTargetPlayer(player, msg as any);
+                break;
+            case 'combat.clearTarget':
+                this.controller.handleCombatClearTarget(player);
+                break;
+            case 'player.revive':
+                this.controller.handlePlayerRevive(player);
+                break;
+            case 'skill.cast':
+                this.controller.handleSkillCast(player, msg as any);
                 break;
             // Adicionar outros cases...
         }

@@ -18,6 +18,7 @@ export class MenuUI {
         this.btnLogin = document.getElementById('btn-login');
 
         this.initEvents();
+        this.applyPreviewClass(this.selectClass.value || 'knight');
     }
 
     /**
@@ -57,9 +58,7 @@ export class MenuUI {
 
         this.selectClass.addEventListener('change', (e) => {
             const val = e.target.value;
-            if (val === 'knight') this.preview.className = 'preview-knight';
-            else if (val === 'shifter') this.preview.className = 'preview-shifter';
-            else this.preview.className = 'preview-bandit';
+            this.applyPreviewClass(val);
         });
 
         this.btnRegister.addEventListener('click', () => {
@@ -110,5 +109,12 @@ export class MenuUI {
         }
 
         return { username, password };
+    }
+
+    applyPreviewClass(className) {
+        const safe = className === 'shifter' || className === 'bandit' ? className : 'knight';
+        const icon = safe === 'knight' ? 'S' : (safe === 'shifter' ? 'M' : 'D');
+        this.preview.className = `class-avatar preview-avatar class-${safe}`;
+        this.preview.textContent = icon;
     }
 }

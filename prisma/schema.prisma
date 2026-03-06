@@ -29,12 +29,23 @@ model Player {
   maxHp             Int
   baseStats         Json
   stats             Json
+  allocatedStats    Json?
+  unspentPoints     Int      @default(0)
   statusOverrides   Json?
+  pvpMode           String   @default("peace")
+  mapKey            String   @default("forest")
+  mapId             String   @default("Z1")
+  posX              Float    @default(500)
+  posY              Float    @default(500)
   role              String   @default("player")
   inventory         Json
   equippedWeaponId  String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+  sentFriendRequests     FriendRequest[] @relation("FriendRequestFrom")
+  receivedFriendRequests FriendRequest[] @relation("FriendRequestTo")
+  friendshipsA           Friendship[]    @relation("FriendshipA")
+  friendshipsB           Friendship[]    @relation("FriendshipB")
 }
 
 model Item {
@@ -62,4 +73,26 @@ model WorldLog {
   event     String
   data      Json
   createdAt DateTime @default(now())
+}
+
+model Friendship {
+  id        Int      @id @default(autoincrement())
+  playerAId Int
+  playerBId Int
+  playerA   Player   @relation("FriendshipA", fields: [playerAId], references: [id], onDelete: Cascade)
+  playerB   Player   @relation("FriendshipB", fields: [playerBId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([playerAId, playerBId])
+}
+
+model FriendRequest {
+  id           Int      @id @default(autoincrement())
+  fromPlayerId Int
+  toPlayerId   Int
+  status       String   @default("pending")
+  createdAt    DateTime @default(now())
+  expiresAt    DateTime
+  fromPlayer   Player   @relation("FriendRequestFrom", fields: [fromPlayerId], references: [id], onDelete: Cascade)
+  toPlayer     Player   @relation("FriendRequestTo", fields: [toPlayerId], references: [id], onDelete: Cascade)
 }

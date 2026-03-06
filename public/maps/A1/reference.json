@@ -1,0 +1,15 @@
+{
+  "mapCode": "A1",
+  "name": "Floresta Rio",
+  "source": "reference-image",
+  "notes": [
+    "Baseado na imagem de teste enviada no chat",
+    "Rio central em Y",
+    "Borda com floresta densa",
+    "Clareiras de combate no sul"
+  ],
+  "worldSize": {
+    "width": 3200,
+    "height": 3200
+  }
+}

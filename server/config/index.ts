@@ -1,10 +1,10 @@
 // @ts-check
 
 export const WORLD = { width: 3200, height: 3200 };
-export const INSTANCE_IDS = ['a1', 'a2'] as const;
-export const MAP_KEYS = ['forest', 'lava'] as const;
+export const INSTANCE_IDS = ['Z1', 'Z2'] as const;
+export const MAP_KEYS = ['forest', 'lava', 'undead'] as const;
 export const MAP_IDS = [...INSTANCE_IDS];
-export const DEFAULT_MAP_ID = 'a1';
+export const DEFAULT_MAP_ID = 'Z1';
 export const DEFAULT_MAP_KEY = 'forest';
 export const TICK_MS = 50;
 export const MOB_COUNTS = { normal: 25, elite: 15, subboss: 5, boss: 1 };
@@ -14,11 +14,94 @@ export const BASE_MOVE_SPEED = 140;
 export const PLAYER_HALF_SIZE = 20;
 export const LOCAL_CHAT_RADIUS = 650;
 export const PORTAL_COOLDOWN_MS = 1200;
+export const MOB_AGGRO_RANGE = 260;
+export const MOB_LEASH_RANGE = 420;
+export const MOB_ATTACK_RANGE = 64;
+export const MOB_ATTACK_INTERVAL_MS = 1200;
 
-export const MAP_THEMES: Record<string, 'forest' | 'lava'> = {
+export const MAP_THEMES: Record<string, 'forest' | 'lava' | 'undead'> = {
     forest: 'forest',
-    lava: 'lava'
+    lava: 'lava',
+    undead: 'undead'
 };
+
+export type MapFeature =
+    | {
+        id: string;
+        kind: 'water' | 'lava' | 'mountain' | 'building' | 'trees' | 'ruins';
+        shape: 'rect';
+        x: number;
+        y: number;
+        w: number;
+        h: number;
+        collision?: boolean;
+    }
+    | {
+        id: string;
+        kind: 'water' | 'lava' | 'mountain' | 'building' | 'trees' | 'ruins';
+        shape: 'circle';
+        x: number;
+        y: number;
+        r: number;
+        collision?: boolean;
+    };
+
+export const MAP_FEATURES_BY_KEY: Record<string, MapFeature[]> = {
+    forest: [
+        { id: 'a1-river-main-1', kind: 'water', shape: 'rect', x: 1410, y: 300, w: 260, h: 900, collision: true },
+        { id: 'a1-river-main-2', kind: 'water', shape: 'rect', x: 1370, y: 1160, w: 320, h: 960, collision: true },
+        { id: 'a1-river-branch-left', kind: 'water', shape: 'rect', x: 980, y: 1060, w: 380, h: 220, collision: true },
+        { id: 'a1-river-branch-right', kind: 'water', shape: 'rect', x: 1690, y: 980, w: 420, h: 210, collision: true },
+        { id: 'a1-forest-north', kind: 'trees', shape: 'rect', x: 280, y: 120, w: 2620, h: 640, collision: true },
+        { id: 'a1-forest-west', kind: 'trees', shape: 'rect', x: 140, y: 640, w: 540, h: 1080, collision: true },
+        { id: 'a1-forest-east', kind: 'trees', shape: 'rect', x: 2520, y: 640, w: 560, h: 1020, collision: true },
+        { id: 'a1-cliff-north-mid', kind: 'mountain', shape: 'rect', x: 1220, y: 760, w: 760, h: 220, collision: true },
+        { id: 'a1-rock-garden-1', kind: 'mountain', shape: 'circle', x: 1660, y: 1780, r: 90, collision: true }
+    ],
+    lava: [
+        { id: 'l-pool-nw', kind: 'lava', shape: 'circle', x: 650, y: 700, r: 240, collision: true },
+        { id: 'l-pool-center', kind: 'lava', shape: 'circle', x: 1600, y: 1520, r: 300, collision: true },
+        { id: 'l-pool-se', kind: 'lava', shape: 'circle', x: 2630, y: 2490, r: 240, collision: true },
+        { id: 'l-river-west', kind: 'lava', shape: 'rect', x: 260, y: 2140, w: 930, h: 170, collision: true },
+        { id: 'l-river-east', kind: 'lava', shape: 'rect', x: 2040, y: 890, w: 910, h: 170, collision: true },
+        { id: 'l-mtn-north', kind: 'mountain', shape: 'rect', x: 1060, y: 120, w: 1100, h: 300, collision: true },
+        { id: 'l-mtn-west', kind: 'mountain', shape: 'rect', x: 140, y: 1220, w: 440, h: 840, collision: true },
+        { id: 'l-mtn-east', kind: 'mountain', shape: 'rect', x: 2680, y: 1180, w: 360, h: 900, collision: true },
+        { id: 'l-ruins-1', kind: 'ruins', shape: 'rect', x: 1220, y: 730, w: 210, h: 170, collision: true },
+        { id: 'l-ruins-2', kind: 'ruins', shape: 'rect', x: 1460, y: 770, w: 230, h: 190, collision: true },
+        { id: 'l-ruins-3', kind: 'ruins', shape: 'rect', x: 1720, y: 730, w: 220, h: 160, collision: true },
+        { id: 'l-fort', kind: 'building', shape: 'rect', x: 1260, y: 2480, w: 640, h: 300, collision: true },
+        { id: 'l-crater', kind: 'mountain', shape: 'circle', x: 2240, y: 1780, r: 160, collision: true }
+    ],
+    undead: [
+        { id: 'u-swamp-main-1', kind: 'water', shape: 'rect', x: 520, y: 560, w: 690, h: 460, collision: true },
+        { id: 'u-swamp-main-2', kind: 'water', shape: 'rect', x: 980, y: 980, w: 980, h: 430, collision: true },
+        { id: 'u-swamp-main-3', kind: 'water', shape: 'rect', x: 1840, y: 1390, w: 740, h: 470, collision: true },
+        { id: 'u-swamp-east', kind: 'water', shape: 'circle', x: 2770, y: 870, r: 210, collision: true },
+        { id: 'u-ruins-north', kind: 'ruins', shape: 'rect', x: 1080, y: 280, w: 930, h: 260, collision: true },
+        { id: 'u-ruins-center', kind: 'ruins', shape: 'rect', x: 1380, y: 1710, w: 530, h: 270, collision: true },
+        { id: 'u-bones-west', kind: 'mountain', shape: 'rect', x: 210, y: 1420, w: 420, h: 770, collision: true },
+        { id: 'u-graveyard-east', kind: 'building', shape: 'rect', x: 2530, y: 1890, w: 500, h: 760, collision: true },
+        { id: 'u-dead-forest-north', kind: 'trees', shape: 'rect', x: 280, y: 70, w: 2640, h: 180, collision: true },
+        { id: 'u-dead-forest-south', kind: 'trees', shape: 'rect', x: 300, y: 2830, w: 2620, h: 220, collision: true }
+    ]
+};
+
+export const MAP_CODE_BY_KEY: Record<string, string> = {
+    forest: 'A1',
+    lava: 'A2',
+    undead: 'A3'
+};
+
+export const MAP_KEY_BY_CODE: Record<string, string> = {
+    A1: 'forest',
+    A2: 'lava',
+    A3: 'undead'
+};
+
+export function mapCodeFromKey(mapKey: string) {
+    return MAP_CODE_BY_KEY[mapKey] || 'A1';
+}
 
 export const PORTALS_BY_MAP_KEY: Record<string, Array<{
     id: string;
@@ -35,8 +118,12 @@ export const PORTALS_BY_MAP_KEY: Record<string, Array<{
         { id: 'forest_to_lava_01', x: 3040, y: 1340, w: 120, h: 380, toMapKey: 'lava', toX: 260, toY: 1560 }
     ],
     lava: [
-        // Retorno para floresta para evitar lock no mapa de teste.
-        { id: 'lava_to_forest_01', x: 40, y: 1340, w: 120, h: 380, toMapKey: 'forest', toX: 2940, toY: 1560 }
+        // Corredor entre A1, A2 e A3.
+        { id: 'lava_to_forest_01', x: 40, y: 1340, w: 120, h: 380, toMapKey: 'forest', toX: 2940, toY: 1560 },
+        { id: 'lava_to_undead_01', x: 3040, y: 1300, w: 120, h: 420, toMapKey: 'undead', toX: 260, toY: 1520 }
+    ],
+    undead: [
+        { id: 'undead_to_lava_01', x: 40, y: 1300, w: 120, h: 420, toMapKey: 'lava', toX: 2940, toY: 1560 }
     ]
 };
 
@@ -58,7 +145,11 @@ export const MOB_VARIANTS = {
     boss: { mult: 9, size: 96, color: '#111111' }
 };
 export const ITEM_PICKUP_RANGE = 90;
+export const GROUND_ITEM_TTL_MS = 60000;
 export const COMBAT_LOCK_MS = 10000;
+export const PARTY_MAX_MEMBERS = 5;
+export const PARTY_INVITE_TTL_MS = 30000;
+export const PARTY_JOIN_REQUEST_TTL_MS = 30000;
 export const WEAPON_TEMPLATE = {
     name: 'Arma Teste',
     slot: 'weapon',

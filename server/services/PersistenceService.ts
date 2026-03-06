@@ -35,7 +35,14 @@ export class PersistenceService {
                 xp: player.xp,
                 hp: player.hp,
                 stats: player.stats,
+                allocatedStats: player.allocatedStats,
+                unspentPoints: player.unspentPoints,
                 statusOverrides: player.statusOverrides,
+                pvpMode: player.pvpMode,
+                mapKey: player.mapKey,
+                mapId: player.mapId,
+                posX: player.x,
+                posY: player.y,
                 inventory: player.inventory,
                 equippedWeaponId: player.equippedWeaponId
             }
@@ -46,7 +53,110 @@ export class PersistenceService {
         return await prisma.item.findMany();
     }
 
+    async getItemById(id: string) {
+        return await prisma.item.findUnique({ where: { id } });
+    }
+
     async createItem(item: any) {
         return await prisma.item.create({ data: item });
+    }
+
+    async getFriendshipsForPlayer(playerId: number) {
+        return await prisma.friendship.findMany({
+            where: {
+                OR: [{ playerAId: playerId }, { playerBId: playerId }]
+            }
+        });
+    }
+
+    async createFriendship(playerAId: number, playerBId: number) {
+        const a = Math.min(playerAId, playerBId);
+        const b = Math.max(playerAId, playerBId);
+        return await prisma.friendship.upsert({
+            where: {
+                playerAId_playerBId: { playerAId: a, playerBId: b } as any
+            } as any,
+            update: {},
+            create: { playerAId: a, playerBId: b }
+        });
+    }
+
+    async deleteFriendship(playerAId: number, playerBId: number) {
+        const a = Math.min(playerAId, playerBId);
+        const b = Math.max(playerAId, playerBId);
+        await prisma.friendship.deleteMany({
+            where: { playerAId: a, playerBId: b }
+        });
+    }
+
+    async findPendingFriendRequestBetween(playerAId: number, playerBId: number) {
+        return await prisma.friendRequest.findFirst({
+            where: {
+                status: 'pending',
+                OR: [
+                    { fromPlayerId: playerAId, toPlayerId: playerBId },
+                    { fromPlayerId: playerBId, toPlayerId: playerAId }
+                ]
+            }
+        });
+    }
+
+    async createFriendRequest(fromPlayerId: number, toPlayerId: number, expiresAt: Date) {
+        return await prisma.friendRequest.create({
+            data: { fromPlayerId, toPlayerId, expiresAt, status: 'pending' }
+        });
+    }
+
+    async getPendingFriendRequestById(requestId: number) {
+        return await prisma.friendRequest.findFirst({
+            where: { id: requestId, status: 'pending' }
+        });
+    }
+
+    async getPendingFriendRequestsForPlayer(playerId: number) {
+        const [incoming, outgoing] = await Promise.all([
+            prisma.friendRequest.findMany({
+                where: { toPlayerId: playerId, status: 'pending' }
+            }),
+            prisma.friendRequest.findMany({
+                where: { fromPlayerId: playerId, status: 'pending' }
+            })
+        ]);
+        return { incoming, outgoing };
+    }
+
+    async completeFriendRequest(requestId: number, status: 'accepted' | 'declined') {
+        await prisma.friendRequest.updateMany({
+            where: { id: requestId, status: 'pending' },
+            data: { status }
+        });
+    }
+
+    async pruneExpiredFriendRequests(now: Date) {
+        await prisma.friendRequest.updateMany({
+            where: {
+                status: 'pending',
+                expiresAt: { lt: now }
+            },
+            data: { status: 'expired' }
+        });
+    }
+
+    async clearFriendRequestsForPlayer(playerId: number) {
+        await prisma.friendRequest.updateMany({
+            where: {
+                status: 'pending',
+                OR: [{ fromPlayerId: playerId }, { toPlayerId: playerId }]
+            },
+            data: { status: 'cancelled' }
+        });
+    }
+
+    async getPlayerBasicByIds(ids: number[]) {
+        if (!ids.length) return [];
+        return await prisma.player.findMany({
+            where: { id: { in: ids } },
+            select: { id: true, name: true }
+        });
     }
 }
