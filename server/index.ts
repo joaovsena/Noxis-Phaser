@@ -11,6 +11,7 @@ import { TICK_MS, MAP_IDS, MAP_KEYS, composeMapInstanceId } from './config';
 import prisma from './utils/prisma';
 
 const app = express();
+const PORT = Number(process.env.PORT || 3000);
 app.get('/.well-known/appspecific/com.chrome.devtools.json', (_req, res) => {
     res.type('application/json').send('{}');
 });
@@ -82,9 +83,9 @@ async function initializeServer() {
             }
         }, TICK_MS);
 
-        server.listen(3000, () => {
-            logEvent('INFO', 'server_started', { port: 3000 });
-            console.log('Server running on http://localhost:3000');
+        server.listen(PORT, () => {
+            logEvent('INFO', 'server_started', { port: PORT });
+            console.log(`Server running on http://localhost:${PORT}`);
         });
     } catch (error) {
         logEvent('ERROR', 'server_init_error', { error: String(error) });

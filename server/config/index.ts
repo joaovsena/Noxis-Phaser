@@ -160,6 +160,17 @@ export const WEAPON_TEMPLATE = {
         attackSpeed: 50
     }
 };
+export const WEAPON_TEMPLATE_RUBI = {
+    name: 'Arma de Rubi',
+    slot: 'weapon',
+    bonuses: {
+        physicalAttack: 16,
+        magicAttack: 6,
+        moveSpeed: 20,
+        attackSpeed: 35
+    }
+};
+export const WEAPON_TEMPLATES = [WEAPON_TEMPLATE, WEAPON_TEMPLATE_RUBI];
 export const HP_POTION_TEMPLATE = {
     name: 'Pocao de HP',
     slot: 'consumable',

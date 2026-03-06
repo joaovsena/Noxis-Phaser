@@ -24,6 +24,7 @@ import {
     INVENTORY_SIZE,
     LOCAL_CHAT_RADIUS,
     WEAPON_TEMPLATE,
+    WEAPON_TEMPLATES,
     STATUS_BY_ID,
     GROUND_ITEM_TTL_MS,
     PARTY_MAX_MEMBERS,
@@ -93,6 +94,17 @@ const PATHFIND_CELL_SIZE = 12;
 const PATHFIND_MAX_ITERS = 220000;
 const PATH_RECALC_MS = 280;
 const PATH_PROBE_RADIUS = Math.max(8, PLAYER_HALF_SIZE - 6);
+const ATTRIBUTE_DRIVEN_OVERRIDE_KEYS = [
+    'physicalAttack',
+    'magicAttack',
+    'physicalDefense',
+    'magicDefense',
+    'accuracy',
+    'evasion',
+    'criticalChance',
+    'luck',
+    'maxHp'
+];
 const PATH_PLAN_RADIUS = PATH_PROBE_RADIUS + 1;
 const MOVE_COLLISION_PADDING = 4;
 
@@ -622,7 +634,11 @@ export class GameController {
             this.recomputePlayerStats(target);
             this.persistPlayer(target);
             this.sendStatsUpdated(target);
-            this.sendRaw(player.ws, { type: 'admin_result', ok: true, message: `${target.name} agora esta no nivel ${level}.` });
+            this.sendRaw(player.ws, {
+                type: 'admin_result',
+                ok: true,
+                message: `${target.name} agora esta no nivel ${level} com ${target.unspentPoints} ponto(s) disponiveis.`
+            });
             return;
         }
 
@@ -1411,7 +1427,20 @@ export class GameController {
     handleSkillCast(player: PlayerRuntime, msg: any) {
         if (player.dead || player.hp <= 0) return;
         const skillId = String(msg?.skillId || '');
-        if (skillId !== 'class_primary') return;
+        const allowedSkillIds = new Set([
+            'class_primary',
+            'holy_strike_1',
+            'holy_strike_2',
+            'holy_strike_3',
+            'holy_burst_1',
+            'holy_burst_2',
+            'holy_burst_3',
+            'blood_cut_1',
+            'blood_cut_2',
+            'blood_cut_3',
+            'mod_fire_wing'
+        ]);
+        if (!allowedSkillIds.has(skillId)) return;
 
         const now = Date.now();
         player.skillCooldowns = player.skillCooldowns || {};
@@ -1538,6 +1567,18 @@ export class GameController {
             next[key] = Number(current[key] || 0) + Number(sanitized[key] || 0);
         }
 
+        // Overrides absolutos antigos podem congelar PATK/PDEF/HP e invalidar ganhos de atributos.
+        // Ao alocar pontos, removemos os overrides dependentes de atributo para manter consistencia.
+        let clearedAttributeOverrides = 0;
+        if (player.statusOverrides && typeof player.statusOverrides === 'object') {
+            for (const key of ATTRIBUTE_DRIVEN_OVERRIDE_KEYS) {
+                if (Object.prototype.hasOwnProperty.call(player.statusOverrides, key)) {
+                    delete player.statusOverrides[key];
+                    clearedAttributeOverrides += 1;
+                }
+            }
+        }
+
         player.allocatedStats = next;
         player.unspentPoints -= requestedCost;
         this.recomputePlayerStats(player);
@@ -1546,6 +1587,12 @@ export class GameController {
             type: 'system_message',
             text: `${requestedTotal} ponto(s) aplicado(s) (custo ${requestedCost}). Restantes: ${player.unspentPoints}.`
         });
+        if (clearedAttributeOverrides > 0) {
+            this.sendRaw(player.ws, {
+                type: 'system_message',
+                text: 'Overrides de combate foram limpos para aplicar os atributos corretamente.'
+            });
+        }
         this.sendStatsUpdated(player);
     }
 
@@ -1838,8 +1885,14 @@ export class GameController {
 
         this.grantXp(player, mob.xpReward);
         const mapInstanceId = this.mapInstanceId(player.mapKey, player.mapId);
-        if (Math.random() < 0.5) this.dropWeaponAt(mob.x, mob.y, mapInstanceId);
-        this.dropHpPotionAt(mob.x, mob.y, mapInstanceId);
+        const dropDefs: Array<'weapon' | 'potion_hp'> = [];
+        if (Math.random() < 0.5) dropDefs.push('weapon');
+        dropDefs.push('potion_hp');
+        dropDefs.forEach((dropType, index) => {
+            const dropPos = this.computeLootDropPosition(mob.x, mob.y, index, dropDefs.length, player.mapKey);
+            if (dropType === 'weapon') this.dropWeaponAt(dropPos.x, dropPos.y, mapInstanceId, this.pickRandomWeaponTemplate());
+            else this.dropHpPotionAt(dropPos.x, dropPos.y, mapInstanceId);
+        });
         this.mobService.removeMob(mob.id);
         return true;
     }
@@ -2254,15 +2307,12 @@ export class GameController {
             if (!player.partyId || !this.parties.has(player.partyId)) {
                 return { ok: false, reason: 'Modo Grupo exige estar em grupo.' };
             }
-            if (targetMode !== 'group') {
-                return { ok: false, reason: 'Modo Grupo so pode atacar jogadores em modo Grupo.' };
+            if (targetMode !== 'group' && targetMode !== 'evil') {
+                return { ok: false, reason: 'Modo Grupo so pode atacar jogadores nos modos Grupo ou Mal.' };
             }
             return { ok: true };
         }
         if (mode === 'evil') {
-            if (targetMode !== 'peace' && targetMode !== 'group') {
-                return { ok: false, reason: 'Modo Mal ataca apenas alvos em Paz ou Grupo.' };
-            }
             return { ok: true };
         }
         return { ok: false, reason: 'Modo PVP invalido.' };
@@ -2613,8 +2663,6 @@ export class GameController {
             next = xpRequired(player.level);
         }
         if (levelsGained > 0) {
-            player.unspentPoints = Number.isInteger(player.unspentPoints) ? player.unspentPoints : 0;
-            player.unspentPoints += levelsGained * 5;
             this.sendRaw(player.ws, {
                 type: 'system_message',
                 text: `Voce ganhou ${levelsGained * 5} ponto(s) de atributo.`
@@ -2675,8 +2723,7 @@ export class GameController {
 
         const spent = this.getAllocatedCost(boundedAllocated);
         const maxUnspent = Math.max(0, maxSpend - spent);
-        const currentUnspent = Number.isInteger(player.unspentPoints) ? Math.max(0, player.unspentPoints) : 0;
-        player.unspentPoints = Math.min(currentUnspent, maxUnspent);
+        player.unspentPoints = maxUnspent;
 
         const weapon = this.getEquippedWeapon(player);
         if (weapon && weapon.bonuses) {
@@ -2702,13 +2749,37 @@ export class GameController {
         });
     }
 
-    private dropWeaponAt(x: number, y: number, mapId: string) {
+    private computeLootDropPosition(originX: number, originY: number, dropIndex: number, dropTotal: number, mapKey: string) {
+        const center = this.projectToWalkable(
+            mapKey,
+            clamp(Number(originX || 0), 0, WORLD.width),
+            clamp(Number(originY || 0), 0, WORLD.height)
+        );
+        if (dropTotal <= 1 || dropIndex <= 0) return center;
+
+        const ringIndex = Math.ceil(Math.sqrt(dropIndex));
+        const radius = Math.min(64, Math.max(32, ringIndex * 32));
+        const slotInRing = dropIndex - ((ringIndex - 1) * (ringIndex - 1));
+        const ringSlots = ringIndex * 4;
+        const angle = (Math.PI * 2 * (slotInRing - 1)) / Math.max(1, ringSlots);
+        const tx = center.x + Math.cos(angle) * radius;
+        const ty = center.y + Math.sin(angle) * radius;
+        return this.projectToWalkable(mapKey, tx, ty);
+    }
+
+    private pickRandomWeaponTemplate() {
+        if (!Array.isArray(WEAPON_TEMPLATES) || WEAPON_TEMPLATES.length === 0) return WEAPON_TEMPLATE;
+        const index = Math.floor(Math.random() * WEAPON_TEMPLATES.length);
+        return WEAPON_TEMPLATES[index] || WEAPON_TEMPLATE;
+    }
+
+    private dropWeaponAt(x: number, y: number, mapId: string, template: any = WEAPON_TEMPLATE) {
         this.groundItems.push({
             id: randomUUID(),
             type: 'weapon',
-            name: WEAPON_TEMPLATE.name,
-            slot: WEAPON_TEMPLATE.slot,
-            bonuses: { ...WEAPON_TEMPLATE.bonuses },
+            name: template.name,
+            slot: template.slot,
+            bonuses: { ...template.bonuses },
             x,
             y,
             mapId,

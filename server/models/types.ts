@@ -126,6 +126,11 @@ export interface EquipItemMessage {
     itemId: string | null;
 }
 
+export interface EquipRequestMessage {
+    type: 'equip_req';
+    itemId: string | null;
+}
+
 export interface InventoryMoveMessage {
     type: 'inventory_move';
     itemId: string;
@@ -300,6 +305,7 @@ export type WSMessage =
     | ChatMessage
     | PickupItemMessage
     | EquipItemMessage
+    | EquipRequestMessage
     | InventoryMoveMessage
     | InventorySortMessage
     | InventoryDeleteMessage

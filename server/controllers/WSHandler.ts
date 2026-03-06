@@ -46,6 +46,9 @@ export class WSHandler {
             case 'equip_item':
                 this.controller.handleEquipItem(player, msg as any);
                 break;
+            case 'equip_req':
+                this.controller.handleEquipItem(player, msg as any);
+                break;
             case 'inventory_move':
                 this.controller.handleInventoryMove(player, msg as any);
                 break;

@@ -49,10 +49,12 @@ export class Game {
         this.targetPlayerCard = document.getElementById('target-player-card');
         this.targetPlayerAvatar = document.getElementById('target-player-avatar');
         this.targetPlayerHpFill = document.getElementById('target-player-hp-fill');
+        this.targetNameText = document.getElementById('target-name-text');
         this.targetActionsToggle = document.getElementById('target-actions-toggle');
         this.targetActionsMenu = document.getElementById('target-actions-menu');
         this.targetInviteBtn = document.getElementById('target-invite-btn');
         this.targetFriendBtn = document.getElementById('target-friend-btn');
+        this.targetClearDistance = 900;
 
         this.minimapWrap = document.getElementById('minimap-wrap');
         this.minimapCanvas = document.getElementById('minimap-canvas');
@@ -137,8 +139,11 @@ export class Game {
             this.hotbarBindings[key] = null;
         });
         this.hotbarBindings['1'] = { type: 'action', actionId: 'basic_attack' };
+        this.hotbarStorageKey = 'noxis.hotbarBindings.v1';
+        this.loadHotbarBindingsFromStorage();
         this.menuAttrs = document.getElementById('menu-attrs');
         this.menuInventory = document.getElementById('menu-inventory');
+        this.menuSkills = document.getElementById('menu-skills');
         this.instanceSelect = document.getElementById('instance-select');
         this.inventoryPanel = document.getElementById('inventory-panel');
         this.inventoryHeader = document.getElementById('inventory-header');
@@ -166,6 +171,14 @@ export class Game {
         this.draggingEquippedWeapon = null;
         this.charPanelHeader = document.getElementById('char-panel-header');
         this.charPanelName = document.getElementById('char-panel-name');
+        this.skillsPanel = document.getElementById('skills-panel');
+        this.skillsHeader = document.getElementById('skills-header');
+        this.skillsTabHoly = document.getElementById('skills-tab-holy');
+        this.skillsTabBlood = document.getElementById('skills-tab-blood');
+        this.skillsPointsLabel = document.getElementById('skills-points-label');
+        this.skillsTreeWrap = document.getElementById('skills-tree-wrap');
+        this.skillsAutoSlot = document.getElementById('skills-auto-slot');
+        this.skillsModularGrid = document.getElementById('skills-modular-grid');
         this.adminPanel = document.getElementById('admin-panel');
         this.adminHeader = document.getElementById('admin-header');
         this.adminStatusHelp = document.getElementById('admin-status-help');
@@ -193,6 +206,13 @@ export class Game {
             dex: 0,
             vit: 0
         };
+        this.skillStateStorageKey = 'noxis.skillTree.v1';
+        this.skillTreeTab = 'holy';
+        this.skillTreeNodes = this.buildSkillTreeNodes();
+        this.skillTreeState = {};
+        this.selectedAutoAttackSkillId = 'class_primary';
+        this.modularSkillIds = [];
+        this.loadSkillStateFromStorage();
         this.banditSwingTick = {};
         this.headOverlayTuning = {
             knight: {
@@ -231,8 +251,10 @@ export class Game {
         if (this.mobPeacefulToggle) this.mobPeacefulToggle.checked = this.mobPeacefulEnabled;
 
         this.started = false;
+        this.updateSkillInjections();
         this.setupEvents();
         this.renderHotbar();
+        this.renderSkillsPanel();
         this.updateGroundItemCursor();
     }
 
@@ -288,7 +310,6 @@ export class Game {
                 return;
             }
 
-            this.selectedMobId = null;
             this.sendMoveToWorld(world.x, world.y);
         };
 
@@ -300,6 +321,7 @@ export class Game {
                 target.closest('#menus-wrap') ||
                 target.closest('#char-panel') ||
                 target.closest('#inventory-panel') ||
+                target.closest('#skills-panel') ||
                 target.closest('#player-card') ||
                 target.closest('#minimap-wrap') ||
                 target.closest('#map-settings-panel') ||
@@ -344,6 +366,7 @@ export class Game {
         window.addEventListener('keydown', (e) => {
             if (!this.localId) return;
             if (e.key === 'Escape') {
+                this.selectedMobId = null;
                 this.clearPlayerTarget();
                 this.network.send({ type: 'combat.clearTarget' });
                 return;
@@ -358,6 +381,13 @@ export class Game {
             if (isTypingInField()) return;
             if (e.key.toLowerCase() !== 'b') return;
             this.toggleInventoryPanel();
+        });
+
+        window.addEventListener('keydown', (e) => {
+            if (!this.localId) return;
+            if (isTypingInField()) return;
+            if (e.key.toLowerCase() !== 'v') return;
+            this.toggleSkillsPanel();
         });
 
         window.addEventListener('keydown', (e) => {
@@ -444,6 +474,12 @@ export class Game {
             if (!this.localId) return;
             this.toggleInventoryPanel();
         });
+        if (this.menuSkills) {
+            this.menuSkills.addEventListener('click', () => {
+                if (!this.localId) return;
+                this.toggleSkillsPanel();
+            });
+        }
         this.menuMap.addEventListener('click', () => {
             if (!this.localId) return;
             this.toggleWorldMapPanel();
@@ -521,9 +557,49 @@ export class Game {
                 const droppedOver = document.elementFromPoint(e.clientX, e.clientY);
                 if (droppedOver?.closest('#skillbar-wrap')) return;
                 this.hotbarBindings[key] = null;
+                this.persistHotbarBindings();
                 this.renderHotbar();
             });
+            btn.addEventListener('mousemove', (e) => {
+                const key = String(btn.dataset.key || '').toLowerCase();
+                if (!key) return;
+                const binding = this.hotbarBindings[key];
+                const item = this.findHotbarBindingItem(binding);
+                if (!item) return;
+                this.openItemTooltip(item, e.clientX, e.clientY, 'hotbar_hover');
+            });
+            btn.addEventListener('mouseleave', () => {
+                this.scheduleTooltipClose();
+            });
         });
+        if (this.skillsTabHoly) {
+            this.skillsTabHoly.addEventListener('click', () => {
+                this.skillTreeTab = 'holy';
+                this.renderSkillsPanel();
+            });
+        }
+        if (this.skillsTabBlood) {
+            this.skillsTabBlood.addEventListener('click', () => {
+                this.skillTreeTab = 'blood';
+                this.renderSkillsPanel();
+            });
+        }
+        if (this.skillsTreeWrap) {
+            this.skillsTreeWrap.addEventListener('click', (e) => {
+                const nodeEl = e.target && typeof e.target.closest === 'function'
+                    ? e.target.closest('.skills-node')
+                    : null;
+                if (!nodeEl) return;
+                const nodeId = String(nodeEl.dataset.nodeId || '');
+                if (!nodeId) return;
+                this.tryLearnSkillNode(nodeId);
+            });
+        }
+        if (this.skillsAutoSlot) {
+            this.skillsAutoSlot.addEventListener('click', () => {
+                this.cycleAutoAttackSkill();
+            });
+        }
 
         this.playerPvpToggle.addEventListener('click', () => {
             if (!this.localId || !this.players[this.localId]) return;
@@ -681,6 +757,7 @@ export class Game {
 
         this.makeDraggable(this.panel, this.charPanelHeader);
         this.makeDraggable(this.inventoryPanel, this.inventoryHeader);
+        this.makeDraggable(this.skillsPanel, this.skillsHeader);
         this.makeDraggable(this.adminPanel, this.adminHeader);
         this.makeDraggable(this.partyPanel, this.partyHeader);
         this.makeDraggable(this.friendsPanel, this.friendsHeader);
@@ -738,6 +815,12 @@ export class Game {
         this.renderInventory();
     }
 
+    toggleSkillsPanel() {
+        this.closeAllTooltips('ui_window_focus_changed');
+        this.skillsPanel.classList.toggle('hidden');
+        this.renderSkillsPanel();
+    }
+
     toggleWorldMapPanel() {
         this.closeAllTooltips('ui_window_focus_changed');
         this.worldmapPanel.classList.toggle('hidden');
@@ -789,7 +872,6 @@ export class Game {
         const reqId = `m-${++this.moveReqCounter}-${Date.now()}`;
         const clampedX = Math.max(0, Math.min(this.mapWidth, x));
         const clampedY = Math.max(0, Math.min(this.mapHeight, y));
-        this.selectedMobId = null;
         this.cancelPendingPickup();
         this.network.send({ type: 'move', reqId, x: clampedX, y: clampedY });
         this.lastMoveSent = { reqId, x: clampedX, y: clampedY, at: Date.now() };
@@ -862,6 +944,7 @@ export class Game {
         this.renderPartyFrames();
         this.renderPartyNotifications();
         this.renderHotbar();
+        this.renderSkillsPanel();
     }
 
     castPrimarySkill() {
@@ -928,10 +1011,20 @@ export class Game {
         this.closeAllTooltips('inventory_state_commit');
         this.inventory = Array.isArray(message.inventory) ? message.inventory : [];
         this.equippedWeaponId = message.equippedWeaponId || null;
+        this.syncLocalEquippedWeaponName();
+        this.updateSkillInjections();
         this.pruneInvalidHotbarItems();
         this.renderHotbar();
+        this.renderSkillsPanel();
         this.renderInventory();
         this.updatePanel();
+    }
+
+    syncLocalEquippedWeaponName() {
+        if (!this.localId || !this.players[this.localId]) return;
+        const me = this.players[this.localId];
+        const equipped = this.inventory.find((it) => String(it.id) === String(this.equippedWeaponId || ''));
+        me.equippedWeaponName = equipped ? equipped.name : null;
     }
 
     /**
@@ -1128,6 +1221,8 @@ export class Game {
         this.isDead = me.dead;
         this.reviveOverlay.classList.toggle('hidden', !this.isDead);
         this.resetPendingStatAllocation();
+        this.updateSkillInjections();
+        this.renderSkillsPanel();
         this.updatePanel();
         this.updatePlayerCard();
         this.updateTargetPlayerCard();
@@ -1460,11 +1555,10 @@ export class Game {
         if (mode === 'peace') return { ok: false, reason: 'Modo Paz ativo: voce nao pode atacar jogadores.' };
         if (mode === 'group') {
             if (!this.partyState) return { ok: false, reason: 'Modo Grupo exige estar em grupo.' };
-            if (targetMode !== 'group') return { ok: false, reason: 'Modo Grupo so ataca jogadores no modo Grupo.' };
+            if (targetMode !== 'group' && targetMode !== 'evil') return { ok: false, reason: 'Modo Grupo so ataca jogadores nos modos Grupo ou Mal.' };
             return { ok: true };
         }
         if (mode === 'evil') {
-            if (strictMode && targetMode === 'evil') return { ok: false, reason: 'Modo Mal ataca apenas alvos em Paz ou Grupo.' };
             return { ok: true };
         }
         return { ok: false, reason: 'Modo de combate invalido.' };
@@ -1523,6 +1617,251 @@ export class Game {
         this.selectPlayerTarget(nearest.id);
     }
 
+    buildSkillTreeNodes() {
+        return [
+            { id: 'holy_strike_1', tab: 'holy', label: 'Golpe Sagrado I', x: 14, y: 8, prereq: null, maxPoints: 1, autoEligible: true },
+            { id: 'holy_strike_2', tab: 'holy', label: 'Golpe Sagrado II', x: 14, y: 28, prereq: 'holy_strike_1', maxPoints: 1, autoEligible: true },
+            { id: 'holy_strike_3', tab: 'holy', label: 'Golpe Sagrado III', x: 14, y: 48, prereq: 'holy_strike_2', maxPoints: 1, autoEligible: true },
+            { id: 'holy_burst_1', tab: 'holy', label: 'Lamina Santa I', x: 46, y: 8, prereq: null, maxPoints: 1, autoEligible: true },
+            { id: 'holy_burst_2', tab: 'holy', label: 'Lamina Santa II', x: 46, y: 28, prereq: 'holy_burst_1', maxPoints: 1, autoEligible: true },
+            { id: 'holy_burst_3', tab: 'holy', label: 'Lamina Santa III', x: 46, y: 48, prereq: 'holy_burst_2', maxPoints: 1, autoEligible: true },
+            { id: 'blood_cut_1', tab: 'blood', label: 'Corte Sombrio I', x: 30, y: 8, prereq: null, maxPoints: 1, autoEligible: true },
+            { id: 'blood_cut_2', tab: 'blood', label: 'Corte Sombrio II', x: 30, y: 28, prereq: 'blood_cut_1', maxPoints: 1, autoEligible: true },
+            { id: 'blood_cut_3', tab: 'blood', label: 'Corte Sombrio III', x: 30, y: 48, prereq: 'blood_cut_2', maxPoints: 1, autoEligible: true }
+        ];
+    }
+
+    loadSkillStateFromStorage() {
+        try {
+            if (!window || !window.localStorage) return;
+            const raw = window.localStorage.getItem(this.skillStateStorageKey);
+            if (!raw) return;
+            const parsed = JSON.parse(raw);
+            if (!parsed || typeof parsed !== 'object') return;
+            const validIds = new Set(this.skillTreeNodes.map((n) => n.id));
+            const incomingTree = parsed.tree && typeof parsed.tree === 'object' ? parsed.tree : {};
+            this.skillTreeState = {};
+            for (const [id, points] of Object.entries(incomingTree)) {
+                if (!validIds.has(id)) continue;
+                const value = Math.max(0, Math.floor(Number(points || 0)));
+                if (value > 0) this.skillTreeState[id] = Math.min(value, 1);
+            }
+            this.selectedAutoAttackSkillId = typeof parsed.autoAttackSkillId === 'string' && parsed.autoAttackSkillId
+                ? parsed.autoAttackSkillId
+                : 'class_primary';
+        } catch {
+            // noop
+        }
+    }
+
+    persistSkillStateToStorage() {
+        try {
+            if (!window || !window.localStorage) return;
+            window.localStorage.setItem(this.skillStateStorageKey, JSON.stringify({
+                tree: this.skillTreeState,
+                autoAttackSkillId: this.selectedAutoAttackSkillId
+            }));
+        } catch {
+            // noop
+        }
+    }
+
+    getSkillPointsEarned() {
+        if (!this.localId || !this.players[this.localId]) return 0;
+        const level = Number(this.players[this.localId].level || 1);
+        if (!Number.isFinite(level)) return 0;
+        return Math.max(0, Math.floor(level) - 1);
+    }
+
+    getSkillPointsSpent() {
+        return Object.values(this.skillTreeState || {}).reduce((sum, value) => sum + Math.max(0, Number(value || 0)), 0);
+    }
+
+    getSkillPointsAvailable() {
+        return Math.max(0, this.getSkillPointsEarned() - this.getSkillPointsSpent());
+    }
+
+    getSkillNodeById(nodeId) {
+        return this.skillTreeNodes.find((node) => node.id === nodeId) || null;
+    }
+
+    isSkillNodeLearned(nodeId) {
+        return Number(this.skillTreeState[nodeId] || 0) > 0;
+    }
+
+    canLearnSkillNode(node) {
+        if (!node) return { ok: false, reason: 'Habilidade invalida.' };
+        const current = Number(this.skillTreeState[node.id] || 0);
+        if (current >= Number(node.maxPoints || 1)) return { ok: false, reason: 'Nivel maximo atingido.' };
+        if (node.prereq && !this.isSkillNodeLearned(node.prereq)) return { ok: false, reason: 'Pre-requisito nao aprendido.' };
+        if (this.getSkillPointsAvailable() <= 0) return { ok: false, reason: 'Sem pontos de habilidade.' };
+        return { ok: true };
+    }
+
+    tryLearnSkillNode(nodeId) {
+        const node = this.getSkillNodeById(nodeId);
+        const allowed = this.canLearnSkillNode(node);
+        if (!allowed.ok) {
+            if (allowed.reason) this.onSystemMessage({ text: allowed.reason });
+            return;
+        }
+        this.skillTreeState[node.id] = Number(this.skillTreeState[node.id] || 0) + 1;
+        this.persistSkillStateToStorage();
+        this.renderSkillsPanel();
+    }
+
+    getAutoAttackSkillDefinition(skillId) {
+        if (!skillId || skillId === 'class_primary') return { id: 'class_primary', label: 'Atk Basico', source: 'base' };
+        const node = this.getSkillNodeById(skillId);
+        if (node && this.isSkillNodeLearned(node.id)) return { id: node.id, label: node.label, source: 'tree' };
+        if (this.modularSkillIds.includes(skillId)) {
+            if (skillId === 'mod_fire_wing') return { id: 'mod_fire_wing', label: 'Asa de Fogo', source: 'mod' };
+            return { id: skillId, label: 'Habilidade Mod.', source: 'mod' };
+        }
+        return null;
+    }
+
+    getAvailableAutoAttackSkills() {
+        const result = [{ id: 'class_primary', label: 'Atk Basico', source: 'base' }];
+        for (const node of this.skillTreeNodes) {
+            if (!node.autoEligible || !this.isSkillNodeLearned(node.id)) continue;
+            result.push({ id: node.id, label: node.label, source: 'tree' });
+        }
+        for (const skillId of this.modularSkillIds) {
+            const existing = result.find((it) => it.id === skillId);
+            if (existing) continue;
+            if (skillId === 'mod_fire_wing') result.push({ id: skillId, label: 'Asa de Fogo', source: 'mod' });
+            else result.push({ id: skillId, label: 'Habilidade Mod.', source: 'mod' });
+        }
+        return result;
+    }
+
+    cycleAutoAttackSkill() {
+        const options = this.getAvailableAutoAttackSkills();
+        if (!options.length) return;
+        const currentIndex = options.findIndex((it) => it.id === this.selectedAutoAttackSkillId);
+        const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % options.length : 0;
+        this.selectedAutoAttackSkillId = options[nextIndex].id;
+        this.persistSkillStateToStorage();
+        this.renderSkillsPanel();
+        this.renderHotbar();
+    }
+
+    triggerConfiguredAutoAttack() {
+        const selected = this.getAutoAttackSkillDefinition(this.selectedAutoAttackSkillId);
+        if (!selected || selected.id === 'class_primary') {
+            this.triggerPrimaryAttack();
+            return;
+        }
+        if (this.selectedPlayerId && this.players[this.selectedPlayerId]) {
+            this.triggerPrimaryAttack();
+            return;
+        }
+        if (!this.selectedMobId || !this.mobs[this.selectedMobId]) {
+            this.onSystemMessage({ text: 'Selecione um alvo com a tecla \'.' });
+            return;
+        }
+        this.network.send({
+            type: 'skill.cast',
+            skillId: selected.id,
+            targetMobId: this.selectedMobId || null,
+            targetPlayerId: null
+        });
+    }
+
+    getInjectedSkillsFromItem(item) {
+        if (!item) return [];
+        const haystack = `${String(item.name || '')} ${String(item.type || '')}`.toLowerCase();
+        const injected = [];
+        if (haystack.includes('asa de fogo')) injected.push('mod_fire_wing');
+        return injected;
+    }
+
+    updateSkillInjections() {
+        const equippedItems = [];
+        const equippedWeapon = this.inventory.find((it) => String(it.id) === String(this.equippedWeaponId || ''));
+        if (equippedWeapon) equippedItems.push(equippedWeapon);
+        for (const item of this.inventory) {
+            if (item && item.equipped === true) equippedItems.push(item);
+        }
+        const injected = equippedItems.flatMap((item) => this.getInjectedSkillsFromItem(item));
+        this.modularSkillIds = [...new Set(injected)];
+        const stillValid = this.getAvailableAutoAttackSkills().some((it) => it.id === this.selectedAutoAttackSkillId);
+        if (!stillValid) this.selectedAutoAttackSkillId = 'class_primary';
+        this.persistSkillStateToStorage();
+    }
+
+    renderSkillsPanel() {
+        if (!this.skillsPanel || !this.skillsTreeWrap || !this.skillsPointsLabel) return;
+        if (this.skillsTabHoly) this.skillsTabHoly.classList.toggle('active', this.skillTreeTab === 'holy');
+        if (this.skillsTabBlood) this.skillsTabBlood.classList.toggle('active', this.skillTreeTab === 'blood');
+        this.skillsPointsLabel.textContent = `Pont. Hab.: ${this.getSkillPointsAvailable()}`;
+
+        const nodes = this.skillTreeNodes.filter((node) => node.tab === this.skillTreeTab);
+        this.skillsTreeWrap.innerHTML = '';
+
+        for (const node of nodes) {
+            if (!node.prereq) continue;
+            const fromNode = nodes.find((it) => it.id === node.prereq);
+            if (!fromNode) continue;
+            const link = document.createElement('div');
+            link.className = 'skills-link';
+            const x = fromNode.x + 5.2;
+            const y = fromNode.y + 14;
+            const height = Math.max(8, node.y - fromNode.y - 8);
+            link.style.left = `${x}%`;
+            link.style.top = `${y}%`;
+            link.style.width = '4px';
+            link.style.height = `${height}%`;
+            this.skillsTreeWrap.appendChild(link);
+        }
+
+        for (const node of nodes) {
+            const level = Number(this.skillTreeState[node.id] || 0);
+            const prereqMet = !node.prereq || this.isSkillNodeLearned(node.prereq);
+            const canLearn = prereqMet && this.getSkillPointsAvailable() > 0 && level < Number(node.maxPoints || 1);
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'skills-node';
+            btn.dataset.nodeId = node.id;
+            if (!prereqMet) btn.classList.add('locked');
+            if (level > 0) btn.classList.add('learned');
+            if (canLearn) btn.classList.add('available');
+            btn.style.left = `${node.x}%`;
+            btn.style.top = `${node.y}%`;
+            const shortLabel = node.label
+                .replace('Sagrado', 'Sag.')
+                .replace('Sombrio', 'Som.')
+                .replace('Lamina', 'Lam.')
+                .replace('Golpe', 'Gol.');
+            btn.innerHTML = `<span>${shortLabel}</span><span class="lvl">${level}/${node.maxPoints || 1}</span><span class="plus">+</span>`;
+            btn.title = `${node.label} (${level}/${node.maxPoints || 1})`;
+            this.skillsTreeWrap.appendChild(btn);
+        }
+
+        if (this.skillsAutoSlot) {
+            const selected = this.getAutoAttackSkillDefinition(this.selectedAutoAttackSkillId) || { label: 'Atk Basico' };
+            this.skillsAutoSlot.textContent = selected.label;
+            this.skillsAutoSlot.title = 'Clique para alternar o auto-attack';
+        }
+
+        if (this.skillsModularGrid) {
+            this.skillsModularGrid.innerHTML = '';
+            const labels = this.modularSkillIds.map((id) => (id === 'mod_fire_wing' ? 'Asa de Fogo' : 'Hab. Mod.'));
+            const maxSlots = 12;
+            for (let i = 0; i < maxSlots; i++) {
+                const slot = document.createElement('div');
+                slot.className = 'skills-mod-slot';
+                const label = labels[i] || '';
+                if (label) {
+                    slot.classList.add('filled');
+                    slot.textContent = label;
+                }
+                this.skillsModularGrid.appendChild(slot);
+            }
+        }
+    }
+
     triggerPrimaryAttack() {
         if (!this.localId || this.isDead) return;
 
@@ -1552,16 +1891,23 @@ export class Game {
         const binding = this.hotbarBindings[key] || null;
         if (!binding) return;
         if (binding.type === 'action' && binding.actionId === 'basic_attack') {
-            this.triggerPrimaryAttack();
+            this.triggerConfiguredAutoAttack();
             return;
         }
         if (binding.type === 'item') {
             let item = this.inventory.find((it) => String(it.id) === String(binding.itemId));
             if (!item && binding.itemType) {
                 item = this.inventory.find((it) => String(it.type || '') === String(binding.itemType));
-                if (item) this.hotbarBindings[key] = { ...binding, itemId: String(item.id), itemName: item.name || binding.itemName };
+                if (item) {
+                    this.hotbarBindings[key] = { ...binding, itemId: String(item.id), itemName: item.name || binding.itemName };
+                    this.persistHotbarBindings();
+                }
             }
             if (!item) {
+                return;
+            }
+            if (String(item.type || '') === 'weapon') {
+                this.network.send({ type: 'equip_req', itemId: item.id });
                 return;
             }
             this.network.send({ type: 'item.use', itemId: item.id });
@@ -1591,30 +1937,43 @@ export class Game {
             const keyLabel = String(btn.dataset.key || '').toUpperCase();
             let icon = '';
             let title = keyLabel;
+            let quantity = null;
             btn.classList.remove('slot-kind-action', 'slot-kind-item', 'slot-kind-empty', 'slot-icon-attack', 'slot-icon-potion', 'slot-ghosted');
 
             if (binding?.type === 'action' && binding.actionId === 'basic_attack') {
                 icon = 'ATK';
-                title = 'Ataque Basico';
+                const autoSkill = this.getAutoAttackSkillDefinition(this.selectedAutoAttackSkillId);
+                title = autoSkill ? `Auto: ${autoSkill.label}` : 'Ataque Basico';
                 btn.classList.add('slot-kind-action', 'slot-icon-attack');
             } else if (binding?.type === 'item') {
                 let item = this.inventory.find((it) => String(it.id) === String(binding.itemId));
-                if (!item && binding.itemType) {
-                    item = this.inventory.find((it) => String(it.type || '') === String(binding.itemType));
-                    if (item) this.hotbarBindings[key] = { ...binding, itemId: String(item.id), itemName: item.name || binding.itemName };
+                const trackedType = String(binding.itemType || item?.type || '');
+                const trackedName = String(binding.itemName || item?.name || 'Item');
+                const isStackableType = trackedType === 'potion_hp';
+                if (isStackableType) {
+                    const quantityByType = this.inventory
+                        .filter((it) => String(it.type || '') === trackedType)
+                        .reduce((sum, it) => sum + Math.max(1, Math.floor(Number(it.quantity || 1))), 0);
+                    quantity = quantityByType;
+                } else {
+                    quantity = null;
                 }
 
-                if (item) {
-                    icon = String(item.type || '') === 'potion_hp' ? 'HP' : 'IT';
-                    title = item.name || 'Item';
-                    btn.classList.add('slot-kind-item');
-                    if (String(item.type || '') === 'potion_hp') btn.classList.add('slot-icon-potion');
-                } else {
-                    const ghostType = String(binding.itemType || '');
-                    icon = ghostType === 'potion_hp' ? 'HP' : 'IT';
-                    title = `${binding.itemName || 'Item'} (sem estoque)`;
-                    btn.classList.add('slot-kind-item', 'slot-ghosted');
-                    if (ghostType === 'potion_hp') btn.classList.add('slot-icon-potion');
+                if (!item && trackedType) {
+                    item = this.inventory.find((it) => String(it.type || '') === trackedType);
+                    if (item) {
+                        this.hotbarBindings[key] = { ...binding, itemId: String(item.id), itemName: item.name || trackedName, itemType: trackedType };
+                        this.persistHotbarBindings();
+                    }
+                }
+
+                icon = trackedType === 'potion_hp' ? 'HP' : trackedType === 'weapon' ? 'WP' : 'IT';
+                title = trackedName;
+                btn.classList.add('slot-kind-item');
+                if (trackedType === 'potion_hp') btn.classList.add('slot-icon-potion');
+                if (!item || (isStackableType && quantity <= 0)) {
+                    if (isStackableType) title = `${trackedName} (sem estoque)`;
+                    btn.classList.add('slot-ghosted');
                 }
             } else {
                 btn.classList.add('slot-kind-empty');
@@ -1622,12 +1981,16 @@ export class Game {
 
             btn.draggable = Boolean(binding);
             btn.title = title;
-            btn.innerHTML = `<span class="slot-icon">${icon}</span><span class="slot-key">${keyLabel}</span>`;
+            const qtyMarkup = Number.isFinite(Number(quantity)) && Number(quantity) > 0
+                ? `<span class="slot-qty">${Number(quantity)}</span>`
+                : '';
+            btn.innerHTML = `<span class="slot-icon">${icon}</span><span class="slot-key">${keyLabel}</span>${qtyMarkup}`;
         });
     }
 
     pruneInvalidHotbarItems() {
         const itemIds = new Set(this.inventory.map((it) => String(it.id)));
+        let changed = false;
         for (const key of Object.keys(this.hotbarBindings)) {
             const binding = this.hotbarBindings[key];
             if (!binding || binding.type !== 'item') continue;
@@ -1638,10 +2001,15 @@ export class Game {
                     itemType: String(existing.type || binding.itemType || ''),
                     itemName: String(existing.name || binding.itemName || 'Item')
                 };
+                changed = true;
             }
             const isPotionGhost = String(binding.itemType || '') === 'potion_hp';
-            if (!itemIds.has(String(binding.itemId || '')) && !isPotionGhost) this.hotbarBindings[key] = null;
+            if (!itemIds.has(String(binding.itemId || '')) && !isPotionGhost) {
+                this.hotbarBindings[key] = null;
+                changed = true;
+            }
         }
+        if (changed) this.persistHotbarBindings();
     }
 
     handleHotbarDrop(targetKey, payload) {
@@ -1653,6 +2021,7 @@ export class Game {
             const toBinding = this.normalizeHotbarBinding(this.hotbarBindings[targetKey]);
             this.hotbarBindings[targetKey] = fromBinding;
             this.hotbarBindings[fromKey] = toBinding;
+            this.persistHotbarBindings();
             this.renderHotbar();
             return;
         }
@@ -1672,7 +2041,46 @@ export class Game {
             itemType: String(item.type || ''),
             itemName: String(item.name || 'Item')
         };
+        this.persistHotbarBindings();
         this.renderHotbar();
+    }
+
+    findHotbarBindingItem(binding) {
+        if (!binding || binding.type !== 'item') return null;
+        let item = this.inventory.find((it) => String(it.id) === String(binding.itemId || ''));
+        if (!item && binding.itemType) {
+            item = this.inventory.find((it) => String(it.type || '') === String(binding.itemType));
+        }
+        return item || null;
+    }
+
+    persistHotbarBindings() {
+        try {
+            if (!window || !window.localStorage) return;
+            const payload = {};
+            for (const key of Object.keys(this.hotbarBindings || {})) {
+                payload[key] = this.normalizeHotbarBinding(this.hotbarBindings[key]);
+            }
+            window.localStorage.setItem(this.hotbarStorageKey, JSON.stringify(payload));
+        } catch {
+            // noop
+        }
+    }
+
+    loadHotbarBindingsFromStorage() {
+        try {
+            if (!window || !window.localStorage) return;
+            const raw = window.localStorage.getItem(this.hotbarStorageKey);
+            if (!raw) return;
+            const parsed = JSON.parse(raw);
+            if (!parsed || typeof parsed !== 'object') return;
+            for (const key of Object.keys(this.hotbarBindings || {})) {
+                if (!Object.prototype.hasOwnProperty.call(parsed, key)) continue;
+                this.hotbarBindings[key] = this.normalizeHotbarBinding(parsed[key]);
+            }
+        } catch {
+            // noop
+        }
     }
 
     writeDragPayload(dataTransfer, payload) {
@@ -1817,6 +2225,7 @@ export class Game {
         this.syncGroundItems(message.groundItems || []);
         this.updatePlayerCard();
         this.updateTargetPlayerCard();
+        if (this.skillsPanel && !this.skillsPanel.classList.contains('hidden')) this.renderSkillsPanel();
     }
 
     /**
@@ -1918,7 +2327,6 @@ export class Game {
      * Renderiza lista do inventário com ação de equipar/remover.
      */
     renderInventory() {
-        if (this.inventoryPanel.classList.contains('hidden')) return;
         this.inventoryGrid.innerHTML = '';
         const equipped = this.inventory.find((it) => it.id === this.equippedWeaponId);
         this.inventoryEquippedLabel.textContent = equipped ? `Arma equipada: ${equipped.name}` : 'Arma equipada: nenhuma';
@@ -1971,7 +2379,7 @@ export class Game {
                 itemEl.addEventListener('dblclick', () => {
                     if (String(item.type || '') !== 'weapon') return;
                     this.closeAllTooltips('item_equipped');
-                    this.network.send({ type: 'equip_item', itemId: item.id === this.equippedWeaponId ? null : item.id });
+                    this.network.send({ type: 'equip_req', itemId: item.id === this.equippedWeaponId ? null : item.id });
                 });
                 itemEl.addEventListener('mousemove', (e) => {
                     this.openItemTooltip(item, e.clientX, e.clientY, 'hover');
@@ -2094,9 +2502,10 @@ export class Game {
      * Renderiza painel de atributos em linhas separadas.
      */
     updatePanel() {
-        if (this.panel.classList.contains('hidden')) return;
         if (!this.localId || !this.players[this.localId]) return;
         const p = this.players[this.localId];
+        const equippedFromInventory = this.inventory.find((it) => String(it.id) === String(this.equippedWeaponId || ''));
+        const equippedWeaponName = equippedFromInventory ? equippedFromInventory.name : null;
 
         this.applyClassAvatar(this.panelClassChip, p.class);
         this.charPanelName.textContent = `${p.name} - ${p.class}`;
@@ -2117,10 +2526,13 @@ export class Game {
             slot.classList.remove('filled');
             slot.textContent = slotLabels[slot.dataset.slot] || slot.dataset.slot;
         });
-        if (p.equippedWeaponName && weaponSlot) {
+        if (equippedWeaponName && weaponSlot) {
             weaponSlot.classList.add('filled');
-            weaponSlot.textContent = p.equippedWeaponName;
+            weaponSlot.textContent = equippedWeaponName;
             weaponSlot.draggable = true;
+            weaponSlot.ondblclick = () => {
+                this.network.send({ type: 'equip_req', itemId: null });
+            };
             weaponSlot.ondragstart = (e) => {
                 const equipped = this.inventory.find((it) => it.id === this.equippedWeaponId);
                 if (!equipped) return;
@@ -2132,6 +2544,7 @@ export class Game {
             };
         } else if (weaponSlot) {
             weaponSlot.draggable = false;
+            weaponSlot.ondblclick = null;
             weaponSlot.ondragstart = null;
             weaponSlot.ondragend = null;
         }
@@ -2152,7 +2565,7 @@ export class Game {
                 const item = this.inventory.find((it) => String(it.id) === itemId);
                 if (!item || String(item.type || '') !== 'weapon') return;
                 this.closeAllTooltips('item_equipped');
-                this.network.send({ type: 'equip_item', itemId });
+                this.network.send({ type: 'equip_req', itemId });
             };
         }
 
@@ -2170,7 +2583,7 @@ export class Game {
                 const item = this.inventory.find((it) => String(it.id) === itemId);
                 if (!item || String(item.type || '') !== 'weapon') return;
                 this.closeAllTooltips('item_equipped');
-                this.network.send({ type: 'equip_item', itemId });
+                this.network.send({ type: 'equip_req', itemId });
             };
         }
 
@@ -2180,12 +2593,15 @@ export class Game {
             `XP: ${p.xp}/${p.xpToNext}`,
             `HP: ${p.hp}/${p.maxHp}`
         ];
+        const summaryGrid = document.createElement('div');
+        summaryGrid.className = 'char-summary-grid';
         for (const line of baseRows) {
             const div = document.createElement('div');
             div.className = 'line';
             div.textContent = line;
-            this.panelBody.appendChild(div);
+            summaryGrid.appendChild(div);
         }
+        this.panelBody.appendChild(summaryGrid);
 
         const pendingCost = this.getPendingStatAllocationCost(p.allocatedStats);
         const remainingPoints = Math.max(0, Number(p.unspentPoints || 0) - pendingCost);
@@ -2193,6 +2609,23 @@ export class Game {
         unspentLine.className = 'line stat-points-line';
         unspentLine.textContent = `Pontos disponiveis: ${remainingPoints}`;
         this.panelBody.appendChild(unspentLine);
+
+        const statsLayout = document.createElement('div');
+        statsLayout.className = 'char-stats-layout';
+        const baseCol = document.createElement('div');
+        baseCol.className = 'char-stats-col char-stats-col-base';
+        const combatCol = document.createElement('div');
+        combatCol.className = 'char-stats-col char-stats-col-combat';
+
+        const baseTitle = document.createElement('div');
+        baseTitle.className = 'line stat-col-title';
+        baseTitle.textContent = 'Atributos Base';
+        baseCol.appendChild(baseTitle);
+
+        const combatTitle = document.createElement('div');
+        combatTitle.className = 'line stat-col-title';
+        combatTitle.textContent = 'Atributos de Combate';
+        combatCol.appendChild(combatTitle);
 
         const statRows = [
             { key: 'str', label: 'FOR', value: Number(p.stats.str || 0), derived: `PATK +${(Number(p.stats.str || 0) * 2).toFixed(0)} | PDEF +${(Number(p.stats.str || 0) * 0.5).toFixed(1)}` },
@@ -2213,50 +2646,68 @@ export class Game {
 
             const controls = document.createElement('div');
             controls.className = 'stat-controls';
+            const shouldRenderControls = remainingPoints > 0 || pending > 0;
+            if (shouldRenderControls) {
+                const removeBtn = document.createElement('button');
+                removeBtn.className = 'stat-add-btn';
+                removeBtn.type = 'button';
+                removeBtn.textContent = '-';
+                removeBtn.disabled = pending <= 0;
+                removeBtn.addEventListener('click', () => {
+                    const currentPending = Number(this.statAllocationPending[row.key] || 0);
+                    if (currentPending <= 0) return;
+                    this.statAllocationPending[row.key] = currentPending - 1;
+                    this.updatePanel();
+                });
+                controls.appendChild(removeBtn);
 
-            const removeBtn = document.createElement('button');
-            removeBtn.className = 'stat-add-btn';
-            removeBtn.type = 'button';
-            removeBtn.textContent = '-';
-            removeBtn.disabled = pending <= 0;
-            removeBtn.addEventListener('click', () => {
-                const currentPending = Number(this.statAllocationPending[row.key] || 0);
-                if (currentPending <= 0) return;
-                this.statAllocationPending[row.key] = currentPending - 1;
-                this.updatePanel();
-            });
-            controls.appendChild(removeBtn);
-
-            const addBtn = document.createElement('button');
-            addBtn.className = 'stat-add-btn';
-            addBtn.type = 'button';
-            addBtn.textContent = '+';
-            addBtn.disabled = remainingPoints <= 0;
-            addBtn.addEventListener('click', () => {
-                if (!this.localId || !this.players[this.localId]) return;
-                const me = this.players[this.localId];
-                const currentRemaining = Math.max(0, Number(me.unspentPoints || 0) - this.getPendingStatAllocationCost(me.allocatedStats));
-                if (currentRemaining <= 0) return;
-                const baseValue = Number(this.normalizeAllocatedStats(me.allocatedStats)[row.key] || 0);
-                const pendingValue = Number(this.statAllocationPending[row.key] || 0);
-                const nextCost = (baseValue + pendingValue) >= 150 ? 2 : 1;
-                if (currentRemaining < nextCost) return;
-                this.statAllocationPending[row.key] = Number(this.statAllocationPending[row.key] || 0) + 1;
-                this.updatePanel();
-            });
-            controls.appendChild(addBtn);
-            wrap.appendChild(controls);
-            this.panelBody.appendChild(wrap);
+                const addBtn = document.createElement('button');
+                addBtn.className = 'stat-add-btn';
+                addBtn.type = 'button';
+                addBtn.textContent = '+';
+                addBtn.disabled = remainingPoints <= 0;
+                addBtn.addEventListener('click', () => {
+                    if (!this.localId || !this.players[this.localId]) return;
+                    const me = this.players[this.localId];
+                    const currentRemaining = Math.max(0, Number(me.unspentPoints || 0) - this.getPendingStatAllocationCost(me.allocatedStats));
+                    if (currentRemaining <= 0) return;
+                    const baseValue = Number(this.normalizeAllocatedStats(me.allocatedStats)[row.key] || 0);
+                    const pendingValue = Number(this.statAllocationPending[row.key] || 0);
+                    const nextCost = (baseValue + pendingValue) >= 150 ? 2 : 1;
+                    if (currentRemaining < nextCost) return;
+                    this.statAllocationPending[row.key] = Number(this.statAllocationPending[row.key] || 0) + 1;
+                    this.updatePanel();
+                });
+                controls.appendChild(addBtn);
+                wrap.appendChild(controls);
+            }
+            baseCol.appendChild(wrap);
         }
 
+        const pendingStr = Number(this.statAllocationPending.str || 0);
+        const pendingInt = Number(this.statAllocationPending.int || 0);
+        const pendingDex = Number(this.statAllocationPending.dex || 0);
+        const pendingVit = Number(this.statAllocationPending.vit || 0);
+        const previewCombat = {
+            physicalAttack: Number(p.stats.physicalAttack || 0) + pendingStr * 2,
+            magicAttack: Number(p.stats.magicAttack || 0) + pendingInt * 3,
+            physicalDefense: Number(p.stats.physicalDefense || 0) + pendingStr * 0.5 + pendingVit * 1.2,
+            magicDefense: Number(p.stats.magicDefense || 0) + pendingInt * 0.8 + pendingVit * 0.5,
+            maxHp: Number(p.stats.maxHp || p.maxHp || 0) + pendingVit * 15,
+            accuracy: Number(p.stats.accuracy || 0) + pendingDex * 1.5,
+            evasion: Number(p.stats.evasion || 0) + pendingDex * 0.8,
+            criticalChance: Number(p.stats.criticalChance || 0) + pendingDex * 0.0002
+        };
+
         const extraRows = [
-            `PATK: ${Math.floor(Number(p.stats.physicalAttack || 0))}`,
-            `MATK: ${Math.floor(Number(p.stats.magicAttack || 0))}`,
-            `PDEF: ${Number(p.stats.physicalDefense || 0).toFixed(1)}`,
-            `MDEF: ${Number(p.stats.magicDefense || 0).toFixed(1)}`,
-            `ACC: ${Number(p.stats.accuracy || 0).toFixed(1)}`,
-            `EVA: ${Number(p.stats.evasion || 0).toFixed(1)}`,
-            `CRIT: ${(Number(p.stats.criticalChance || 0) * 100).toFixed(2)}%`,
+            `PATK: ${Math.floor(previewCombat.physicalAttack)}`,
+            `MATK: ${Math.floor(previewCombat.magicAttack)}`,
+            `PDEF: ${previewCombat.physicalDefense.toFixed(1)}`,
+            `MDEF: ${previewCombat.magicDefense.toFixed(1)}`,
+            `MAXHP: ${Math.floor(previewCombat.maxHp)}`,
+            `ACC: ${previewCombat.accuracy.toFixed(1)}`,
+            `EVA: ${previewCombat.evasion.toFixed(1)}`,
+            `CRIT: ${(previewCombat.criticalChance * 100).toFixed(2)}%`,
             `LUCK: ${Number(p.stats.luck || 0).toFixed(1)}`,
             `MSPD: ${p.stats.moveSpeed}`,
             `ASPD: ${p.stats.attackSpeed}%`,
@@ -2266,8 +2717,12 @@ export class Game {
             const div = document.createElement('div');
             div.className = 'line';
             div.textContent = line;
-            this.panelBody.appendChild(div);
+            combatCol.appendChild(div);
         }
+
+        statsLayout.appendChild(baseCol);
+        statsLayout.appendChild(combatCol);
+        this.panelBody.appendChild(statsLayout);
 
         const applyWrap = document.createElement('div');
         applyWrap.className = 'line stat-actions';
@@ -2324,7 +2779,54 @@ export class Game {
         this.playerHpText.textContent = `HP: ${me.hp}/${me.maxHp}`;
     }
 
+    getMobKindColor(kind) {
+        const k = String(kind || 'normal');
+        if (k === 'boss') return '#111111';
+        if (k === 'subboss') return '#8e44ad';
+        if (k === 'elite') return '#e67e22';
+        return '#d63031';
+    }
+
+    pruneTargetByDistance() {
+        if (!this.localId || !this.players[this.localId]) return;
+        const me = this.players[this.localId];
+        const maxDistance = Number(this.targetClearDistance || 900);
+        if (this.selectedMobId && this.mobs[this.selectedMobId]) {
+            const mob = this.mobs[this.selectedMobId];
+            const dist = Math.hypot(Number(mob.x) - Number(me.x), Number(mob.y) - Number(me.y));
+            if (dist > maxDistance) {
+                this.selectedMobId = null;
+                this.network.send({ type: 'combat.clearTarget' });
+            }
+        }
+        if (this.selectedPlayerId && this.players[this.selectedPlayerId]) {
+            const target = this.players[this.selectedPlayerId];
+            const dist = Math.hypot(Number(target.x) - Number(me.x), Number(target.y) - Number(me.y));
+            if (dist > maxDistance) {
+                this.clearPlayerTarget();
+                this.network.send({ type: 'combat.clearTarget' });
+            }
+        }
+    }
+
     updateTargetPlayerCard() {
+        if (this.selectedMobId && this.mobs[this.selectedMobId]) {
+            const mob = this.mobs[this.selectedMobId];
+            const hpPercent = Number(mob.maxHp || 0) > 0 ? Number(mob.hp || 0) / Number(mob.maxHp || 1) : 0;
+            this.targetPlayerAvatar.className = 'target-mob-avatar';
+            this.targetPlayerAvatar.textContent = 'M';
+            this.targetPlayerAvatar.style.background = this.getMobKindColor(mob.kind);
+            if (this.targetNameText) {
+                const mobLevel = Number.isFinite(Number(mob.level)) ? Number(mob.level) : 1;
+                this.targetNameText.textContent = `${this.getMobDisplayName(mob)} Lv.${mobLevel}`;
+            }
+            this.targetPlayerHpFill.style.width = `${Math.max(0, Math.min(1, hpPercent)) * 100}%`;
+            this.targetActionsToggle.classList.add('hidden');
+            this.targetActionsMenu.classList.add('hidden');
+            this.targetPlayerCard.classList.remove('hidden');
+            return;
+        }
+
         if (!this.selectedPlayerId || !this.players[this.selectedPlayerId]) {
             this.targetPlayerCard.classList.add('hidden');
             return;
@@ -2332,7 +2834,10 @@ export class Game {
         const target = this.players[this.selectedPlayerId];
         const hpPercent = target.maxHp > 0 ? target.hp / target.maxHp : 0;
         this.applyClassAvatar(this.targetPlayerAvatar, target.class);
+        this.targetPlayerAvatar.style.background = '';
+        if (this.targetNameText) this.targetNameText.textContent = `${target.name} Lv.${target.level}`;
         this.targetPlayerHpFill.style.width = `${Math.max(0, Math.min(1, hpPercent)) * 100}%`;
+        this.targetActionsToggle.classList.remove('hidden');
 
         const hasParty = Boolean(this.partyState);
         const isLeader = Boolean(this.partyState && Number(this.partyState.leaderId) === Number(this.localId));
@@ -3178,7 +3683,14 @@ export class Game {
         for (const id of Object.keys(this.mobs)) {
             const mob = this.mobs[id];
             if (mob.x < worldRect.x || mob.x > worldRect.x + worldRect.w || mob.y < worldRect.y || mob.y > worldRect.y + worldRect.h) continue;
-            ctx.fillStyle = '#ff4757';
+            const kind = String(mob.kind || 'normal');
+            ctx.fillStyle = kind === 'boss'
+                ? '#111111'
+                : kind === 'subboss'
+                    ? '#8e44ad'
+                    : kind === 'elite'
+                        ? '#e67e22'
+                        : '#d63031';
             ctx.beginPath();
             ctx.arc((mob.x - worldRect.x) * sx, (mob.y - worldRect.y) * sy, 2.5, 0, Math.PI * 2);
             ctx.fill();
@@ -3540,7 +4052,7 @@ export class Game {
             p.animLastX = p.x;
             p.animLastY = p.y;
             const attackAnimMs = attacking ? now - p.attackAnim.startedAt : null;
-            const attackMode = (p.class === 'knight' || p.class === 'shifter' || p.class === 'druid' || p.class === 'bandit' || p.class === 'assassin' || p.class === 'archer' || p.equippedWeaponName) ? 'armed' : 'unarmed';
+            const attackMode = 'unarmed';
 
             const frame = this.sprites.getPlayerFrame(
                 p.class,
@@ -3634,7 +4146,7 @@ export class Game {
                 this.drawProceduralCharacter(p, screenX, screenY, moving, attacking, now);
             }
 
-            this.drawClassWeapon(p, screenX, screenY, moving, attacking, now);
+            this.drawEquippedWeaponSprite(p, screenX, screenY, moving, attacking, now);
 
             this.ctx.fillStyle = '#fff';
             this.ctx.textAlign = 'center';
@@ -3808,61 +4320,41 @@ export class Game {
         this.ctx.restore();
     }
 
-    drawClassWeapon(player, screenX, screenY, moving, attacking, now) {
+    getEquippedWeaponVisualKey(player) {
+        const name = String(player?.equippedWeaponName || '').trim().toLowerCase();
+        if (!name) return null;
+        if (name.includes('arma de rubi')) return 'rubi_blade';
+        if (name.includes('arma teste')) return 'teste_blade';
+        return 'generic_blade';
+    }
+
+    drawEquippedWeaponSprite(player, screenX, screenY, moving, attacking, now) {
+        const weaponKey = this.getEquippedWeaponVisualKey(player);
+        if (!weaponKey) return;
         const pose = this.getProceduralPose(player, screenX, screenY, moving, attacking, now);
         const facingLeft = pose.side < 0;
         const handX = pose.rightHand.x;
         const handY = pose.rightHand.y;
 
-        if (player.class === 'knight') {
-            this.ctx.save();
-            this.ctx.translate(handX, handY);
-            this.ctx.rotate((facingLeft ? -1 : 1) * (attacking ? 0.62 : 0.24));
+        this.ctx.save();
+        this.ctx.translate(handX, handY);
+        this.ctx.rotate((facingLeft ? -1 : 1) * (attacking ? 0.62 : 0.24));
+        if (weaponKey === 'rubi_blade') {
+            this.ctx.fillStyle = '#f6d8dd';
+            this.ctx.fillRect(-2, -25, 4, 20);
+            this.ctx.fillStyle = '#b0173c';
+            this.ctx.fillRect(-3, -28, 6, 6);
+            this.ctx.fillStyle = '#5a3328';
+            this.ctx.fillRect(-4, -7, 8, 4);
+            this.ctx.fillStyle = '#8a5b47';
+            this.ctx.fillRect(-1, -3, 2, 5);
+        } else {
             this.ctx.fillStyle = '#c7d2de';
             this.ctx.fillRect(-2, -26, 4, 22);
             this.ctx.fillStyle = '#7b4f2a';
             this.ctx.fillRect(-4, -6, 8, 4);
-            this.ctx.restore();
-            return;
         }
-
-        if (player.class === 'shifter' || player.class === 'druid') {
-            this.ctx.save();
-            this.ctx.translate(handX, handY + 1);
-            this.ctx.rotate((facingLeft ? -1 : 1) * (attacking ? 0.38 : 0.1));
-            this.ctx.fillStyle = '#5f4638';
-            this.ctx.fillRect(-2, -20, 4, 18);
-            this.ctx.fillStyle = '#90a4b8';
-            this.ctx.fillRect(-8, -28, 16, 10);
-            this.ctx.restore();
-            return;
-        }
-
-        if (player.class === 'bandit' || player.class === 'assassin' || player.class === 'archer') {
-            const swingTick = Number(this.banditSwingTick[String(player.id)] || 0);
-            const swingRight = swingTick % 2 === 0;
-            const rightAlpha = !attacking || swingRight ? 1 : 0.25;
-            const leftAlpha = !attacking || !swingRight ? 1 : 0.25;
-
-            const leftHandX = pose.leftHand.x;
-            const leftHandY = pose.leftHand.y;
-            const rightHandX = pose.rightHand.x;
-            const rightHandY = pose.rightHand.y;
-
-            this.ctx.fillStyle = `rgba(209, 218, 227, ${leftAlpha})`;
-            this.ctx.save();
-            this.ctx.translate(leftHandX, leftHandY);
-            this.ctx.rotate((facingLeft ? -1 : 1) * -0.28);
-            this.ctx.fillRect(-1.5, -12, 3, 14);
-            this.ctx.restore();
-
-            this.ctx.fillStyle = `rgba(209, 218, 227, ${rightAlpha})`;
-            this.ctx.save();
-            this.ctx.translate(rightHandX, rightHandY);
-            this.ctx.rotate((facingLeft ? -1 : 1) * 0.34);
-            this.ctx.fillRect(-1.5, -12, 3, 14);
-            this.ctx.restore();
-        }
+        this.ctx.restore();
     }
 
     drawCombatProjectiles() {
@@ -3990,6 +4482,7 @@ export class Game {
             this.camera.x = Math.max(0, Math.min(this.camera.x, this.mapWidth - this.canvas.width));
             this.camera.y = Math.max(0, Math.min(this.camera.y, this.mapHeight - this.canvas.height));
         }
+        this.pruneTargetByDistance();
         this.updateTargetPlayerCard();
 
         this.drawMap();

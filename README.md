@@ -159,3 +159,43 @@ No cliente, criei classes `Entity`, `SpriteEntity` e `ShapeEntity` para padroniz
 - Integração com PostgreSQL via Prisma para persistência robusta.
 - Validação de mensagens WS com tipos.
 - Logs estruturados no banco.
+
+## Rodar em duas portas (estavel + desenvolvimento)
+
+O servidor aceita a variavel de ambiente `PORT`.
+
+Exemplo no PowerShell (2 terminais):
+
+```powershell
+# Terminal 1: servidor estavel (build)
+$env:PORT=3000
+npm start
+```
+
+```powershell
+# Terminal 2: servidor de desenvolvimento (reinicia a cada alteracao)
+$env:PORT=3001
+npm run dev
+```
+
+Abra o jogo em:
+- Estavel: `http://localhost:3000`
+- Desenvolvimento: `http://localhost:3001`
+
+## Docker Compose separado (prod e dev)
+
+Subir producao (porta 3000):
+```bash
+docker compose -f docker-compose.prod.yml up --build -d
+```
+
+Subir desenvolvimento (porta 3001, com reload):
+```bash
+docker compose -f docker-compose.dev.yml up --build -d
+```
+
+Parar cada ambiente:
+```bash
+docker compose -f docker-compose.prod.yml down
+docker compose -f docker-compose.dev.yml down
+```
