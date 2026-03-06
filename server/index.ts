@@ -31,14 +31,13 @@ async function initializeServer() {
         const mobService = new MobService();
         const gameController = new GameController(persistence, mobService);
         const wsHandler = new WSHandler(gameController);
+        const mobTemplates = await persistence.getMobTemplates();
+        mobService.loadTemplateCache(mobTemplates);
 
         for (const mapKey of MAP_KEYS) {
             for (const mapId of MAP_IDS) {
                 const mapInstanceId = composeMapInstanceId(mapKey, mapId);
-                for (let i = 0; i < 25; i++) mobService.spawnMob('normal', mapInstanceId);
-                for (let i = 0; i < 15; i++) mobService.spawnMob('elite', mapInstanceId);
-                for (let i = 0; i < 5; i++) mobService.spawnMob('subboss', mapInstanceId);
-                for (let i = 0; i < 1; i++) mobService.spawnMob('boss', mapInstanceId);
+                mobService.seedMapInstance(mapInstanceId);
             }
         }
 

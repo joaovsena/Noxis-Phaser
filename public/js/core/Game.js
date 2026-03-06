@@ -16,6 +16,10 @@ export class Game {
         this.groundItems = {};
         this.hoveredMobId = null;
         this.selectedMobId = null;
+        this.hoveredGroundItemId = null;
+        this.pendingPickup = null;
+        this.pickupInteractRange = 90;
+        this.groundItemHitHalfSize = 20;
 
         this.tileSize = 64;
         this.mapWidth = 6400;
@@ -184,10 +188,10 @@ export class Game {
         this.partyPanelSignature = '';
         this.isDead = false;
         this.statAllocationPending = {
-            physicalAttack: 0,
-            magicAttack: 0,
-            physicalDefense: 0,
-            magicDefense: 0
+            str: 0,
+            int: 0,
+            dex: 0,
+            vit: 0
         };
         this.banditSwingTick = {};
         this.headOverlayTuning = {
@@ -229,6 +233,7 @@ export class Game {
         this.started = false;
         this.setupEvents();
         this.renderHotbar();
+        this.updateGroundItemCursor();
     }
 
     /**
@@ -254,6 +259,12 @@ export class Game {
             if (!this.localId) return;
             const world = this.toWorldCoords(e);
             this.hoveredMobId = this.getMobAt(world.x, world.y);
+            this.hoveredGroundItemId = this.getGroundItemAt(world.x, world.y);
+            this.updateGroundItemCursor();
+        });
+        this.canvas.addEventListener('mouseleave', () => {
+            this.hoveredGroundItemId = null;
+            this.updateGroundItemCursor();
         });
 
         const handleWorldClick = (clientX, clientY) => {
@@ -261,9 +272,10 @@ export class Game {
             const world = this.toWorldCoordsFromClient(clientX, clientY);
             const itemId = this.getGroundItemAt(world.x, world.y);
             if (itemId) {
-                this.network.send({ type: 'pickup_item', itemId });
+                this.tryPickupGroundItem(itemId);
                 return;
             }
+            this.cancelPendingPickup();
             const playerId = this.getPlayerAt(world.x, world.y);
             if (playerId) {
                 this.selectPlayerTarget(playerId, this.autoAttackEnabled);
@@ -502,8 +514,14 @@ export class Game {
                 }
                 this.writeDragPayload(e.dataTransfer, { source: 'skillbar', key });
             });
-            btn.addEventListener('dragend', () => {
+            btn.addEventListener('dragend', (e) => {
                 btn.classList.remove('hovered');
+                const key = String(btn.dataset.key || '').toLowerCase();
+                if (!key) return;
+                const droppedOver = document.elementFromPoint(e.clientX, e.clientY);
+                if (droppedOver?.closest('#skillbar-wrap')) return;
+                this.hotbarBindings[key] = null;
+                this.renderHotbar();
             });
         });
 
@@ -772,6 +790,7 @@ export class Game {
         const clampedX = Math.max(0, Math.min(this.mapWidth, x));
         const clampedY = Math.max(0, Math.min(this.mapHeight, y));
         this.selectedMobId = null;
+        this.cancelPendingPickup();
         this.network.send({ type: 'move', reqId, x: clampedX, y: clampedY });
         this.lastMoveSent = { reqId, x: clampedX, y: clampedY, at: Date.now() };
     }
@@ -880,6 +899,9 @@ export class Game {
         this.friendsState = { friends: [], incoming: [], outgoing: [] };
         this.resetPendingStatAllocation();
         this.isDead = false;
+        this.pendingPickup = null;
+        this.hoveredGroundItemId = null;
+        this.updateGroundItemCursor();
         this.reviveOverlay.classList.add('hidden');
         this.clearPlayerTarget();
         this.renderPartyPanel();
@@ -896,9 +918,7 @@ export class Game {
     onMoveAck(message) {
         this.lastMoveAck = message;
         if (!this.localId || !this.players[this.localId]) return;
-        if (Array.isArray(message.pathNodes)) {
-            this.players[this.localId].pathNodes = message.pathNodes;
-        }
+        this.players[this.localId].pathNodes = Array.isArray(message.pathNodes) ? message.pathNodes : [];
     }
 
     /**
@@ -930,8 +950,8 @@ export class Game {
 
         p.hitAnim = { until: Date.now() + 120, ox: ux * 8, oy: uy * 8 };
         p.attackAnim = { startedAt: Date.now(), until: Date.now() + 420 };
-        if (p.class === 'bandit') this.banditSwingTick[String(p.id)] = (this.banditSwingTick[String(p.id)] || 0) + 1;
-        if (p.class === 'shifter') {
+        if (p.class === 'bandit' || p.class === 'assassin' || p.class === 'archer') this.banditSwingTick[String(p.id)] = (this.banditSwingTick[String(p.id)] || 0) + 1;
+        if (p.class === 'shifter' || p.class === 'druid') {
             this.spawnProjectile(
                 Number(message.attackerX ?? p.x),
                 Number(message.attackerY ?? p.y) - 22,
@@ -954,8 +974,8 @@ export class Game {
         }
         if (attacker) {
             attacker.attackAnim = { startedAt: Date.now(), until: Date.now() + 300 };
-            if (attacker.class === 'bandit') this.banditSwingTick[String(attacker.id)] = (this.banditSwingTick[String(attacker.id)] || 0) + 1;
-            if (attacker.class === 'shifter') {
+            if (attacker.class === 'bandit' || attacker.class === 'assassin' || attacker.class === 'archer') this.banditSwingTick[String(attacker.id)] = (this.banditSwingTick[String(attacker.id)] || 0) + 1;
+            if (attacker.class === 'shifter' || attacker.class === 'druid') {
                 this.spawnProjectile(
                     Number(message.attackerX ?? attacker.x),
                     Number(message.attackerY ?? attacker.y) - 22,
@@ -1305,11 +1325,71 @@ export class Game {
     getGroundItemAt(x, y) {
         for (const id of Object.keys(this.groundItems)) {
             const it = this.groundItems[id];
-            if (Math.abs(x - it.x) <= 16 && Math.abs(y - it.y) <= 16) {
+            if (Math.abs(x - it.x) <= this.groundItemHitHalfSize && Math.abs(y - it.y) <= this.groundItemHitHalfSize) {
                 return id;
             }
         }
         return null;
+    }
+
+    updateGroundItemCursor() {
+        if (!this.canvas) return;
+        this.canvas.style.cursor = this.hoveredGroundItemId ? 'grab' : 'default';
+    }
+
+    cancelPendingPickup() {
+        this.pendingPickup = null;
+    }
+
+    tryPickupGroundItem(itemId) {
+        if (!itemId) return;
+        if (!this.localId || !this.players[this.localId]) return;
+        const item = this.groundItems[itemId];
+        if (!item) return;
+        const me = this.players[this.localId];
+        const inRange = Math.hypot(Number(item.x) - Number(me.x), Number(item.y) - Number(me.y)) <= this.pickupInteractRange;
+        if (inRange) {
+            this.network.send({ type: 'pickup_item', itemId });
+            this.pendingPickup = null;
+            return;
+        }
+
+        this.pendingPickup = {
+            itemId: String(itemId),
+            targetX: Number(item.x),
+            targetY: Number(item.y),
+            lastTryAt: 0,
+            createdAt: Date.now()
+        };
+        const reqId = `m-${++this.moveReqCounter}-${Date.now()}`;
+        this.network.send({ type: 'move', reqId, x: Number(item.x), y: Number(item.y) });
+        this.lastMoveSent = { reqId, x: Number(item.x), y: Number(item.y), at: Date.now() };
+    }
+
+    updatePendingPickup() {
+        if (!this.pendingPickup) return;
+        if (!this.localId || !this.players[this.localId]) {
+            this.pendingPickup = null;
+            return;
+        }
+
+        const now = Date.now();
+        if (now - Number(this.pendingPickup.createdAt || now) > 8000) {
+            this.pendingPickup = null;
+            return;
+        }
+
+        const item = this.groundItems[this.pendingPickup.itemId];
+        if (!item) {
+            this.pendingPickup = null;
+            return;
+        }
+        const me = this.players[this.localId];
+        const dist = Math.hypot(Number(item.x) - Number(me.x), Number(item.y) - Number(me.y));
+        if (dist > this.pickupInteractRange) return;
+        if (now - Number(this.pendingPickup.lastTryAt || 0) < 150) return;
+        this.pendingPickup.lastTryAt = now;
+        this.network.send({ type: 'pickup_item', itemId: this.pendingPickup.itemId });
     }
 
     /**
@@ -1476,10 +1556,12 @@ export class Game {
             return;
         }
         if (binding.type === 'item') {
-            const item = this.inventory.find((it) => String(it.id) === String(binding.itemId));
+            let item = this.inventory.find((it) => String(it.id) === String(binding.itemId));
+            if (!item && binding.itemType) {
+                item = this.inventory.find((it) => String(it.type || '') === String(binding.itemType));
+                if (item) this.hotbarBindings[key] = { ...binding, itemId: String(item.id), itemName: item.name || binding.itemName };
+            }
             if (!item) {
-                this.hotbarBindings[key] = null;
-                this.renderHotbar();
                 return;
             }
             this.network.send({ type: 'item.use', itemId: item.id });
@@ -1491,8 +1573,13 @@ export class Game {
         if (binding.type === 'action' && binding.actionId === 'basic_attack') {
             return { type: 'action', actionId: 'basic_attack' };
         }
-        if (binding.type === 'item' && binding.itemId) {
-            return { type: 'item', itemId: String(binding.itemId) };
+        if (binding.type === 'item' && (binding.itemId || binding.itemType)) {
+            return {
+                type: 'item',
+                itemId: binding.itemId ? String(binding.itemId) : '',
+                itemType: binding.itemType ? String(binding.itemType) : '',
+                itemName: binding.itemName ? String(binding.itemName) : ''
+            };
         }
         return null;
     }
@@ -1504,22 +1591,30 @@ export class Game {
             const keyLabel = String(btn.dataset.key || '').toUpperCase();
             let icon = '';
             let title = keyLabel;
-            btn.classList.remove('slot-kind-action', 'slot-kind-item', 'slot-kind-empty', 'slot-icon-attack', 'slot-icon-potion');
+            btn.classList.remove('slot-kind-action', 'slot-kind-item', 'slot-kind-empty', 'slot-icon-attack', 'slot-icon-potion', 'slot-ghosted');
 
             if (binding?.type === 'action' && binding.actionId === 'basic_attack') {
                 icon = 'ATK';
                 title = 'Ataque Basico';
                 btn.classList.add('slot-kind-action', 'slot-icon-attack');
             } else if (binding?.type === 'item') {
-                const item = this.inventory.find((it) => String(it.id) === String(binding.itemId));
-                if (!item) {
-                    this.hotbarBindings[key] = null;
-                    btn.classList.add('slot-kind-empty');
-                } else {
+                let item = this.inventory.find((it) => String(it.id) === String(binding.itemId));
+                if (!item && binding.itemType) {
+                    item = this.inventory.find((it) => String(it.type || '') === String(binding.itemType));
+                    if (item) this.hotbarBindings[key] = { ...binding, itemId: String(item.id), itemName: item.name || binding.itemName };
+                }
+
+                if (item) {
                     icon = String(item.type || '') === 'potion_hp' ? 'HP' : 'IT';
                     title = item.name || 'Item';
                     btn.classList.add('slot-kind-item');
                     if (String(item.type || '') === 'potion_hp') btn.classList.add('slot-icon-potion');
+                } else {
+                    const ghostType = String(binding.itemType || '');
+                    icon = ghostType === 'potion_hp' ? 'HP' : 'IT';
+                    title = `${binding.itemName || 'Item'} (sem estoque)`;
+                    btn.classList.add('slot-kind-item', 'slot-ghosted');
+                    if (ghostType === 'potion_hp') btn.classList.add('slot-icon-potion');
                 }
             } else {
                 btn.classList.add('slot-kind-empty');
@@ -1536,7 +1631,16 @@ export class Game {
         for (const key of Object.keys(this.hotbarBindings)) {
             const binding = this.hotbarBindings[key];
             if (!binding || binding.type !== 'item') continue;
-            if (!itemIds.has(String(binding.itemId))) this.hotbarBindings[key] = null;
+            const existing = this.inventory.find((it) => String(it.id) === String(binding.itemId || ''));
+            if (existing && (!binding.itemType || !binding.itemName)) {
+                this.hotbarBindings[key] = {
+                    ...binding,
+                    itemType: String(existing.type || binding.itemType || ''),
+                    itemName: String(existing.name || binding.itemName || 'Item')
+                };
+            }
+            const isPotionGhost = String(binding.itemType || '') === 'potion_hp';
+            if (!itemIds.has(String(binding.itemId || '')) && !isPotionGhost) this.hotbarBindings[key] = null;
         }
     }
 
@@ -1562,7 +1666,12 @@ export class Game {
         }
         const item = this.inventory.find((it) => String(it.id) === itemId);
         if (!item) return;
-        this.hotbarBindings[targetKey] = { type: 'item', itemId };
+        this.hotbarBindings[targetKey] = {
+            type: 'item',
+            itemId,
+            itemType: String(item.type || ''),
+            itemName: String(item.name || 'Item')
+        };
         this.renderHotbar();
     }
 
@@ -1601,27 +1710,42 @@ export class Game {
             return Math.max(0, Math.floor(parsed));
         };
         return {
-            physicalAttack: toInt(source.physicalAttack),
-            magicAttack: toInt(source.magicAttack),
-            physicalDefense: toInt(source.physicalDefense),
-            magicDefense: toInt(source.magicDefense)
+            str: toInt(source.str ?? source.for ?? source.physicalAttack),
+            int: toInt(source.int ?? source.magicAttack),
+            dex: toInt(source.dex ?? source.des ?? source.magicDefense),
+            vit: toInt(source.vit ?? source.physicalDefense)
         };
     }
 
     resetPendingStatAllocation() {
         this.statAllocationPending = {
-            physicalAttack: 0,
-            magicAttack: 0,
-            physicalDefense: 0,
-            magicDefense: 0
+            str: 0,
+            int: 0,
+            dex: 0,
+            vit: 0
         };
     }
 
     getPendingStatAllocationTotal() {
-        return Number(this.statAllocationPending.physicalAttack || 0)
-            + Number(this.statAllocationPending.magicAttack || 0)
-            + Number(this.statAllocationPending.physicalDefense || 0)
-            + Number(this.statAllocationPending.magicDefense || 0);
+        return Number(this.statAllocationPending.str || 0)
+            + Number(this.statAllocationPending.int || 0)
+            + Number(this.statAllocationPending.dex || 0)
+            + Number(this.statAllocationPending.vit || 0);
+    }
+
+    getPendingStatAllocationCost(baseAllocated = null) {
+        const base = this.normalizeAllocatedStats(baseAllocated || {});
+        const threshold = 150;
+        let cost = 0;
+        for (const key of ['str', 'int', 'dex', 'vit']) {
+            const start = Number(base[key] || 0);
+            const add = Number(this.statAllocationPending[key] || 0);
+            for (let i = 0; i < add; i++) {
+                const idx = start + i;
+                cost += idx >= threshold ? 2 : 1;
+            }
+        }
+        return cost;
     }
 
     /**
@@ -1780,6 +1904,13 @@ export class Game {
         this.groundItems = {};
         for (const item of serverItems) {
             this.groundItems[item.id] = item;
+        }
+        if (this.hoveredGroundItemId && !this.groundItems[this.hoveredGroundItemId]) {
+            this.hoveredGroundItemId = null;
+            this.updateGroundItemCursor();
+        }
+        if (this.pendingPickup && !this.groundItems[this.pendingPickup.itemId]) {
+            this.pendingPickup = null;
         }
     }
 
@@ -2056,17 +2187,18 @@ export class Game {
             this.panelBody.appendChild(div);
         }
 
-        const remainingPoints = Math.max(0, Number(p.unspentPoints || 0) - this.getPendingStatAllocationTotal());
+        const pendingCost = this.getPendingStatAllocationCost(p.allocatedStats);
+        const remainingPoints = Math.max(0, Number(p.unspentPoints || 0) - pendingCost);
         const unspentLine = document.createElement('div');
         unspentLine.className = 'line stat-points-line';
         unspentLine.textContent = `Pontos disponiveis: ${remainingPoints}`;
         this.panelBody.appendChild(unspentLine);
 
         const statRows = [
-            { key: 'physicalAttack', label: 'PATK', value: Number(p.stats.physicalAttack || 0) },
-            { key: 'magicAttack', label: 'MATK', value: Number(p.stats.magicAttack || 0) },
-            { key: 'physicalDefense', label: 'PDEF', value: Number(p.stats.physicalDefense || 0) },
-            { key: 'magicDefense', label: 'MDEF', value: Number(p.stats.magicDefense || 0) }
+            { key: 'str', label: 'FOR', value: Number(p.stats.str || 0), derived: `PATK +${(Number(p.stats.str || 0) * 2).toFixed(0)} | PDEF +${(Number(p.stats.str || 0) * 0.5).toFixed(1)}` },
+            { key: 'int', label: 'INT', value: Number(p.stats.int || 0), derived: `MATK +${(Number(p.stats.int || 0) * 3).toFixed(0)} | MDEF +${(Number(p.stats.int || 0) * 0.8).toFixed(1)}` },
+            { key: 'dex', label: 'DES', value: Number(p.stats.dex || 0), derived: `ACC +${(Number(p.stats.dex || 0) * 1.5).toFixed(1)} | EVA +${(Number(p.stats.dex || 0) * 0.8).toFixed(1)}` },
+            { key: 'vit', label: 'VIT', value: Number(p.stats.vit || 0), derived: `HP +${(Number(p.stats.vit || 0) * 15).toFixed(0)} | PDEF +${(Number(p.stats.vit || 0) * 1.2).toFixed(1)}` }
         ];
         for (const row of statRows) {
             const wrap = document.createElement('div');
@@ -2076,6 +2208,7 @@ export class Game {
             const previewValue = row.value + pending;
             const valueLabel = document.createElement('span');
             valueLabel.textContent = `${row.label}: ${previewValue}`;
+            valueLabel.title = row.derived;
             wrap.appendChild(valueLabel);
 
             const controls = document.createElement('div');
@@ -2102,8 +2235,12 @@ export class Game {
             addBtn.addEventListener('click', () => {
                 if (!this.localId || !this.players[this.localId]) return;
                 const me = this.players[this.localId];
-                const currentRemaining = Math.max(0, Number(me.unspentPoints || 0) - this.getPendingStatAllocationTotal());
+                const currentRemaining = Math.max(0, Number(me.unspentPoints || 0) - this.getPendingStatAllocationCost(me.allocatedStats));
                 if (currentRemaining <= 0) return;
+                const baseValue = Number(this.normalizeAllocatedStats(me.allocatedStats)[row.key] || 0);
+                const pendingValue = Number(this.statAllocationPending[row.key] || 0);
+                const nextCost = (baseValue + pendingValue) >= 150 ? 2 : 1;
+                if (currentRemaining < nextCost) return;
                 this.statAllocationPending[row.key] = Number(this.statAllocationPending[row.key] || 0) + 1;
                 this.updatePanel();
             });
@@ -2113,6 +2250,14 @@ export class Game {
         }
 
         const extraRows = [
+            `PATK: ${Math.floor(Number(p.stats.physicalAttack || 0))}`,
+            `MATK: ${Math.floor(Number(p.stats.magicAttack || 0))}`,
+            `PDEF: ${Number(p.stats.physicalDefense || 0).toFixed(1)}`,
+            `MDEF: ${Number(p.stats.magicDefense || 0).toFixed(1)}`,
+            `ACC: ${Number(p.stats.accuracy || 0).toFixed(1)}`,
+            `EVA: ${Number(p.stats.evasion || 0).toFixed(1)}`,
+            `CRIT: ${(Number(p.stats.criticalChance || 0) * 100).toFixed(2)}%`,
+            `LUCK: ${Number(p.stats.luck || 0).toFixed(1)}`,
             `MSPD: ${p.stats.moveSpeed}`,
             `ASPD: ${p.stats.attackSpeed}%`,
             `RANGE: ${p.stats.attackRange}`
@@ -2130,6 +2275,7 @@ export class Game {
         applyBtn.type = 'button';
         applyBtn.textContent = 'Aplicar';
         const pendingTotal = this.getPendingStatAllocationTotal();
+        const pendingSpendCost = this.getPendingStatAllocationCost(p.allocatedStats);
         applyBtn.disabled = pendingTotal <= 0;
         applyBtn.addEventListener('click', () => {
             const total = this.getPendingStatAllocationTotal();
@@ -2142,6 +2288,9 @@ export class Game {
         applyWrap.appendChild(applyBtn);
 
         if (pendingTotal > 0) {
+            const costHint = document.createElement('span');
+            costHint.textContent = `Custo: ${pendingSpendCost}`;
+            applyWrap.appendChild(costHint);
             const cancelBtn = document.createElement('button');
             cancelBtn.type = 'button';
             cancelBtn.textContent = 'Limpar';
@@ -2502,28 +2651,13 @@ export class Game {
     drawPlannedPathOnPreview(ctx, worldRect, sx, sy) {
         if (!this.localId || !this.players[this.localId]) return;
         const me = this.players[this.localId];
-        const nodes = Array.isArray(me.pathNodes) && me.pathNodes.length
-            ? me.pathNodes
-            : Array.isArray(this.lastMoveAck?.pathNodes)
-                ? this.lastMoveAck.pathNodes
-                : [];
+        const nodes = Array.isArray(me.pathNodes) ? me.pathNodes : [];
         if (!nodes.length) return;
         const points = [{ x: me.x, y: me.y }, ...nodes];
-        ctx.strokeStyle = 'rgba(123, 230, 255, 0.95)';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        let started = false;
-        for (const point of points) {
-            const px = (point.x - worldRect.x) * sx;
-            const py = (point.y - worldRect.y) * sy;
-            if (!started) {
-                ctx.moveTo(px, py);
-                started = true;
-                continue;
-            }
-            ctx.lineTo(px, py);
-        }
-        if (started) ctx.stroke();
+        this.drawPolyline(ctx, points, 'rgba(123, 230, 255, 0.95)', 2, (point) => ({
+            x: (point.x - worldRect.x) * sx,
+            y: (point.y - worldRect.y) * sy
+        }));
     }
 
     drawDebugPathOnPreview(ctx, worldRect, sx, sy) {
@@ -2555,13 +2689,12 @@ export class Game {
         }
 
         const nodes = Array.isArray(me.pathNodes) ? me.pathNodes : [];
-        for (const pt of nodes) {
-            const px = (pt.x - worldRect.x) * sx;
-            const py = (pt.y - worldRect.y) * sy;
-            ctx.fillStyle = 'rgba(255, 90, 220, 0.95)';
-            ctx.beginPath();
-            ctx.arc(px, py, 2, 0, Math.PI * 2);
-            ctx.fill();
+        if (nodes.length) {
+            const points = [{ x: me.x, y: me.y }, ...nodes];
+            this.drawPolyline(ctx, points, 'rgba(255, 90, 220, 0.95)', 1.5, (point) => ({
+                x: (point.x - worldRect.x) * sx,
+                y: (point.y - worldRect.y) * sy
+            }));
         }
 
         if (this.lastMoveSent) {
@@ -2583,15 +2716,17 @@ export class Game {
      */
     getClassColor(className) {
         if (className === 'knight') return '#00a8ff';
-        if (className === 'shifter') return '#4cd137';
-        if (className === 'bandit') return '#000000';
+        if (className === 'druid' || className === 'shifter') return '#4cd137';
+        if (className === 'archer') return '#f39c12';
+        if (className === 'assassin' || className === 'bandit') return '#000000';
         return '#cccccc';
     }
 
     getClassIcon(className) {
         if (className === 'knight') return 'S';
-        if (className === 'shifter') return 'M';
-        if (className === 'bandit') return 'D';
+        if (className === 'druid' || className === 'shifter') return 'M';
+        if (className === 'archer') return 'A';
+        if (className === 'assassin' || className === 'bandit') return 'D';
         return '?';
     }
 
@@ -3405,7 +3540,7 @@ export class Game {
             p.animLastX = p.x;
             p.animLastY = p.y;
             const attackAnimMs = attacking ? now - p.attackAnim.startedAt : null;
-            const attackMode = (p.class === 'knight' || p.class === 'shifter' || p.class === 'bandit' || p.equippedWeaponName) ? 'armed' : 'unarmed';
+            const attackMode = (p.class === 'knight' || p.class === 'shifter' || p.class === 'druid' || p.class === 'bandit' || p.class === 'assassin' || p.class === 'archer' || p.equippedWeaponName) ? 'armed' : 'unarmed';
 
             const frame = this.sprites.getPlayerFrame(
                 p.class,
@@ -3691,7 +3826,7 @@ export class Game {
             return;
         }
 
-        if (player.class === 'shifter') {
+        if (player.class === 'shifter' || player.class === 'druid') {
             this.ctx.save();
             this.ctx.translate(handX, handY + 1);
             this.ctx.rotate((facingLeft ? -1 : 1) * (attacking ? 0.38 : 0.1));
@@ -3703,7 +3838,7 @@ export class Game {
             return;
         }
 
-        if (player.class === 'bandit') {
+        if (player.class === 'bandit' || player.class === 'assassin' || player.class === 'archer') {
             const swingTick = Number(this.banditSwingTick[String(player.id)] || 0);
             const swingRight = swingTick % 2 === 0;
             const rightAlpha = !attacking || swingRight ? 1 : 0.25;
@@ -3790,23 +3925,10 @@ export class Game {
         const nodes = Array.isArray(me.pathNodes) ? me.pathNodes : [];
         if (nodes.length) {
             const points = [{ x: me.x, y: me.y }, ...nodes];
-            this.ctx.strokeStyle = 'rgba(255, 90, 220, 0.95)';
-            this.ctx.lineWidth = 3;
-            this.ctx.beginPath();
-            points.forEach((pt, idx) => {
-                const sx = pt.x - this.camera.x;
-                const sy = pt.y - this.camera.y;
-                if (idx === 0) this.ctx.moveTo(sx, sy);
-                else this.ctx.lineTo(sx, sy);
-            });
-            this.ctx.stroke();
-
-            for (const pt of nodes) {
-                this.ctx.fillStyle = 'rgba(255, 90, 220, 0.95)';
-                this.ctx.beginPath();
-                this.ctx.arc(pt.x - this.camera.x, pt.y - this.camera.y, 3, 0, Math.PI * 2);
-                this.ctx.fill();
-            }
+            this.drawPolyline(this.ctx, points, 'rgba(255, 90, 220, 0.95)', 3, (pt) => ({
+                x: pt.x - this.camera.x,
+                y: pt.y - this.camera.y
+            }));
         }
 
         // Destino do ultimo clique enviado.
@@ -3859,6 +3981,7 @@ export class Game {
     draw() {
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this.smoothEntities();
+        this.updatePendingPickup();
 
         if (this.localId && this.players[this.localId]) {
             const me = this.players[this.localId];
@@ -3898,6 +4021,22 @@ export class Game {
                 14,
                 this.canvas.height - 30
             );
+        }
+    }
+
+    drawPolyline(ctx, points, color, width, transform = null) {
+        if (!ctx || !Array.isArray(points) || points.length < 2) return;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        for (let i = 0; i < points.length - 1; i++) {
+            const a = transform ? transform(points[i]) : points[i];
+            const b = transform ? transform(points[i + 1]) : points[i + 1];
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(b.x, b.y);
+            ctx.stroke();
         }
     }
 }

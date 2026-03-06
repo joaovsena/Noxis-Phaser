@@ -58,8 +58,9 @@ export class Sprites {
     }
 
     getClassTint(className) {
-        if (className === 'shifter') return 'rgba(75, 209, 55, 0.24)';
-        if (className === 'bandit') return 'rgba(35, 35, 42, 0.34)';
+        if (className === 'druid' || className === 'shifter') return 'rgba(75, 209, 55, 0.24)';
+        if (className === 'archer') return 'rgba(229, 151, 34, 0.24)';
+        if (className === 'assassin' || className === 'bandit') return 'rgba(35, 35, 42, 0.34)';
         return null;
     }
 

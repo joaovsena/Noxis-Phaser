@@ -53,6 +53,10 @@ export class PersistenceService {
         return await prisma.item.findMany();
     }
 
+    async getMobTemplates() {
+        return await prisma.mobTemplate.findMany();
+    }
+
     async getItemById(id: string) {
         return await prisma.item.findUnique({ where: { id } });
     }

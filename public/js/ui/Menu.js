@@ -112,8 +112,13 @@ export class MenuUI {
     }
 
     applyPreviewClass(className) {
-        const safe = className === 'shifter' || className === 'bandit' ? className : 'knight';
-        const icon = safe === 'knight' ? 'S' : (safe === 'shifter' ? 'M' : 'D');
+        const valid = ['knight', 'archer', 'druid', 'assassin', 'shifter', 'bandit'];
+        const safe = valid.includes(className) ? className : 'knight';
+        const icon = safe === 'knight'
+            ? 'S'
+            : (safe === 'archer'
+                ? 'A'
+                : ((safe === 'druid' || safe === 'shifter') ? 'M' : 'D'));
         this.preview.className = `class-avatar preview-avatar class-${safe}`;
         this.preview.textContent = icon;
     }

@@ -3,7 +3,7 @@ import { PersistenceService } from '../services/PersistenceService';
 import { MobService } from '../services/MobService';
 import { PlayerRuntime, GroundItem, AuthMessage, MoveMessage } from '../models/types';
 import { hashPassword } from '../utils/hash';
-import { clamp, distance, levelUpStats, xpRequired } from '../utils/math';
+import { clamp, distance, xpRequired } from '../utils/math';
 import {
     CLASS_TEMPLATES,
     WORLD,
@@ -72,8 +72,22 @@ interface FriendRequestItem {
     expiresAt: number;
 }
 
-const ALLOCATABLE_STATS = ['physicalAttack', 'magicAttack', 'physicalDefense', 'magicDefense'] as const;
-type AllocatableStat = typeof ALLOCATABLE_STATS[number];
+const PRIMARY_STATS = ['str', 'int', 'dex', 'vit'] as const;
+type PrimaryStat = typeof PRIMARY_STATS[number];
+const LEGACY_ALLOC_MAP: Record<string, PrimaryStat> = {
+    physicalAttack: 'str',
+    magicAttack: 'int',
+    physicalDefense: 'vit',
+    magicDefense: 'dex'
+};
+const SOFT_CAP_THRESHOLD = 150;
+const SOFT_CAP_COST = 2;
+const BASE_POINT_COST = 1;
+const LUCKY_STRIKE_CHANCE = 0.15;
+const MOB_AI_CELL_SIZE = 512;
+const MOB_DECISION_MS = 500;
+const MOB_ATTACK_WINDUP_MS = 220;
+const MOB_LEASH_REGEN_PER_SEC = 0.10;
 const PARTY_WAYPOINT_TTL_MS = 10000;
 const PATHFIND_CELL_SIZE = 12;
 const PATHFIND_MAX_ITERS = 220000;
@@ -117,7 +131,7 @@ export class GameController {
         const username = String(msg.username || '').trim().toLowerCase();
         const password = String(msg.password || '');
         const name = String(msg.name || '').trim();
-        const selectedClass = CLASS_TEMPLATES[msg.class as keyof typeof CLASS_TEMPLATES] ? msg.class : 'knight';
+        const selectedClass = this.normalizeClassId(msg.class);
         const gender = 'male';
 
         if (username.length < 3 || password.length < 3 || name.length < 3) {
@@ -137,7 +151,7 @@ export class GameController {
             return;
         }
 
-        const baseStats = { ...CLASS_TEMPLATES[selectedClass as keyof typeof CLASS_TEMPLATES] };
+        const baseStats = this.buildClassBaseStats(selectedClass);
         const isSena = username === 'sena' || name.toLowerCase() === 'sena';
         const profile = {
             name,
@@ -145,16 +159,16 @@ export class GameController {
             gender,
             level: 1,
             xp: 0,
-            hp: baseStats.maxHp,
-            maxHp: baseStats.maxHp,
+            hp: Number(baseStats.initialHp || 100),
+            maxHp: Number(baseStats.initialHp || 100),
             role: isSena ? 'adm' : 'player',
             statusOverrides: {},
             pvpMode: 'peace',
             allocatedStats: {
-                physicalAttack: 0,
-                magicAttack: 0,
-                physicalDefense: 0,
-                magicDefense: 0
+                str: 0,
+                int: 0,
+                dex: 0,
+                vit: 0
             },
             unspentPoints: 0,
             inventory: [],
@@ -164,7 +178,7 @@ export class GameController {
             posX: 500,
             posY: 500,
             baseStats,
-            stats: levelUpStats(baseStats, 1)
+            stats: {}
         };
 
         await this.persistence.createUser(username, password, profile);
@@ -241,7 +255,9 @@ export class GameController {
         );
         const parsedId = Number(profile?.id);
         const id = Number.isInteger(parsedId) ? parsedId : Math.floor(Date.now() % 2147483647);
-        const maxHp = profile.stats?.maxHp || profile.baseStats?.maxHp || 100;
+        const normalizedClass = this.normalizeClassId(profile?.class);
+        const baseStats = this.buildClassBaseStats(normalizedClass, profile?.baseStats);
+        const maxHp = Number.isFinite(Number(profile?.maxHp)) ? Number(profile.maxHp) : Number(baseStats.initialHp || 100);
         const allocatedStats = this.normalizeAllocatedStats(profile.allocatedStats);
         const unspentRaw = Number(profile.unspentPoints);
         const unspentPoints = Number.isInteger(unspentRaw) && unspentRaw > 0 ? unspentRaw : 0;
@@ -251,6 +267,8 @@ export class GameController {
             id,
             ws: null,
             username,
+            class: normalizedClass,
+            baseStats,
             role: isSena ? 'adm' : profile?.role === 'adm' ? 'adm' : 'player',
             pvpMode: profile?.pvpMode === 'evil' ? 'evil' : 'peace',
             allocatedStats,
@@ -568,7 +586,7 @@ export class GameController {
             }
 
             target.statusOverrides = target.statusOverrides || {};
-            const leveled = levelUpStats(target.baseStats, target.level);
+            const leveled = this.computeDerivedStats(target);
             const hasOverride = Object.prototype.hasOwnProperty.call(target.statusOverrides, key);
             const currentOverride = hasOverride
                 ? Number(target.statusOverrides[key])
@@ -1397,8 +1415,9 @@ export class GameController {
 
         const now = Date.now();
         player.skillCooldowns = player.skillCooldowns || {};
-        const cooldownByClass: Record<string, number> = { knight: 2800, shifter: 2200, bandit: 1800 };
-        const cooldownMs = cooldownByClass[player.class] || 2200;
+        const classId = this.normalizeClassId(player.class);
+        const cooldownByClass: Record<string, number> = { knight: 2800, druid: 2200, assassin: 1800, archer: 1800 };
+        const cooldownMs = cooldownByClass[classId] || 2200;
         const nextAt = Number(player.skillCooldowns[skillId] || 0);
         if (now < nextAt) {
             this.sendRaw(player.ws, { type: 'system_message', text: `Habilidade em recarga (${Math.ceil((nextAt - now) / 1000)}s).` });
@@ -1416,7 +1435,7 @@ export class GameController {
         const currentDistance = distance(player, targetMob);
         const edgeDistance = currentDistance - (targetMob.size / 2 + PLAYER_HALF_SIZE);
 
-        if (player.class === 'knight') {
+        if (classId === 'knight') {
             const range = 90;
             if (edgeDistance > range) {
                 this.sendRaw(player.ws, { type: 'system_message', text: 'Muito longe para Golpe Circular.' });
@@ -1429,20 +1448,14 @@ export class GameController {
             });
             for (const mob of mobsInRange) {
                 const dmg = this.computeMobDamage(player, mob, 1.45);
-                mob.hp = Math.max(0, mob.hp - dmg);
-                if (mob.hp === 0) {
-                    this.grantXp(player, mob.xpReward);
-                    if (Math.random() < 0.5) this.dropWeaponAt(mob.x, mob.y, mapInstanceId);
-                    this.dropHpPotionAt(mob.x, mob.y, mapInstanceId);
-                    this.mobService.removeMob(mob.id);
-                }
+                this.applyDamageToMobAndHandleDeath(player, mob, dmg, now);
                 this.broadcastMobHit(player, mob);
             }
             player.lastCombatAt = now;
             return;
         }
 
-        if (player.class === 'shifter') {
+        if (classId === 'druid') {
             const range = 420;
             if (edgeDistance > range) {
                 this.sendRaw(player.ws, { type: 'system_message', text: 'Muito longe para Martelo Arcano.' });
@@ -1450,19 +1463,13 @@ export class GameController {
             }
             player.skillCooldowns[skillId] = now + cooldownMs;
             const dmg = this.computeMobDamage(player, targetMob, 1.7, true);
-            targetMob.hp = Math.max(0, targetMob.hp - dmg);
+            this.applyDamageToMobAndHandleDeath(player, targetMob, dmg, now);
             this.broadcastMobHit(player, targetMob);
-            if (targetMob.hp === 0) {
-                this.grantXp(player, targetMob.xpReward);
-                if (Math.random() < 0.5) this.dropWeaponAt(targetMob.x, targetMob.y, mapInstanceId);
-                this.dropHpPotionAt(targetMob.x, targetMob.y, mapInstanceId);
-                this.mobService.removeMob(targetMob.id);
-            }
             player.lastCombatAt = now;
             return;
         }
 
-        // bandit
+        // assassin / archer
         const range = 100;
         if (edgeDistance > range) {
             this.sendRaw(player.ws, { type: 'system_message', text: 'Muito longe para Corte Duplo.' });
@@ -1471,61 +1478,73 @@ export class GameController {
         player.skillCooldowns[skillId] = now + cooldownMs;
         const first = this.computeMobDamage(player, targetMob, 1.2);
         const second = this.computeMobDamage(player, targetMob, 1.05);
-        targetMob.hp = Math.max(0, targetMob.hp - first - second);
+        this.applyDamageToMobAndHandleDeath(player, targetMob, first + second, now);
         this.broadcastMobHit(player, targetMob);
-        if (targetMob.hp === 0) {
-            this.grantXp(player, targetMob.xpReward);
-            if (Math.random() < 0.5) this.dropWeaponAt(targetMob.x, targetMob.y, mapInstanceId);
-            this.dropHpPotionAt(targetMob.x, targetMob.y, mapInstanceId);
-            this.mobService.removeMob(targetMob.id);
-        }
         player.lastCombatAt = now;
     }
 
     handleStatsAllocate(player: PlayerRuntime, msg: any) {
         const allocation = msg && typeof msg.allocation === 'object' ? msg.allocation : {};
-        const sanitized: Record<AllocatableStat, number> = {
-            physicalAttack: 0,
-            magicAttack: 0,
-            physicalDefense: 0,
-            magicDefense: 0
+        const sanitized: Record<PrimaryStat, number> = {
+            str: 0,
+            int: 0,
+            dex: 0,
+            vit: 0
         };
 
-        let requestedTotal = 0;
-        for (const key of ALLOCATABLE_STATS) {
-            const value = Number(allocation[key]);
+        for (const key of PRIMARY_STATS) {
+            const value = Number(allocation[key] ?? allocation[this.primaryToLegacyKey(key)]);
             if (!Number.isInteger(value) || value < 0) {
                 this.sendRaw(player.ws, { type: 'system_message', text: 'Distribuicao invalida de atributos.' });
                 return;
             }
             sanitized[key] = value;
-            requestedTotal += value;
         }
+        for (const [legacyKey, primaryKey] of Object.entries(LEGACY_ALLOC_MAP)) {
+            if (Object.prototype.hasOwnProperty.call(allocation, legacyKey)) {
+                const value = Number(allocation[legacyKey]);
+                if (!Number.isInteger(value) || value < 0) {
+                    this.sendRaw(player.ws, { type: 'system_message', text: 'Distribuicao invalida de atributos.' });
+                    return;
+                }
+                sanitized[primaryKey] = value;
+            }
+        }
+
+        const requestedTotal = this.getAllocatedTotal(sanitized);
 
         if (requestedTotal <= 0) {
             this.sendRaw(player.ws, { type: 'system_message', text: 'Nenhum ponto foi alocado.' });
             return;
         }
 
+        const current = this.normalizeAllocatedStats(player.allocatedStats);
+        const requestedCost = this.getAllocationCost(current, sanitized);
+        const maxSpend = this.maxSpendablePointsByLevel(player.level);
+        const alreadySpent = this.getAllocatedCost(current);
+
         player.unspentPoints = Number.isInteger(player.unspentPoints) && player.unspentPoints > 0 ? player.unspentPoints : 0;
-        if (requestedTotal > player.unspentPoints) {
+        if (requestedCost > player.unspentPoints) {
             this.sendRaw(player.ws, { type: 'system_message', text: 'Pontos insuficientes para essa distribuicao.' });
             return;
         }
+        if (alreadySpent + requestedCost > maxSpend) {
+            this.sendRaw(player.ws, { type: 'system_message', text: 'Distribuicao invalida para o nivel atual.' });
+            return;
+        }
 
-        const current = this.normalizeAllocatedStats(player.allocatedStats);
-        const next: Record<AllocatableStat, number> = { ...current };
-        for (const key of ALLOCATABLE_STATS) {
+        const next: Record<PrimaryStat, number> = { ...current };
+        for (const key of PRIMARY_STATS) {
             next[key] = Number(current[key] || 0) + Number(sanitized[key] || 0);
         }
 
         player.allocatedStats = next;
-        player.unspentPoints -= requestedTotal;
+        player.unspentPoints -= requestedCost;
         this.recomputePlayerStats(player);
         this.persistPlayer(player);
         this.sendRaw(player.ws, {
             type: 'system_message',
-            text: `${requestedTotal} ponto(s) aplicado(s). Restantes: ${player.unspentPoints}.`
+            text: `${requestedTotal} ponto(s) aplicado(s) (custo ${requestedCost}). Restantes: ${player.unspentPoints}.`
         });
         this.sendStatsUpdated(player);
     }
@@ -1763,15 +1782,16 @@ export class GameController {
         if (now - player.lastAttackAt < attackIntervalMs) return;
         player.lastAttackAt = now;
 
-        let rawAttack = Number(player.stats?.physicalAttack || 1);
-        let mobDefense = mob.physicalDefense;
-        if (player.stats?.damageType === 'magic') {
-            rawAttack = Number(player.stats?.magicAttack || 1);
-            mobDefense = mob.magicDefense;
+        const hitChance = this.computeHitChance(
+            Number(player.stats?.accuracy || 0),
+            this.getMobEvasion(mob)
+        );
+        if (Math.random() > hitChance) {
+            this.broadcastMobHit(player, mob);
+            return;
         }
-
-        const damage = Math.max(1, Math.floor(rawAttack - mobDefense * 0.5));
-        mob.hp = Math.max(0, mob.hp - damage);
+        const damage = this.computeMobDamage(player, mob, 1);
+        this.applyDamageToMobAndHandleDeath(player, mob, damage, now);
         player.lastCombatAt = now;
 
         for (const receiver of this.players.values()) {
@@ -1791,24 +1811,37 @@ export class GameController {
             }
         }
 
-        if (mob.hp === 0) {
-            this.grantXp(player, mob.xpReward);
-            if (Math.random() < 0.5) {
-                this.dropWeaponAt(mob.x, mob.y, this.mapInstanceId(player.mapKey, player.mapId));
-            }
-            this.dropHpPotionAt(mob.x, mob.y, this.mapInstanceId(player.mapKey, player.mapId));
-            this.mobService.removeMob(mob.id);
-        }
     }
 
     private computeMobDamage(player: PlayerRuntime, mob: any, multiplier: number, forceMagic: boolean = false) {
-        let rawAttack = Number(player.stats?.physicalAttack || 1);
-        let mobDefense = mob.physicalDefense;
-        if (forceMagic || player.stats?.damageType === 'magic') {
-            rawAttack = Number(player.stats?.magicAttack || 1);
-            mobDefense = mob.magicDefense;
-        }
-        return Math.max(1, Math.floor((rawAttack - mobDefense * 0.5) * multiplier));
+        const isMagic = forceMagic || player.stats?.damageType === 'magic';
+        const rawAttack = Number(isMagic ? player.stats?.magicAttack : player.stats?.physicalAttack) || 1;
+        const defense = Number(isMagic ? mob.magicDefense : mob.physicalDefense) || 0;
+        const reducedDefense = this.shouldLuckyStrike(player, mob) ? defense * 0.5 : defense;
+        const base = Number(rawAttack) * Math.max(0.05, Number(multiplier || 1));
+        return this.computeDamageAfterMitigation(base, reducedDefense, Number(mob.level || 1));
+    }
+
+    private applyDamageToMobAndHandleDeath(player: PlayerRuntime, mob: any, damage: number, now: number) {
+        if (!mob) return false;
+        if (mob.state === 'leash_return' || mob.ignoreDamage) return false;
+        const finalDamage = Math.max(1, Math.floor(Number(damage || 0)));
+        if (finalDamage <= 0) return false;
+
+        this.mobService.addHate(mob, player.id, finalDamage);
+        if (!mob.targetPlayerId) mob.targetPlayerId = player.id;
+        mob.state = mob.state === 'attack_windup' ? mob.state : 'aggro';
+        mob.nextRepathAt = now;
+        mob.hp = Math.max(0, Number(mob.hp || 0) - finalDamage);
+
+        if (mob.hp > 0) return true;
+
+        this.grantXp(player, mob.xpReward);
+        const mapInstanceId = this.mapInstanceId(player.mapKey, player.mapId);
+        if (Math.random() < 0.5) this.dropWeaponAt(mob.x, mob.y, mapInstanceId);
+        this.dropHpPotionAt(mob.x, mob.y, mapInstanceId);
+        this.mobService.removeMob(mob.id);
+        return true;
     }
 
     private broadcastMobHit(player: PlayerRuntime, mob: any) {
@@ -1828,6 +1861,77 @@ export class GameController {
                 // Ignore socket send failures; cleanup happens on disconnect.
             }
         }
+    }
+
+    private cellKey(x: number, y: number, mapKey: string, mapId: string) {
+        const cx = Math.floor(Number(x || 0) / MOB_AI_CELL_SIZE);
+        const cy = Math.floor(Number(y || 0) / MOB_AI_CELL_SIZE);
+        return `${mapKey}::${mapId}::${cx},${cy}`;
+    }
+
+    private buildPlayerSpatialIndex() {
+        const index = new Map<string, PlayerRuntime[]>();
+        for (const player of this.players.values()) {
+            if (player.dead || player.hp <= 0) continue;
+            const key = this.cellKey(player.x, player.y, player.mapKey, player.mapId);
+            const bucket = index.get(key);
+            if (bucket) bucket.push(player);
+            else index.set(key, [player]);
+        }
+        return index;
+    }
+
+    private getPlayersNearCell(index: Map<string, PlayerRuntime[]>, mapKey: string, mapId: string, x: number, y: number) {
+        const baseCx = Math.floor(Number(x || 0) / MOB_AI_CELL_SIZE);
+        const baseCy = Math.floor(Number(y || 0) / MOB_AI_CELL_SIZE);
+        const out: PlayerRuntime[] = [];
+        for (let oy = -1; oy <= 1; oy++) {
+            for (let ox = -1; ox <= 1; ox++) {
+                const key = `${mapKey}::${mapId}::${baseCx + ox},${baseCy + oy}`;
+                const bucket = index.get(key);
+                if (!bucket || !bucket.length) continue;
+                for (const player of bucket) out.push(player);
+            }
+        }
+        return out;
+    }
+
+    private randomInt(min: number, max: number) {
+        const safeMin = Math.floor(Math.max(0, Number(min || 0)));
+        const safeMax = Math.floor(Math.max(safeMin, Number(max || safeMin)));
+        return safeMin + Math.floor(Math.random() * (safeMax - safeMin + 1));
+    }
+
+    private pickWanderTarget(homeX: number, homeY: number, radius: number) {
+        const r = Math.max(24, Number(radius || 120));
+        const angle = Math.random() * Math.PI * 2;
+        const dist = Math.random() * r;
+        return {
+            x: clamp(homeX + Math.cos(angle) * dist, 0, WORLD.width),
+            y: clamp(homeY + Math.sin(angle) * dist, 0, WORLD.height)
+        };
+    }
+
+    private moveMobToward(mob: any, targetX: number, targetY: number, speed: number, deltaSeconds: number, mapKey: string) {
+        const dx = Number(targetX || 0) - Number(mob.x || 0);
+        const dy = Number(targetY || 0) - Number(mob.y || 0);
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist <= 0.001) return true;
+        const step = Math.max(0, Number(speed || 0)) * Math.max(0, Number(deltaSeconds || 0));
+        if (step <= 0.0001) return false;
+        const nx = clamp(Number(mob.x || 0) + (dx / dist) * Math.min(step, dist), 0, WORLD.width);
+        const ny = clamp(Number(mob.y || 0) + (dy / dist) * Math.min(step, dist), 0, WORLD.height);
+        if (!this.isBlockedAt(mapKey, nx, ny)) {
+            mob.x = nx;
+            mob.y = ny;
+        } else {
+            const axisX = clamp(Number(mob.x || 0) + (dx / dist) * Math.min(step, dist), 0, WORLD.width);
+            const axisY = clamp(Number(mob.y || 0) + (dy / dist) * Math.min(step, dist), 0, WORLD.height);
+            if (!this.isBlockedAt(mapKey, axisX, Number(mob.y || 0))) mob.x = axisX;
+            else if (!this.isBlockedAt(mapKey, Number(mob.x || 0), axisY)) mob.y = axisY;
+            else return false;
+        }
+        return Math.abs(Number(targetX || 0) - Number(mob.x || 0)) < 2 && Math.abs(Number(targetY || 0) - Number(mob.y || 0)) < 2;
     }
 
     private processAutoAttackPlayer(player: PlayerRuntime, now: number) {
@@ -1885,79 +1989,146 @@ export class GameController {
 
     private processMobAggroAndCombat(deltaSeconds: number, now: number) {
         const mobs = this.mobService.getMobs();
+        const playerIndex = this.buildPlayerSpatialIndex();
         if (this.mobsPeacefulMode) {
             for (const mob of mobs) {
                 mob.targetPlayerId = null;
                 mob.lastAttackAt = 0;
+                mob.state = 'idle';
+                mob.ignoreDamage = false;
             }
             return;
         }
+
         for (const mob of mobs) {
+            const template = this.mobService.getTemplateByMob(mob);
             const [mapKey, mapId] = String(mob.mapId || '').split('::');
             if (!mapKey || !mapId) continue;
+            if (!Number.isFinite(Number(mob.homeX))) mob.homeX = Number(mob.x || 0);
+            if (!Number.isFinite(Number(mob.homeY))) mob.homeY = Number(mob.y || 0);
+            if (!mob.state) mob.state = 'idle';
+            if (!mob.hateTable) mob.hateTable = {};
+            const home = { x: Number(mob.homeX || mob.x), y: Number(mob.homeY || mob.y) };
+            const distanceToHome = distance(mob, home);
+
+            if (mob.state === 'leash_return' || distanceToHome > template.leashRange) {
+                mob.state = 'leash_return';
+                mob.ignoreDamage = true;
+                mob.targetPlayerId = null;
+                mob.hateTable = {};
+                const regen = Number(mob.maxHp || 1) * MOB_LEASH_REGEN_PER_SEC * deltaSeconds;
+                mob.hp = Math.min(Number(mob.maxHp || 1), Number(mob.hp || 0) + regen);
+                const arrived = this.moveMobToward(mob, home.x, home.y, Number(template.moveSpeed) * 2, deltaSeconds, mapKey);
+                if (arrived || distance(mob, home) <= 8) {
+                    mob.x = home.x;
+                    mob.y = home.y;
+                    mob.state = 'idle';
+                    mob.ignoreDamage = false;
+                    mob.nextThinkAt = now + this.randomInt(Number(template.idleMinMs), Number(template.idleMaxMs));
+                }
+                continue;
+            }
+
+            mob.ignoreDamage = false;
 
             let target = mob.targetPlayerId ? this.players.get(Number(mob.targetPlayerId)) : null;
             if (!target || target.dead || target.hp <= 0 || target.mapKey !== mapKey || target.mapId !== mapId) {
                 target = null;
-                mob.targetPlayerId = null;
+                const hateTargetId = this.mobService.getTopHateTarget(mob);
+                if (hateTargetId) {
+                    const hated = this.players.get(hateTargetId);
+                    if (hated && !hated.dead && hated.hp > 0 && hated.mapKey === mapKey && hated.mapId === mapId) {
+                        target = hated;
+                        mob.targetPlayerId = hated.id;
+                    }
+                }
             }
 
-            if (!target) {
+            const canThink = now >= Number(mob.nextThinkAt || 0);
+            if (!target && canThink) {
+                const candidates = this.getPlayersNearCell(playerIndex, mapKey, mapId, mob.x, mob.y);
                 let nearest: PlayerRuntime | null = null;
                 let nearestDist = Number.POSITIVE_INFINITY;
-                for (const player of this.players.values()) {
-                    if (player.dead || player.hp <= 0) continue;
-                    if (player.mapKey !== mapKey || player.mapId !== mapId) continue;
+                for (const player of candidates) {
                     const d = distance(mob, player);
+                    if (d > template.aggroRange) continue;
                     if (d < nearestDist) {
                         nearestDist = d;
                         nearest = player;
                     }
                 }
-                if (nearest && nearestDist <= MOB_AGGRO_RANGE) {
+                if (nearest) {
                     target = nearest;
                     mob.targetPlayerId = nearest.id;
+                    mob.state = 'aggro';
+                    mob.nextRepathAt = now + MOB_DECISION_MS;
+                } else {
+                    if (mob.state !== 'wander') {
+                        const wander = this.pickWanderTarget(home.x, home.y, template.wanderRadius);
+                        mob.wanderTargetX = wander.x;
+                        mob.wanderTargetY = wander.y;
+                        mob.state = 'wander';
+                    } else {
+                        mob.state = 'idle';
+                    }
+                    mob.nextThinkAt = now + this.randomInt(Number(template.idleMinMs), Number(template.idleMaxMs));
                 }
             }
 
-            if (!target) continue;
+            if (!target) {
+                if (mob.state === 'wander' && Number.isFinite(Number(mob.wanderTargetX)) && Number.isFinite(Number(mob.wanderTargetY))) {
+                    const arrived = this.moveMobToward(
+                        mob,
+                        Number(mob.wanderTargetX),
+                        Number(mob.wanderTargetY),
+                        Number(template.moveSpeed) * 0.55,
+                        deltaSeconds,
+                        mapKey
+                    );
+                    if (arrived) {
+                        mob.state = 'idle';
+                        mob.nextThinkAt = now + this.randomInt(Number(template.idleMinMs), Number(template.idleMaxMs));
+                        mob.wanderTargetX = null;
+                        mob.wanderTargetY = null;
+                    }
+                }
+                continue;
+            }
 
             const centerDistance = distance(mob, target);
-            if (centerDistance > MOB_LEASH_RANGE) {
-                mob.targetPlayerId = null;
+            if (centerDistance > template.leashRange) {
+                mob.state = 'leash_return';
                 continue;
             }
 
             const edgeDistance = Math.max(0, centerDistance - (mob.size / 2 + PLAYER_HALF_SIZE));
-            const mobSpeed = mob.kind === 'boss' ? 72 : mob.kind === 'subboss' ? 82 : mob.kind === 'elite' ? 95 : 108;
-
-            if (edgeDistance > MOB_ATTACK_RANGE) {
-                const step = mobSpeed * deltaSeconds;
-                const dx = target.x - mob.x;
-                const dy = target.y - mob.y;
-                const norm = Math.sqrt(dx * dx + dy * dy) || 1;
-                const nx = clamp(mob.x + (dx / norm) * Math.min(step, edgeDistance), 0, WORLD.width);
-                const ny = clamp(mob.y + (dy / norm) * Math.min(step, edgeDistance), 0, WORLD.height);
-
-                if (!this.isBlockedAt(mapKey, nx, ny)) {
-                    mob.x = nx;
-                    mob.y = ny;
-                } else {
-                    const axisX = clamp(mob.x + (dx / norm) * Math.min(step, edgeDistance), 0, WORLD.width);
-                    const axisY = clamp(mob.y + (dy / norm) * Math.min(step, edgeDistance), 0, WORLD.height);
-                    if (!this.isBlockedAt(mapKey, axisX, mob.y)) mob.x = axisX;
-                    else if (!this.isBlockedAt(mapKey, mob.x, axisY)) mob.y = axisY;
+            if (edgeDistance > template.attackRange) {
+                mob.state = 'aggro';
+                if (now >= Number(mob.nextRepathAt || 0)) {
+                    mob.nextRepathAt = now + Number(template.repathMs || MOB_DECISION_MS);
                 }
+                this.moveMobToward(mob, target.x, target.y, Number(template.moveSpeed), deltaSeconds, mapKey);
                 continue;
             }
 
-            const lastAttackAt = Number(mob.lastAttackAt || 0);
-            if (now - lastAttackAt < MOB_ATTACK_INTERVAL_MS) continue;
+            if (now < Number(mob.nextAttackAt || 0)) continue;
+            if (mob.state !== 'attack_windup') {
+                mob.state = 'attack_windup';
+                mob.nextAttackAt = now + MOB_ATTACK_WINDUP_MS;
+                continue;
+            }
+
+            mob.state = 'aggro';
             mob.lastAttackAt = now;
+            mob.nextAttackAt = now + Number(template.attackCadenceMs || MOB_ATTACK_INTERVAL_MS);
 
             const baseDamage = mob.kind === 'boss' ? 34 : mob.kind === 'subboss' ? 21 : mob.kind === 'elite' ? 14 : 8;
+            const hitChance = this.computeHitChance(Number(template.accuracy || 60), Number(target.stats?.evasion || 0));
+            if (Math.random() > hitChance) continue;
             const defense = Number(target.stats?.physicalDefense || 0);
-            const damage = Math.max(1, Math.floor(baseDamage - defense * 0.35));
+            const luckyBypass = Math.random() < Number(template.luckyStrikeChance || 0);
+            const effectiveDefense = luckyBypass ? defense * 0.5 : defense;
+            const damage = this.computeDamageAfterMitigation(baseDamage, effectiveDefense, Number(target.level || 1));
             target.hp = Math.max(0, target.hp - damage);
             target.lastCombatAt = now;
             if (target.hp <= 0) {
@@ -1984,6 +2155,7 @@ export class GameController {
                     targetX: target.x,
                     targetY: target.y,
                     damage,
+                    luckyStrike: luckyBypass,
                     targetHp: target.hp,
                     targetMaxHp: target.maxHp
                 });
@@ -2021,13 +2193,19 @@ export class GameController {
         if (now - player.lastAttackAt < attackIntervalMs) return;
         player.lastAttackAt = now;
 
-        let rawAttack = Number(player.stats?.physicalAttack || 1);
-        let targetDefense = Number(target.stats?.physicalDefense || 0);
-        if (player.stats?.damageType === 'magic') {
-            rawAttack = Number(player.stats?.magicAttack || 1);
-            targetDefense = Number(target.stats?.magicDefense || 0);
-        }
-        const damage = Math.max(1, Math.floor(rawAttack - targetDefense * 0.5));
+        const hitChance = this.computeHitChance(
+            Number(player.stats?.accuracy || 0),
+            Number(target.stats?.evasion || 0)
+        );
+        if (Math.random() > hitChance) return;
+
+        const isMagic = player.stats?.damageType === 'magic';
+        let rawAttack = Number(isMagic ? player.stats?.magicAttack : player.stats?.physicalAttack) || 1;
+        const critChance = Math.max(0, Math.min(0.9, Number(player.stats?.criticalChance || 0)));
+        if (Math.random() < critChance) rawAttack *= 1.5;
+        let targetDefense = Number(isMagic ? target.stats?.magicDefense : target.stats?.physicalDefense) || 0;
+        if (this.shouldLuckyStrike(player, target)) targetDefense *= 0.5;
+        const damage = this.computeDamageAfterMitigation(rawAttack, targetDefense, Number(target.level || 1));
 
         target.hp = Math.max(0, target.hp - damage);
         if (target.hp <= 0) {
@@ -2483,17 +2661,23 @@ export class GameController {
     }
 
     private recomputePlayerStats(player: PlayerRuntime) {
-        const leveled = levelUpStats(player.baseStats, player.level);
+        const allocated = this.normalizeAllocatedStats(player.allocatedStats);
+        const maxSpend = this.maxSpendablePointsByLevel(player.level);
+        const boundedAllocated = this.enforceAllocationBudget(allocated, maxSpend);
+        player.allocatedStats = boundedAllocated;
+        const leveled = this.computeDerivedStats(player);
         const overrides = player.statusOverrides && typeof player.statusOverrides === 'object' ? player.statusOverrides : {};
         for (const [key, value] of Object.entries(overrides)) {
             if (typeof (leveled as any)[key] === 'number' && Number.isFinite(value as number)) {
                 (leveled as any)[key] = value;
             }
         }
-        const allocated = this.normalizeAllocatedStats(player.allocatedStats);
-        for (const key of ALLOCATABLE_STATS) {
-            (leveled as any)[key] = Number((leveled as any)[key] || 0) + Number(allocated[key] || 0);
-        }
+
+        const spent = this.getAllocatedCost(boundedAllocated);
+        const maxUnspent = Math.max(0, maxSpend - spent);
+        const currentUnspent = Number.isInteger(player.unspentPoints) ? Math.max(0, player.unspentPoints) : 0;
+        player.unspentPoints = Math.min(currentUnspent, maxUnspent);
+
         const weapon = this.getEquippedWeapon(player);
         if (weapon && weapon.bonuses) {
             player.stats = {
@@ -2507,7 +2691,7 @@ export class GameController {
             player.stats = leveled;
         }
         player.maxHp = Number((leveled as any).maxHp || player.maxHp || 100);
-        player.hp = clamp(Number(player.hp || player.maxHp), 1, player.maxHp);
+        player.hp = clamp(Number(player.hp || player.maxHp), 0, player.maxHp);
     }
 
     private sendInventoryState(player: PlayerRuntime) {
@@ -2898,19 +3082,202 @@ export class GameController {
         this.syncPartyStateForMembers(party, true);
     }
 
+    private normalizeClassId(rawClass: any): string {
+        const key = String(rawClass || '').toLowerCase();
+        if (key === 'shifter') return 'druid';
+        if (key === 'bandit') return 'assassin';
+        if (key === 'cavaleiro') return 'knight';
+        if (key === 'arqueiro') return 'archer';
+        if (key === 'druida') return 'druid';
+        if (key === 'assassino') return 'assassin';
+        if (CLASS_TEMPLATES[key as keyof typeof CLASS_TEMPLATES]) return key;
+        return 'knight';
+    }
+
+    private buildClassBaseStats(classId: string, baseFromProfile?: any) {
+        const hasPrimary = Boolean(
+            baseFromProfile
+            && typeof baseFromProfile === 'object'
+            && ['str', 'int', 'dex', 'vit'].every((k) => Number.isFinite(Number(baseFromProfile[k])))
+        );
+        const source = hasPrimary
+            ? baseFromProfile
+            : CLASS_TEMPLATES[this.normalizeClassId(classId) as keyof typeof CLASS_TEMPLATES] || CLASS_TEMPLATES.knight;
+        return {
+            str: Number.isFinite(Number(source.str)) ? Number(source.str) : 8,
+            int: Number.isFinite(Number(source.int)) ? Number(source.int) : 8,
+            dex: Number.isFinite(Number(source.dex)) ? Number(source.dex) : 8,
+            vit: Number.isFinite(Number(source.vit)) ? Number(source.vit) : 8,
+            initialHp: Number.isFinite(Number(source.initialHp)) ? Number(source.initialHp) : 120,
+            moveSpeed: Number.isFinite(Number(source.moveSpeed)) ? Number(source.moveSpeed) : 100,
+            attackSpeed: Number.isFinite(Number(source.attackSpeed)) ? Number(source.attackSpeed) : 100,
+            attackRange: Number.isFinite(Number(source.attackRange)) ? Number(source.attackRange) : 60,
+            damageType: String(source.damageType || 'physical') === 'magic' ? 'magic' : 'physical'
+        };
+    }
+
+    private primaryToLegacyKey(primary: PrimaryStat) {
+        if (primary === 'str') return 'physicalAttack';
+        if (primary === 'int') return 'magicAttack';
+        if (primary === 'vit') return 'physicalDefense';
+        return 'magicDefense';
+    }
+
+    private maxSpendablePointsByLevel(level: number) {
+        return Math.max(0, (Math.max(1, Number(level || 1)) - 1) * 5);
+    }
+
+    private getAllocatedTotal(allocated: Record<PrimaryStat, number>) {
+        return PRIMARY_STATS.reduce((sum, key) => sum + Number(allocated[key] || 0), 0);
+    }
+
+    private getAllocatedCost(allocated: Record<PrimaryStat, number>) {
+        let total = 0;
+        for (const key of PRIMARY_STATS) {
+            const amount = Math.max(0, Math.floor(Number(allocated[key] || 0)));
+            for (let i = 0; i < amount; i++) {
+                total += i >= SOFT_CAP_THRESHOLD ? SOFT_CAP_COST : BASE_POINT_COST;
+            }
+        }
+        return total;
+    }
+
+    private getAllocationCost(current: Record<PrimaryStat, number>, incoming: Record<PrimaryStat, number>) {
+        let total = 0;
+        for (const key of PRIMARY_STATS) {
+            const start = Math.max(0, Math.floor(Number(current[key] || 0)));
+            const add = Math.max(0, Math.floor(Number(incoming[key] || 0)));
+            for (let i = 0; i < add; i++) {
+                const idx = start + i;
+                total += idx >= SOFT_CAP_THRESHOLD ? SOFT_CAP_COST : BASE_POINT_COST;
+            }
+        }
+        return total;
+    }
+
+    private enforceAllocationBudget(input: Record<PrimaryStat, number>, maxCost: number) {
+        const next: Record<PrimaryStat, number> = { ...input };
+        if (this.getAllocatedCost(next) <= maxCost) return next;
+        const downOrder: PrimaryStat[] = ['dex', 'int', 'str', 'vit'];
+        while (this.getAllocatedCost(next) > maxCost) {
+            let reduced = false;
+            for (const key of downOrder) {
+                if (next[key] <= 0) continue;
+                next[key] -= 1;
+                reduced = true;
+                if (this.getAllocatedCost(next) <= maxCost) break;
+            }
+            if (!reduced) break;
+        }
+        return next;
+    }
+
+    private computeDerivedStats(player: PlayerRuntime) {
+        const classId = this.normalizeClassId(player.class);
+        const base = this.buildClassBaseStats(classId, player.baseStats);
+        player.class = classId;
+        player.baseStats = base;
+        const allocated = this.normalizeAllocatedStats(player.allocatedStats);
+
+        const str = Number(base.str || 0) + Number(allocated.str || 0);
+        const int = Number(base.int || 0) + Number(allocated.int || 0);
+        const dex = Number(base.dex || 0) + Number(allocated.dex || 0);
+        const vit = Number(base.vit || 0) + Number(allocated.vit || 0);
+        const level = Math.max(1, Number(player.level || 1));
+
+        const maxHp = Number(base.initialHp || 100) + Math.max(0, (vit - Number(base.vit || 0))) * 15 + (level - 1) * 5;
+        const physicalAttack = str * 2;
+        const magicAttack = int * 3;
+        const physicalDefense = str * 0.5 + vit * 1.2;
+        const magicDefense = int * 0.8 + vit * 0.5;
+        const accuracy = dex * 1.5;
+        const evasion = dex * 0.8;
+        const criticalChance = Math.max(0, dex * 0.0002);
+        const luck = level / 2 + dex / 10;
+
+        return {
+            str,
+            int,
+            dex,
+            vit,
+            physicalAttack,
+            magicAttack,
+            physicalDefense,
+            magicDefense,
+            accuracy,
+            evasion,
+            criticalChance,
+            luck,
+            moveSpeed: Number(base.moveSpeed || 100),
+            attackSpeed: Number(base.attackSpeed || 100),
+            attackRange: Number(base.attackRange || 60),
+            damageType: String(base.damageType || 'physical') === 'magic' ? 'magic' : 'physical',
+            maxHp
+        };
+    }
+
+    private computeDamageReduction(defense: number, level: number) {
+        const safeDefense = Math.max(0, Number(defense || 0));
+        const safeLevel = Math.max(1, Number(level || 1));
+        const k = 400 + safeLevel * 50;
+        return safeDefense / (safeDefense + k);
+    }
+
+    private computeDamageAfterMitigation(rawDamage: number, defense: number, targetLevel: number) {
+        const safeRaw = Math.max(1, Number(rawDamage || 1));
+        const reduction = this.computeDamageReduction(defense, targetLevel);
+        return Math.max(1, Math.floor(safeRaw * (1 - reduction)));
+    }
+
+    private computeHitChance(attackerAccuracy: number, defenderEvasion: number) {
+        const acc = Math.max(1, Number(attackerAccuracy || 1));
+        const eva = Math.max(0, Number(defenderEvasion || 0));
+        const base = 0.85 + ((acc - eva) / (acc + eva));
+        return clamp(base, 0.05, 0.98);
+    }
+
+    private getEntityLuck(entity: any) {
+        if (!entity) return 0;
+        const level = Math.max(1, Number(entity.level || 1));
+        if (entity.stats && typeof entity.stats === 'object') return Number(entity.stats.luck || 0);
+        const dex = Math.max(0, Number(entity.dex || 0));
+        return level / 2 + dex / 10;
+    }
+
+    private shouldLuckyStrike(attacker: any, defender: any) {
+        const atkLuck = this.getEntityLuck(attacker);
+        const defLuck = this.getEntityLuck(defender);
+        if (atkLuck < defLuck * 2) return false;
+        return Math.random() < LUCKY_STRIKE_CHANCE;
+    }
+
+    private getMobAccuracy(mob: any) {
+        const base = mob?.kind === 'boss' ? 90 : mob?.kind === 'subboss' ? 80 : mob?.kind === 'elite' ? 70 : 60;
+        return base;
+    }
+
+    private getMobEvasion(mob: any) {
+        return mob?.kind === 'boss' ? 16 : mob?.kind === 'subboss' ? 11 : mob?.kind === 'elite' ? 8 : 5;
+    }
+
     private persistPlayer(player: PlayerRuntime) {
         void this.persistence.savePlayer(player).catch((error) => {
             logEvent('ERROR', 'save_player_error', { playerId: player.id, error: String(error) });
         });
     }
 
-    private normalizeAllocatedStats(input: any): Record<AllocatableStat, number> {
+    private normalizeAllocatedStats(input: any): Record<PrimaryStat, number> {
         const source = input && typeof input === 'object' ? input : {};
+        const toInt = (v: any) => (Number.isFinite(Number(v)) ? Math.max(0, Math.floor(Number(v))) : 0);
+        const str = toInt(source.str ?? source.for ?? source.physicalAttack);
+        const int = toInt(source.int ?? source.magicAttack);
+        const dex = toInt(source.dex ?? source.des ?? source.magicDefense);
+        const vit = toInt(source.vit ?? source.physicalDefense);
         return {
-            physicalAttack: Number.isFinite(Number(source.physicalAttack)) ? Math.max(0, Math.floor(Number(source.physicalAttack))) : 0,
-            magicAttack: Number.isFinite(Number(source.magicAttack)) ? Math.max(0, Math.floor(Number(source.magicAttack))) : 0,
-            physicalDefense: Number.isFinite(Number(source.physicalDefense)) ? Math.max(0, Math.floor(Number(source.physicalDefense))) : 0,
-            magicDefense: Number.isFinite(Number(source.magicDefense)) ? Math.max(0, Math.floor(Number(source.magicDefense))) : 0
+            str,
+            int,
+            dex,
+            vit
         };
     }
 

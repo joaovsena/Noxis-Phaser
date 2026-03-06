@@ -57,14 +57,26 @@ model Item {
 }
 
 model MobTemplate {
-  id             String @id
-  kind           String
-  maxHp          Int
-  size           Int
-  color          String
-  xpReward       Int
+  id              String @id
+  kind            String
+  maxHp           Int
+  size            Int
+  color           String
+  xpReward        Int
   physicalDefense Int
-  magicDefense   Int
+  magicDefense    Int
+  aggroRange      Int?
+  leashRange      Int?
+  attackRange     Int?
+  attackCadenceMs Int?
+  moveSpeed       Int?
+  wanderRadius    Int?
+  repathMs        Int?
+  idleMinMs       Int?
+  idleMaxMs       Int?
+  luckyStrikeChance Float?
+  accuracy        Int?
+  evasion         Int?
 }
 
 model WorldLog {

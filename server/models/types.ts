@@ -56,6 +56,20 @@ export interface Mob {
     magicDefense: number;
     xpReward: number;
     mapId: string;
+    level?: number;
+    state?: 'idle' | 'wander' | 'aggro' | 'attack_windup' | 'leash_return';
+    homeX?: number;
+    homeY?: number;
+    spawnX?: number;
+    spawnY?: number;
+    wanderTargetX?: number | null;
+    wanderTargetY?: number | null;
+    nextThinkAt?: number;
+    nextAttackAt?: number;
+    nextRepathAt?: number;
+    ignoreDamage?: boolean;
+    hateTable?: Record<string, number>;
+    invulnerableUntil?: number;
     targetPlayerId?: number | null;
     lastAttackAt?: number;
 }
@@ -237,6 +251,11 @@ export interface FriendListMessage {
 export interface StatsAllocateMessage {
     type: 'stats.allocate';
     allocation: {
+        str?: number;
+        int?: number;
+        dex?: number;
+        vit?: number;
+        // Compatibilidade com payload legado.
         physicalAttack?: number;
         magicAttack?: number;
         physicalDefense?: number;

@@ -179,36 +179,71 @@ export const STATUS_BY_ID = Object.fromEntries(Object.entries(STATUS_IDS).map(([
 
 export const CLASS_TEMPLATES = {
     shifter: {
-        physicalAttack: 5,
-        magicAttack: 15,
-        physicalDefense: 5,
-        magicDefense: 5,
+        // Alias legado para Druida.
+        str: 5,
+        int: 12,
+        dex: 6,
+        vit: 9,
+        initialHp: 140,
         moveSpeed: 100,
         attackSpeed: 100,
         attackRange: 220,
-        damageType: 'magic',
-        maxHp: 110
+        damageType: 'magic'
     },
     knight: {
-        physicalAttack: 10,
-        magicAttack: 5,
-        physicalDefense: 10,
-        magicDefense: 10,
+        str: 10,
+        int: 5,
+        dex: 5,
+        vit: 12,
+        initialHp: 180,
         moveSpeed: 100,
         attackSpeed: 100,
         attackRange: 58,
-        damageType: 'physical',
-        maxHp: 140
+        damageType: 'physical'
+    },
+    archer: {
+        str: 8,
+        int: 5,
+        dex: 12,
+        vit: 7,
+        initialHp: 120,
+        moveSpeed: 110,
+        attackSpeed: 130,
+        attackRange: 220,
+        damageType: 'physical'
+    },
+    druid: {
+        str: 5,
+        int: 12,
+        dex: 6,
+        vit: 9,
+        initialHp: 140,
+        moveSpeed: 100,
+        attackSpeed: 100,
+        attackRange: 220,
+        damageType: 'magic'
     },
     bandit: {
-        physicalAttack: 10,
-        magicAttack: 5,
-        physicalDefense: 5,
-        magicDefense: 5,
+        // Alias legado para Assassino.
+        str: 9,
+        int: 4,
+        dex: 12,
+        vit: 5,
+        initialHp: 100,
         moveSpeed: 150,
         attackSpeed: 200,
         attackRange: 58,
-        damageType: 'physical',
-        maxHp: 100
+        damageType: 'physical'
+    },
+    assassin: {
+        str: 9,
+        int: 4,
+        dex: 12,
+        vit: 5,
+        initialHp: 100,
+        moveSpeed: 150,
+        attackSpeed: 200,
+        attackRange: 58,
+        damageType: 'physical'
     }
 };
