@@ -1,0 +1,39 @@
+import { GroundItem, PlayerRuntime } from '../models/types';
+type MapInstanceIdFn = (mapKey: string, mapId: string) => string;
+type PersistPlayerFn = (player: PlayerRuntime) => void;
+type RecomputePlayerStatsFn = (player: PlayerRuntime) => void;
+type SendInventoryStateFn = (player: PlayerRuntime) => void;
+type SendStatsUpdatedFn = (player: PlayerRuntime) => void;
+type NormalizeHotbarBindingsFn = (raw: any) => any;
+type FirstFreeInventorySlotFn = (items: any[], ignoreItemIds?: Set<string>) => number;
+type GetSpentSkillPointsFn = (player: PlayerRuntime) => number;
+type SendRawFn = (ws: any, payload: any) => void;
+export declare class InventoryService {
+    private readonly getGroundItems;
+    private readonly setGroundItems;
+    private readonly mapInstanceId;
+    private readonly persistPlayer;
+    private readonly recomputePlayerStats;
+    private readonly sendInventoryState;
+    private readonly sendStatsUpdated;
+    private readonly normalizeHotbarBindings;
+    private readonly firstFreeInventorySlot;
+    private readonly getSpentSkillPoints;
+    private readonly sendRaw;
+    constructor(getGroundItems: () => GroundItem[], setGroundItems: (items: GroundItem[]) => void, mapInstanceId: MapInstanceIdFn, persistPlayer: PersistPlayerFn, recomputePlayerStats: RecomputePlayerStatsFn, sendInventoryState: SendInventoryStateFn, sendStatsUpdated: SendStatsUpdatedFn, normalizeHotbarBindings: NormalizeHotbarBindingsFn, firstFreeInventorySlot: FirstFreeInventorySlotFn, getSpentSkillPoints: GetSpentSkillPointsFn, sendRaw: SendRawFn);
+    handlePickupItem(player: PlayerRuntime, msg: any): void;
+    handleHotbarSet(player: PlayerRuntime, msg: any): void;
+    handleEquipItem(player: PlayerRuntime, msg: any): void;
+    handleInventoryMove(player: PlayerRuntime, msg: any): void;
+    handleInventorySort(player: PlayerRuntime): void;
+    handleInventoryDelete(player: PlayerRuntime, msg: any): void;
+    handleInventoryUnequipToSlot(player: PlayerRuntime, msg: any): void;
+    handleItemUse(player: PlayerRuntime, msg: any): void;
+    normalizeInventorySlots(items: any[], equippedWeaponId?: string | null): any[];
+    addItemToInventory(player: PlayerRuntime, item: any, quantity: number): number;
+    private isStackableItem;
+    private getItemMaxStack;
+    private canItemsStack;
+}
+export {};
+//# sourceMappingURL=InventoryService.d.ts.map

@@ -2,11 +2,21 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.GameController = void 0;
 const crypto_1 = require("crypto");
+const ChatService_1 = require("../services/ChatService");
+const PartyService_1 = require("../services/PartyService");
+const FriendService_1 = require("../services/FriendService");
+const MapService_1 = require("../services/MapService");
+const MovementService_1 = require("../services/MovementService");
+const CombatService_1 = require("../services/CombatService");
+const InventoryService_1 = require("../services/InventoryService");
+const SkillEffectsService_1 = require("../services/SkillEffectsService");
+const SkillService_1 = require("../services/SkillService");
+const CombatRuntimeService_1 = require("../services/CombatRuntimeService");
+const CombatCoreService_1 = require("../services/CombatCoreService");
 const hash_1 = require("../utils/hash");
 const math_1 = require("../utils/math");
 const config_1 = require("../config");
 const logger_1 = require("../utils/logger");
-const tiledForestCollision_1 = require("../maps/tiledForestCollision");
 const PRIMARY_STATS = ['str', 'int', 'dex', 'vit'];
 const LEGACY_ALLOC_MAP = {
     physicalAttack: 'str',
@@ -18,21 +28,6 @@ const SOFT_CAP_THRESHOLD = 150;
 const SOFT_CAP_COST = 2;
 const BASE_POINT_COST = 1;
 const LUCKY_STRIKE_CHANCE = 0.15;
-const MOB_AI_CELL_SIZE = 512;
-const MOB_DECISION_MS = 500;
-const MOB_ATTACK_WINDUP_MS = 220;
-const MOB_LEASH_REGEN_PER_SEC = 0.10;
-const PARTY_WAYPOINT_TTL_MS = 10000;
-const PATHFIND_CELL_SIZE = 12;
-const PATHFIND_MAX_ITERS = 45000;
-const PATH_RECALC_MS = 280;
-const PATH_PROBE_RADIUS = Math.max(8, config_1.PLAYER_HALF_SIZE - 6);
-const PATH_STUCK_REPATH_MS = 520;
-const PATH_STUCK_TIMEOUT_MS = 1200;
-const PATH_NEARBY_GOAL_MAX_CANDIDATES = 72;
-const PATH_NEARBY_GOAL_MAX_RADIUS = 42;
-const PROJECT_TO_WALKABLE_MAX_RADIUS = 420;
-const PROJECT_TO_WALKABLE_ANGLE_STEPS = 64;
 const ATTRIBUTE_DRIVEN_OVERRIDE_KEYS = [
     'physicalAttack',
     'magicAttack',
@@ -44,8 +39,6 @@ const ATTRIBUTE_DRIVEN_OVERRIDE_KEYS = [
     'luck',
     'maxHp'
 ];
-const PATH_PLAN_RADIUS = Math.max(6, PATH_PROBE_RADIUS - 4);
-const MOVE_COLLISION_PADDING = 4;
 const SKILL_DEFS = {
     war_bastion_escudo_fe: { id: 'war_bastion_escudo_fe', classId: 'knight', name: 'Escudo da Fe', cooldownMs: 12000, target: 'self', buff: { id: 'escudo_fe', durationMs: 12000, defenseMul: 1.35, magicDefenseMul: 1.35 }, effectKey: 'war_shield' },
     war_bastion_muralha: { id: 'war_bastion_muralha', classId: 'knight', name: 'Muralha', cooldownMs: 14000, target: 'self', buff: { id: 'muralha', durationMs: 8000, reflect: 0.18, damageReduction: 0.15 }, effectKey: 'war_wall' },
@@ -105,17 +98,21 @@ class GameController {
         this.players = new Map();
         this.usernameToPlayerId = new Map();
         this.groundItems = [];
-        this.parties = new Map();
-        this.partyInvites = new Map();
-        this.partyJoinRequests = new Map();
-        this.friendLinks = new Map();
-        this.friendRequests = new Map();
-        this.friendRequestWindow = new Map();
         this.lastPartySyncAt = 0;
-        this.lastFriendDbPruneAt = 0;
         this.mobsPeacefulMode = false;
         this.persistence = persistence;
         this.mobService = mobService;
+        this.mapService = new MapService_1.MapService();
+        this.chatService = new ChatService_1.ChatService(this.players, this.sendRaw.bind(this), this.broadcastRaw.bind(this));
+        this.partyService = new PartyService_1.PartyService(this.players, this.sendRaw.bind(this), this.broadcastRaw.bind(this), this.persistPlayer.bind(this), this.getAreaIdForPlayer.bind(this));
+        this.friendService = new FriendService_1.FriendService(this.players, this.persistence, this.sendRaw.bind(this));
+        this.movementService = new MovementService_1.MovementService(this.mapService, this.getActiveSkillEffectAggregate.bind(this));
+        this.combatService = new CombatService_1.CombatService(this.players, this.mapInstanceId.bind(this), this.sendRaw.bind(this), this.partyService.hasParty.bind(this.partyService), this.partyService.arePlayersInSameParty.bind(this.partyService), this.tryPlayerAttack.bind(this));
+        this.inventoryService = new InventoryService_1.InventoryService(() => this.groundItems, (items) => { this.groundItems = items; }, this.mapInstanceId.bind(this), this.persistPlayer.bind(this), this.recomputePlayerStats.bind(this), this.sendInventoryState.bind(this), this.sendStatsUpdated.bind(this), this.normalizeHotbarBindings.bind(this), this.firstFreeInventorySlot.bind(this), this.getSpentSkillPoints.bind(this), this.sendRaw.bind(this));
+        this.skillEffectsService = new SkillEffectsService_1.SkillEffectsService(this.players, this.sendRaw.bind(this));
+        this.skillService = new SkillService_1.SkillService(SKILL_DEFS, this.sendRaw.bind(this), this.normalizeClassId.bind(this), this.getSkillLevel.bind(this), this.pruneExpiredSkillEffects.bind(this), this.applyTimedSkillEffect.bind(this), this.sendSkillEffect.bind(this), this.computeMobDamage.bind(this), this.applyDamageToMobAndHandleDeath.bind(this), this.broadcastMobHit.bind(this), this.applyOnHitSkillEffects.bind(this), this.hasActiveSkillEffect.bind(this), this.removeSkillEffectById.bind(this), this.getSkillPowerWithLevel.bind(this), this.sendStatsUpdated.bind(this), this.mapInstanceId.bind(this), () => this.mobService.getMobs(), (mapId) => this.mobService.getMobsByMap(mapId), this.getSkillPrerequisite.bind(this), this.normalizeSkillLevels.bind(this), this.getAvailableSkillPoints.bind(this), this.recomputePlayerStats.bind(this), this.persistPlayer.bind(this));
+        this.combatRuntimeService = new CombatRuntimeService_1.CombatRuntimeService(this.players, this.mobService, () => this.mobsPeacefulMode, this.mapInstanceId.bind(this), this.projectToWalkable.bind(this), this.recalculatePathToward.bind(this), this.getActiveSkillEffectAggregate.bind(this), this.computeHitChance.bind(this), this.getMobEvasion.bind(this), this.computeMobDamage.bind(this), this.applyDamageToMobAndHandleDeath.bind(this), this.applyOnHitSkillEffects.bind(this), this.sendStatsUpdated.bind(this), this.broadcastMobHit.bind(this), this.sendRaw.bind(this), this.persistPlayer.bind(this), this.syncAllPartyStates.bind(this), this.tryPlayerAttack.bind(this), this.getPvpAttackPermission.bind(this), this.isBlockedAt.bind(this), this.computeDamageAfterMitigation.bind(this));
+        this.combatCoreService = new CombatCoreService_1.CombatCoreService(this.players, this.mobService, this.getPvpAttackPermission.bind(this), this.sendRaw.bind(this), this.getActiveSkillEffectAggregate.bind(this), this.computeHitChance.bind(this), this.shouldLuckyStrike.bind(this), this.computeDamageAfterMitigation.bind(this), this.applyOnHitSkillEffects.bind(this), this.sendStatsUpdated.bind(this), this.persistPlayer.bind(this), this.syncAllPartyStates.bind(this), this.grantXp.bind(this), this.mapInstanceId.bind(this), this.computeLootDropPosition.bind(this), this.pickRandomWeaponTemplate.bind(this), this.dropWeaponAt.bind(this), this.dropHpPotionAt.bind(this), this.dropSkillResetHourglassAt.bind(this));
     }
     async handleAuth(ws, msg) {
         if (msg.type === 'auth_register') {
@@ -424,27 +421,7 @@ class GameController {
         return runtime;
     }
     handleMove(player, msg) {
-        if (player.dead || player.hp <= 0)
-            return;
-        const incomingX = Number(msg.x);
-        const incomingY = Number(msg.y);
-        player.autoAttackActive = false;
-        player.attackTargetId = null;
-        player.pvpAutoAttackActive = false;
-        player.attackTargetPlayerId = null;
-        const destinationX = (0, math_1.clamp)(Number.isFinite(incomingX) ? incomingX : player.x, 0, config_1.WORLD.width);
-        const destinationY = (0, math_1.clamp)(Number.isFinite(incomingY) ? incomingY : player.y, 0, config_1.WORLD.height);
-        this.assignPathTo(player, destinationX, destinationY);
-        player.ws.send(JSON.stringify({
-            type: 'move_ack',
-            reqId: msg.reqId,
-            targetX: player.targetX,
-            targetY: player.targetY,
-            projectedX: player.pathDestinationX,
-            projectedY: player.pathDestinationY,
-            pathNodes: Array.isArray(player.movePath) ? player.movePath : [],
-            pathNodesRaw: Array.isArray(player.rawMovePath) ? player.rawMovePath : []
-        }));
+        this.movementService.handleMove(player, msg);
     }
     handleTargetMob(player, msg) {
         if (player.dead || player.hp <= 0)
@@ -466,41 +443,7 @@ class GameController {
         player.attackTargetId = mob.id;
     }
     handleChat(player, msg) {
-        const scope = msg.scope === 'global' || msg.scope === 'map' ? msg.scope : 'local';
-        const text = String(msg.text || '').trim();
-        if (!text)
-            return;
-        const payload = {
-            type: 'chat_message',
-            id: (0, crypto_1.randomUUID)(),
-            fromId: player.id,
-            scope,
-            from: player.name,
-            mapId: player.mapId,
-            mapKey: player.mapKey,
-            text: text.slice(0, 180),
-            at: Date.now()
-        };
-        if (scope === 'global') {
-            this.broadcastRaw(payload);
-            return;
-        }
-        this.sendRaw(player.ws, payload);
-        for (const receiver of this.players.values()) {
-            if (receiver.id === player.id)
-                continue;
-            if (scope === 'map') {
-                if (receiver.mapId !== player.mapId || receiver.mapKey !== player.mapKey)
-                    continue;
-                this.sendRaw(receiver.ws, payload);
-                continue;
-            }
-            if (receiver.mapId !== player.mapId || receiver.mapKey !== player.mapKey)
-                continue;
-            if ((0, math_1.distance)(receiver, player) > config_1.LOCAL_CHAT_RADIUS)
-                continue;
-            this.sendRaw(receiver.ws, payload);
-        }
+        this.chatService.handleChat(player, msg);
     }
     handleSwitchInstance(player, msg) {
         if (player.dead || player.hp <= 0)
@@ -527,223 +470,28 @@ class GameController {
         this.sendPartyAreaList(player);
     }
     handlePickupItem(player, msg) {
-        const itemId = String(msg.itemId || '');
-        const index = this.groundItems.findIndex((it) => it.id === itemId && it.mapId === this.mapInstanceId(player.mapKey, player.mapId));
-        if (index === -1)
-            return;
-        const item = this.groundItems[index];
-        if (typeof item.expiresAt === 'number' && item.expiresAt <= Date.now()) {
-            this.groundItems.splice(index, 1);
-            return;
-        }
-        if ((0, math_1.distance)(player, item) > config_1.ITEM_PICKUP_RANGE)
-            return;
-        let remaining = Math.max(1, Math.floor(Number(item.quantity || 1)));
-        remaining = this.addItemToInventory(player, item, remaining);
-        if (remaining <= 0) {
-            this.groundItems.splice(index, 1);
-        }
-        else {
-            this.groundItems[index] = { ...item, quantity: remaining };
-        }
-        this.persistPlayer(player);
-        this.sendInventoryState(player);
+        this.inventoryService.handlePickupItem(player, msg);
     }
     handleHotbarSet(player, msg) {
-        const raw = msg && typeof msg.bindings === 'object' ? msg.bindings : null;
-        if (!raw)
-            return;
-        const normalized = this.normalizeHotbarBindings(raw);
-        if (!player.statusOverrides || typeof player.statusOverrides !== 'object')
-            player.statusOverrides = {};
-        player.statusOverrides.__hotbarBindings = normalized;
-        this.persistPlayer(player);
+        this.inventoryService.handleHotbarSet(player, msg);
     }
     handleEquipItem(player, msg) {
-        const itemId = msg.itemId ? String(msg.itemId) : null;
-        if (!itemId) {
-            const equipped = player.equippedWeaponId
-                ? player.inventory.find((it) => it.id === player.equippedWeaponId && it.type === 'weapon')
-                : null;
-            if (equipped && (!Number.isInteger(equipped.slotIndex) || equipped.slotIndex < 0)) {
-                equipped.slotIndex = this.firstFreeInventorySlot(player.inventory, new Set([equipped.id]));
-            }
-            player.equippedWeaponId = null;
-            player.inventory = this.normalizeInventorySlots(player.inventory, null);
-            this.recomputePlayerStats(player);
-            this.persistPlayer(player);
-            this.sendInventoryState(player);
-            return;
-        }
-        const found = player.inventory.find((it) => it.id === itemId && it.type === 'weapon');
-        if (!found)
-            return;
-        const previousEquippedId = player.equippedWeaponId && player.equippedWeaponId !== found.id ? player.equippedWeaponId : null;
-        if (previousEquippedId) {
-            const oldEquipped = player.inventory.find((it) => it.id === previousEquippedId && it.type === 'weapon');
-            if (oldEquipped) {
-                oldEquipped.slotIndex = Number.isInteger(found.slotIndex) && found.slotIndex >= 0
-                    ? found.slotIndex
-                    : this.firstFreeInventorySlot(player.inventory, new Set([oldEquipped.id, found.id]));
-            }
-        }
-        found.slotIndex = -1;
-        player.equippedWeaponId = found.id;
-        player.inventory = this.normalizeInventorySlots(player.inventory, player.equippedWeaponId);
-        this.recomputePlayerStats(player);
-        this.persistPlayer(player);
-        this.sendInventoryState(player);
+        this.inventoryService.handleEquipItem(player, msg);
     }
     handleInventoryMove(player, msg) {
-        const itemId = String(msg.itemId || '');
-        const toSlot = Number(msg.toSlot);
-        if (!Number.isInteger(toSlot) || toSlot < 0 || toSlot >= config_1.INVENTORY_SIZE)
-            return;
-        if (player.equippedWeaponId && player.equippedWeaponId === itemId)
-            return;
-        const item = player.inventory.find((it) => it.id === itemId);
-        if (!item)
-            return;
-        const occupant = player.inventory.find((it) => it.slotIndex === toSlot);
-        const fromSlot = item.slotIndex;
-        if (occupant && occupant.id !== item.id && this.canItemsStack(occupant, item)) {
-            const max = Math.min(this.getItemMaxStack(occupant), this.getItemMaxStack(item));
-            const occupantQty = Math.max(1, Math.floor(Number(occupant.quantity || 1)));
-            const itemQty = Math.max(1, Math.floor(Number(item.quantity || 1)));
-            const room = Math.max(0, max - occupantQty);
-            if (room > 0) {
-                const moved = Math.min(room, itemQty);
-                occupant.quantity = occupantQty + moved;
-                occupant.stackable = true;
-                occupant.maxStack = max;
-                const remaining = itemQty - moved;
-                if (remaining <= 0) {
-                    const idx = player.inventory.findIndex((it) => it.id === item.id);
-                    if (idx !== -1)
-                        player.inventory.splice(idx, 1);
-                }
-                else {
-                    item.quantity = remaining;
-                    item.stackable = true;
-                    item.maxStack = max;
-                    item.slotIndex = fromSlot;
-                }
-                player.inventory = this.normalizeInventorySlots(player.inventory, player.equippedWeaponId);
-                this.persistPlayer(player);
-                this.sendInventoryState(player);
-                return;
-            }
-        }
-        item.slotIndex = toSlot;
-        if (occupant && occupant.id !== item.id)
-            occupant.slotIndex = fromSlot;
-        player.inventory = this.normalizeInventorySlots(player.inventory, player.equippedWeaponId);
-        this.persistPlayer(player);
-        this.sendInventoryState(player);
+        this.inventoryService.handleInventoryMove(player, msg);
     }
     handleInventorySort(player) {
-        const equippedId = player.equippedWeaponId || null;
-        const sorted = [...player.inventory]
-            .filter((it) => it.id !== equippedId)
-            .sort((a, b) => {
-            const byName = String(a.name || '').localeCompare(String(b.name || ''));
-            if (byName !== 0)
-                return byName;
-            return String(a.id).localeCompare(String(b.id));
-        });
-        for (let i = 0; i < sorted.length && i < config_1.INVENTORY_SIZE; i++) {
-            sorted[i].slotIndex = i;
-        }
-        if (equippedId) {
-            const equipped = player.inventory.find((it) => it.id === equippedId);
-            if (equipped)
-                sorted.push({ ...equipped, slotIndex: -1 });
-        }
-        player.inventory = this.normalizeInventorySlots(sorted, player.equippedWeaponId);
-        this.persistPlayer(player);
-        this.sendInventoryState(player);
+        this.inventoryService.handleInventorySort(player);
     }
     handleInventoryDelete(player, msg) {
-        const itemId = String(msg.itemId || '');
-        const index = player.inventory.findIndex((it) => it.id === itemId);
-        if (index === -1)
-            return;
-        if (player.equippedWeaponId === itemId) {
-            player.equippedWeaponId = null;
-            this.recomputePlayerStats(player);
-        }
-        player.inventory.splice(index, 1);
-        player.inventory = this.normalizeInventorySlots(player.inventory, player.equippedWeaponId);
-        this.persistPlayer(player);
-        this.sendInventoryState(player);
+        this.inventoryService.handleInventoryDelete(player, msg);
     }
     handleInventoryUnequipToSlot(player, msg) {
-        const itemId = String(msg.itemId || '');
-        const toSlot = Number(msg.toSlot);
-        if (!Number.isInteger(toSlot) || toSlot < 0 || toSlot >= config_1.INVENTORY_SIZE)
-            return;
-        if (player.equippedWeaponId !== itemId)
-            return;
-        const item = player.inventory.find((it) => it.id === itemId);
-        if (!item)
-            return;
-        const occupant = player.inventory.find((it) => it.slotIndex === toSlot && it.id !== itemId);
-        const fromSlot = item.slotIndex;
-        item.slotIndex = toSlot;
-        if (occupant)
-            occupant.slotIndex = fromSlot;
-        player.equippedWeaponId = null;
-        this.recomputePlayerStats(player);
-        player.inventory = this.normalizeInventorySlots(player.inventory, player.equippedWeaponId);
-        this.persistPlayer(player);
-        this.sendInventoryState(player);
+        this.inventoryService.handleInventoryUnequipToSlot(player, msg);
     }
     handleItemUse(player, msg) {
-        if (player.dead || player.hp <= 0)
-            return;
-        const itemId = String(msg?.itemId || '');
-        if (!itemId)
-            return;
-        const index = player.inventory.findIndex((it) => String(it?.id || '') === itemId);
-        if (index === -1)
-            return;
-        const item = player.inventory[index];
-        const itemType = String(item?.type || '');
-        if (itemType !== 'potion_hp' && itemType !== 'skill_reset_hourglass')
-            return;
-        let returnedPoints = 0;
-        if (itemType === 'potion_hp') {
-            const healPercent = Number.isFinite(Number(item?.healPercent)) ? Number(item.healPercent) : Number(config_1.HP_POTION_TEMPLATE.healPercent || 0.5);
-            const amount = Math.max(1, Math.floor(Number(player.maxHp || 1) * Math.max(0, healPercent)));
-            player.hp = (0, math_1.clamp)(Number(player.hp || 0) + amount, 1, Number(player.maxHp || 1));
-        }
-        else {
-            returnedPoints = this.getSpentSkillPoints(player);
-            player.skillLevels = {};
-            if (!player.statusOverrides || typeof player.statusOverrides !== 'object')
-                player.statusOverrides = {};
-            player.statusOverrides.__skillLevels = {};
-            player.skillCooldowns = {};
-            player.activeSkillEffects = [];
-            this.recomputePlayerStats(player);
-        }
-        const quantity = Math.max(1, Math.floor(Number(item.quantity || 1)));
-        if (quantity > 1) {
-            item.quantity = quantity - 1;
-        }
-        else {
-            player.inventory.splice(index, 1);
-        }
-        player.inventory = this.normalizeInventorySlots(player.inventory, player.equippedWeaponId);
-        this.persistPlayer(player);
-        this.sendInventoryState(player);
-        this.sendStatsUpdated(player);
-        if (itemType === 'skill_reset_hourglass') {
-            this.sendRaw(player.ws, {
-                type: 'system_message',
-                text: `Ampulheta usada: habilidades resetadas e ${returnedPoints} ponto(s) devolvido(s).`
-            });
-        }
+        this.inventoryService.handleItemUse(player, msg);
     }
     async handleAdminCommand(player, msg) {
         if (player.role !== 'adm')
@@ -976,494 +724,52 @@ class GameController {
         });
     }
     handlePartyCreate(player) {
-        if (player.partyId && this.parties.has(player.partyId)) {
-            this.sendPartyError(player, 'Voce ja esta em um grupo.');
-            return;
-        }
-        const partyId = (0, crypto_1.randomUUID)();
-        const party = {
-            id: partyId,
-            leaderId: player.id,
-            memberIds: [player.id],
-            createdAt: Date.now(),
-            areaId: this.getAreaIdForPlayer(player),
-            maxMembers: config_1.PARTY_MAX_MEMBERS
-        };
-        this.parties.set(partyId, party);
-        player.partyId = partyId;
-        this.syncPartyStateForMembers(party, true);
-        this.sendPartyAreaList(player);
+        this.partyService.handlePartyCreate(player);
     }
     handlePartyInvite(player, msg) {
-        const targetName = String(msg.targetName || '').trim().toLowerCase();
-        if (!targetName)
-            return;
-        const party = player.partyId ? this.parties.get(player.partyId) : null;
-        if (!party) {
-            this.sendPartyError(player, 'Crie um grupo antes de convidar.');
-            return;
-        }
-        if (party.leaderId !== player.id) {
-            this.sendPartyError(player, 'Somente o lider pode convidar.');
-            return;
-        }
-        if (party.memberIds.length >= party.maxMembers) {
-            this.sendPartyError(player, 'Grupo cheio.');
-            return;
-        }
-        const target = [...this.players.values()].find((candidate) => {
-            const byName = String(candidate.name || '').toLowerCase() === targetName;
-            const byUsername = String(candidate.username || '').toLowerCase() === targetName;
-            return byName || byUsername;
-        });
-        if (!target) {
-            this.sendPartyError(player, 'Jogador alvo nao encontrado pelo nome.');
-            return;
-        }
-        if (target.id === player.id) {
-            this.sendPartyError(player, 'Voce nao pode convidar a si mesmo.');
-            return;
-        }
-        if (target.partyId && this.parties.has(target.partyId)) {
-            this.sendPartyError(player, 'Jogador alvo ja esta em grupo.');
-            return;
-        }
-        if (this.getAreaIdForPlayer(target) !== this.getAreaIdForPlayer(player)) {
-            this.sendPartyError(player, 'Jogador alvo esta em outra area.');
-            return;
-        }
-        const now = Date.now();
-        this.pruneExpiredPartyInvites(now);
-        for (const invite of this.partyInvites.values()) {
-            if (invite.fromPlayerId === player.id && invite.toPlayerId === target.id) {
-                this.sendPartyError(player, 'Convite para esse jogador ja esta pendente.');
-                return;
-            }
-        }
-        const invite = {
-            id: (0, crypto_1.randomUUID)(),
-            partyId: party.id,
-            fromPlayerId: player.id,
-            toPlayerId: target.id,
-            expiresAt: now + config_1.PARTY_INVITE_TTL_MS
-        };
-        this.partyInvites.set(invite.id, invite);
-        this.sendRaw(target.ws, {
-            type: 'party.inviteReceived',
-            inviteId: invite.id,
-            fromPlayerId: player.id,
-            fromName: player.name,
-            partyId: party.id,
-            expiresIn: config_1.PARTY_INVITE_TTL_MS
-        });
-        this.sendRaw(player.ws, { type: 'system_message', text: `Convite enviado para ${target.name}.` });
+        this.partyService.handlePartyInvite(player, msg);
     }
     handlePartyAcceptInvite(player, msg) {
-        const partyId = String(msg.partyId || '');
-        const inviteId = String(msg.inviteId || '');
-        const now = Date.now();
-        this.pruneExpiredPartyInvites(now);
-        const invite = inviteId
-            ? this.partyInvites.get(inviteId) || null
-            : [...this.partyInvites.values()].find((it) => it.partyId === partyId && it.toPlayerId === player.id) || null;
-        if (!invite) {
-            this.sendPartyError(player, 'Convite invalido ou expirado.');
-            return;
-        }
-        if (invite.toPlayerId !== player.id) {
-            this.sendPartyError(player, 'Convite invalido para este jogador.');
-            return;
-        }
-        const party = this.parties.get(partyId);
-        if (!party) {
-            this.partyInvites.delete(invite.id);
-            this.sendPartyError(player, 'Grupo nao existe mais.');
-            return;
-        }
-        if (party.memberIds.length >= party.maxMembers) {
-            this.partyInvites.delete(invite.id);
-            this.sendPartyError(player, 'Grupo cheio.');
-            return;
-        }
-        if (player.partyId && this.parties.has(player.partyId)) {
-            this.partyInvites.delete(invite.id);
-            this.sendPartyError(player, 'Voce ja esta em outro grupo.');
-            return;
-        }
-        party.memberIds.push(player.id);
-        player.partyId = party.id;
-        this.partyInvites.delete(invite.id);
-        this.syncPartyStateForMembers(party, true);
-        this.sendPartyAreaList(player);
-        const inviter = this.players.get(invite.fromPlayerId);
-        if (inviter) {
-            this.sendRaw(inviter.ws, { type: 'system_message', text: `${player.name} aceitou seu convite de grupo.` });
-        }
+        this.partyService.handlePartyAcceptInvite(player, msg);
     }
     handlePartyDeclineInvite(player, msg) {
-        const partyId = String(msg.partyId || '');
-        const inviteId = String(msg.inviteId || '');
-        if (inviteId) {
-            const invite = this.partyInvites.get(inviteId);
-            if (!invite || invite.toPlayerId !== player.id)
-                return;
-            this.partyInvites.delete(inviteId);
-            const inviter = this.players.get(invite.fromPlayerId);
-            if (inviter) {
-                this.sendRaw(inviter.ws, { type: 'system_message', text: `${player.name} recusou seu convite de grupo.` });
-            }
-            return;
-        }
-        for (const [storedInviteId, invite] of this.partyInvites.entries()) {
-            if (invite.partyId === partyId && invite.toPlayerId === player.id) {
-                this.partyInvites.delete(storedInviteId);
-                const inviter = this.players.get(invite.fromPlayerId);
-                if (inviter) {
-                    this.sendRaw(inviter.ws, { type: 'system_message', text: `${player.name} recusou seu convite de grupo.` });
-                }
-                return;
-            }
-        }
+        this.partyService.handlePartyDeclineInvite(player, msg);
     }
     handlePartyLeave(player) {
-        this.removePlayerFromParty(player);
+        this.partyService.handlePartyLeave(player);
     }
     handlePartyKick(player, msg) {
-        const targetPlayerId = Number(msg.targetPlayerId);
-        if (!Number.isInteger(targetPlayerId))
-            return;
-        const party = player.partyId ? this.parties.get(player.partyId) : null;
-        if (!party)
-            return;
-        if (party.leaderId !== player.id) {
-            this.sendPartyError(player, 'Somente o lider pode expulsar.');
-            return;
-        }
-        if (targetPlayerId === player.id) {
-            this.sendPartyError(player, 'Use sair para deixar o grupo.');
-            return;
-        }
-        if (!party.memberIds.includes(targetPlayerId))
-            return;
-        const target = this.players.get(targetPlayerId);
-        if (target) {
-            target.partyId = null;
-            if (target.pvpMode === 'group') {
-                target.pvpMode = 'peace';
-                this.broadcastRaw({
-                    type: 'player.pvpModeUpdated',
-                    playerId: target.id,
-                    mode: 'peace'
-                });
-                this.persistPlayer(target);
-            }
-            this.sendPartyStateToPlayer(target, null);
-        }
-        party.memberIds = party.memberIds.filter((id) => id !== targetPlayerId);
-        if (party.memberIds.length === 0) {
-            this.clearJoinRequestsForParty(party.id);
-            this.parties.delete(party.id);
-            return;
-        }
-        this.syncPartyStateForMembers(party, true);
+        this.partyService.handlePartyKick(player, msg);
     }
     handlePartyPromote(player, msg) {
-        const targetPlayerId = Number(msg.targetPlayerId);
-        if (!Number.isInteger(targetPlayerId))
-            return;
-        const party = player.partyId ? this.parties.get(player.partyId) : null;
-        if (!party)
-            return;
-        if (party.leaderId !== player.id) {
-            this.sendPartyError(player, 'Somente o lider pode promover.');
-            return;
-        }
-        if (!party.memberIds.includes(targetPlayerId))
-            return;
-        party.leaderId = targetPlayerId;
-        this.clearJoinRequestsForParty(party.id);
-        this.syncPartyStateForMembers(party, true);
+        this.partyService.handlePartyPromote(player, msg);
     }
     handlePartyRequestAreaParties(player) {
-        this.sendPartyAreaList(player);
+        this.partyService.handlePartyRequestAreaParties(player);
     }
     handlePartyRequestJoin(player, msg) {
-        const partyId = String(msg.partyId || '');
-        const party = this.parties.get(partyId);
-        if (!party) {
-            this.sendPartyError(player, 'Grupo nao encontrado.');
-            return;
-        }
-        if (player.partyId && this.parties.has(player.partyId)) {
-            this.sendPartyError(player, 'Voce ja esta em um grupo.');
-            return;
-        }
-        if (party.memberIds.length >= party.maxMembers) {
-            this.sendPartyError(player, 'Grupo cheio.');
-            return;
-        }
-        if (this.getAreaIdForPlayer(player) !== party.areaId) {
-            this.sendPartyError(player, 'Voce precisa estar na mesma area do grupo.');
-            return;
-        }
-        const now = Date.now();
-        this.pruneExpiredPartyJoinRequests(now);
-        for (const req of this.partyJoinRequests.values()) {
-            if (req.partyId === party.id && req.fromPlayerId === player.id) {
-                this.sendPartyError(player, 'Solicitacao de entrada ja enviada.');
-                return;
-            }
-        }
-        const request = {
-            id: (0, crypto_1.randomUUID)(),
-            partyId: party.id,
-            fromPlayerId: player.id,
-            toLeaderId: party.leaderId,
-            expiresAt: now + config_1.PARTY_JOIN_REQUEST_TTL_MS
-        };
-        this.partyJoinRequests.set(request.id, request);
-        const leader = this.players.get(party.leaderId);
-        if (leader) {
-            this.sendRaw(leader.ws, {
-                type: 'party.joinRequestReceived',
-                requestId: request.id,
-                partyId: party.id,
-                fromPlayerId: player.id,
-                fromName: player.name,
-                expiresIn: config_1.PARTY_JOIN_REQUEST_TTL_MS
-            });
-        }
-        this.sendRaw(player.ws, { type: 'system_message', text: 'Solicitacao enviada ao lider do grupo.' });
+        this.partyService.handlePartyRequestJoin(player, msg);
     }
     handlePartyApproveJoin(player, msg) {
-        const requestId = String(msg.requestId || '');
-        const accept = Boolean(msg.accept);
-        const now = Date.now();
-        this.pruneExpiredPartyJoinRequests(now);
-        const request = this.partyJoinRequests.get(requestId);
-        if (!request) {
-            this.sendPartyError(player, 'Solicitacao invalida ou expirada.');
-            return;
-        }
-        const party = this.parties.get(request.partyId);
-        if (!party) {
-            this.partyJoinRequests.delete(requestId);
-            this.sendPartyError(player, 'Grupo nao existe mais.');
-            return;
-        }
-        if (party.leaderId !== player.id || request.toLeaderId !== player.id) {
-            this.sendPartyError(player, 'Somente o lider pode aprovar.');
-            return;
-        }
-        const requester = this.players.get(request.fromPlayerId);
-        this.partyJoinRequests.delete(requestId);
-        if (!accept) {
-            if (requester) {
-                this.sendRaw(requester.ws, { type: 'party.joinRequestResult', ok: false, message: 'Solicitacao recusada.' });
-            }
-            this.sendRaw(player.ws, { type: 'system_message', text: 'Solicitacao de entrada recusada.' });
-            return;
-        }
-        if (!requester) {
-            this.sendPartyError(player, 'Jogador solicitante nao esta online.');
-            return;
-        }
-        if (requester.partyId && this.parties.has(requester.partyId)) {
-            this.sendPartyError(player, 'Jogador solicitante ja entrou em outro grupo.');
-            return;
-        }
-        if (party.memberIds.length >= party.maxMembers) {
-            this.sendPartyError(player, 'Grupo cheio.');
-            return;
-        }
-        party.memberIds.push(requester.id);
-        requester.partyId = party.id;
-        this.clearJoinRequestsForPlayer(requester.id);
-        this.syncPartyStateForMembers(party, true);
-        this.sendRaw(requester.ws, { type: 'party.joinRequestResult', ok: true, message: 'Entrada no grupo aprovada.' });
-        this.sendRaw(player.ws, { type: 'system_message', text: `${requester.name} entrou no grupo.` });
+        this.partyService.handlePartyApproveJoin(player, msg);
     }
     handlePartyWaypointPing(player, msg) {
-        const party = player.partyId ? this.parties.get(player.partyId) : null;
-        if (!party) {
-            this.sendPartyError(player, 'Voce precisa estar em grupo para marcar waypoint.');
-            return;
-        }
-        if (!party.memberIds.includes(player.id)) {
-            return;
-        }
-        const x = Number(msg?.x);
-        const y = Number(msg?.y);
-        if (!Number.isFinite(x) || !Number.isFinite(y)) {
-            return;
-        }
-        const waypointX = (0, math_1.clamp)(x, 0, config_1.WORLD.width);
-        const waypointY = (0, math_1.clamp)(y, 0, config_1.WORLD.height);
-        const createdAt = Date.now();
-        const payload = {
-            type: 'party.waypointPing',
-            waypointId: (0, crypto_1.randomUUID)(),
-            partyId: party.id,
-            fromPlayerId: player.id,
-            fromName: player.name,
-            mapKey: player.mapKey,
-            mapId: player.mapId,
-            x: waypointX,
-            y: waypointY,
-            createdAt,
-            expiresIn: PARTY_WAYPOINT_TTL_MS
-        };
-        for (const memberId of party.memberIds) {
-            const member = this.players.get(memberId);
-            if (!member)
-                continue;
-            this.sendRaw(member.ws, payload);
-        }
+        this.partyService.handlePartyWaypointPing(player, msg);
     }
     async handleFriendRequest(player, msg) {
-        const byId = Number(msg?.targetPlayerId);
-        const byName = String(msg?.targetName || '').trim().toLowerCase();
-        let target;
-        if (Number.isInteger(byId)) {
-            target = this.players.get(byId);
-        }
-        else if (byName) {
-            target = [...this.players.values()].find((candidate) => {
-                const name = String(candidate.name || '').toLowerCase();
-                const username = String(candidate.username || '').toLowerCase();
-                return name === byName || username === byName;
-            });
-        }
-        else {
-            return;
-        }
-        if (!target) {
-            this.sendFriendError(player, 'Jogador alvo nao esta online.');
-            return;
-        }
-        if (target.id === player.id) {
-            this.sendFriendError(player, 'Voce nao pode adicionar a si mesmo.');
-            return;
-        }
-        if (this.areFriends(player.id, target.id)) {
-            this.sendFriendError(player, 'Esse jogador ja esta na sua lista de amigos.');
-            return;
-        }
-        if (!this.consumeFriendRequestRate(player.id)) {
-            this.sendFriendError(player, 'Muitas solicitacoes de amizade. Aguarde um pouco.');
-            return;
-        }
-        const alreadyPending = [...this.friendRequests.values()].some((req) => {
-            const pairA = req.fromPlayerId === player.id && req.toPlayerId === target.id;
-            const pairB = req.fromPlayerId === target.id && req.toPlayerId === player.id;
-            return pairA || pairB;
-        });
-        const dbPending = await this.persistence.findPendingFriendRequestBetween(player.id, target.id);
-        if (alreadyPending || dbPending) {
-            this.sendFriendError(player, 'Ja existe solicitacao pendente entre voces.');
-            return;
-        }
-        const now = Date.now();
-        const request = {
-            id: '',
-            fromPlayerId: player.id,
-            toPlayerId: target.id,
-            createdAt: now,
-            expiresAt: now + 30000
-        };
-        const created = await this.persistence.createFriendRequest(player.id, target.id, new Date(request.expiresAt));
-        request.id = String(created.id);
-        this.friendRequests.set(request.id, request);
-        this.sendRaw(target.ws, {
-            type: 'friend.requestReceived',
-            requestId: request.id,
-            fromPlayerId: player.id,
-            fromName: player.name,
-            expiresIn: 30000
-        });
-        this.sendRaw(player.ws, { type: 'system_message', text: `Solicitacao de amizade enviada para ${target.name}.` });
-        this.sendFriendState(player);
-        this.sendFriendState(target);
+        await this.friendService.handleFriendRequest(player, msg);
     }
     async handleFriendAccept(player, msg) {
-        const requestId = String(msg.requestId || '');
-        if (!requestId)
-            return;
-        await this.pruneExpiredFriendRequests(Date.now());
-        const request = this.friendRequests.get(requestId);
-        let safeRequest = request || null;
-        if (!safeRequest) {
-            const dbReq = await this.persistence.getPendingFriendRequestById(Number(requestId));
-            if (dbReq) {
-                safeRequest = {
-                    id: String(dbReq.id),
-                    fromPlayerId: dbReq.fromPlayerId,
-                    toPlayerId: dbReq.toPlayerId,
-                    createdAt: dbReq.createdAt.getTime(),
-                    expiresAt: dbReq.expiresAt.getTime()
-                };
-                this.friendRequests.set(safeRequest.id, safeRequest);
-            }
-        }
-        if (!safeRequest || safeRequest.toPlayerId !== player.id) {
-            this.sendFriendError(player, 'Solicitacao de amizade invalida.');
-            return;
-        }
-        const from = this.players.get(safeRequest.fromPlayerId);
-        this.linkFriends(safeRequest.fromPlayerId, safeRequest.toPlayerId);
-        await this.persistence.createFriendship(safeRequest.fromPlayerId, safeRequest.toPlayerId);
-        await this.persistence.completeFriendRequest(Number(safeRequest.id), 'accepted');
-        this.friendRequests.delete(safeRequest.id);
-        if (from) {
-            this.sendRaw(from.ws, { type: 'system_message', text: `${player.name} aceitou seu pedido de amizade.` });
-            this.sendFriendState(from);
-        }
-        this.sendFriendState(player);
+        await this.friendService.handleFriendAccept(player, msg);
     }
     async handleFriendDecline(player, msg) {
-        const requestId = String(msg.requestId || '');
-        if (!requestId)
-            return;
-        let request = this.friendRequests.get(requestId) || null;
-        if (!request) {
-            const dbReq = await this.persistence.getPendingFriendRequestById(Number(requestId));
-            if (dbReq) {
-                request = {
-                    id: String(dbReq.id),
-                    fromPlayerId: dbReq.fromPlayerId,
-                    toPlayerId: dbReq.toPlayerId,
-                    createdAt: dbReq.createdAt.getTime(),
-                    expiresAt: dbReq.expiresAt.getTime()
-                };
-                this.friendRequests.set(request.id, request);
-            }
-        }
-        if (!request || request.toPlayerId !== player.id) {
-            this.sendFriendError(player, 'Solicitacao de amizade invalida.');
-            return;
-        }
-        const from = this.players.get(request.fromPlayerId);
-        await this.persistence.completeFriendRequest(Number(request.id), 'declined');
-        this.friendRequests.delete(request.id);
-        if (from) {
-            this.sendRaw(from.ws, { type: 'system_message', text: `${player.name} recusou seu pedido de amizade.` });
-            this.sendFriendState(from);
-        }
-        this.sendFriendState(player);
+        await this.friendService.handleFriendDecline(player, msg);
     }
     async handleFriendRemove(player, msg) {
-        const friendPlayerId = Number(msg.friendPlayerId);
-        if (!Number.isInteger(friendPlayerId))
-            return;
-        this.unlinkFriends(player.id, friendPlayerId);
-        await this.persistence.deleteFriendship(player.id, friendPlayerId);
-        this.sendFriendState(player);
-        const other = this.players.get(friendPlayerId);
-        if (other)
-            this.sendFriendState(other);
+        await this.friendService.handleFriendRemove(player, msg);
     }
     handleFriendList(player) {
-        this.sendFriendState(player);
+        this.friendService.handleFriendList(player);
     }
     handleAdminSetMobPeaceful(player, msg) {
         if (player.role !== 'adm')
@@ -1489,7 +795,7 @@ class GameController {
     handleSetPvpMode(player, msg) {
         const rawMode = String(msg?.mode || 'peace');
         const mode = rawMode === 'evil' ? 'evil' : rawMode === 'group' ? 'group' : 'peace';
-        if (mode === 'group' && (!player.partyId || !this.parties.has(player.partyId))) {
+        if (mode === 'group' && !this.partyService.hasParty(player.partyId)) {
             this.sendRaw(player.ws, { type: 'system_message', text: 'Modo Grupo exige estar em grupo.' });
             return;
         }
@@ -1508,43 +814,13 @@ class GameController {
         });
     }
     handleCombatTargetPlayer(player, msg) {
-        if (player.dead || player.hp <= 0)
-            return;
-        const targetPlayerId = Number(msg?.targetPlayerId);
-        if (!Number.isInteger(targetPlayerId) || targetPlayerId <= 0 || targetPlayerId === player.id)
-            return;
-        const target = this.players.get(targetPlayerId);
-        if (!target || target.dead || target.hp <= 0)
-            return;
-        if (player.mapId !== target.mapId || player.mapKey !== target.mapKey)
-            return;
-        const permission = this.getPvpAttackPermission(player, target);
-        if (!permission.ok) {
-            this.sendRaw(player.ws, { type: 'system_message', text: permission.reason || 'Nao pode atacar esse alvo.' });
-            return;
-        }
-        player.pvpAutoAttackActive = true;
-        player.attackTargetPlayerId = targetPlayerId;
-        player.autoAttackActive = false;
-        player.attackTargetId = null;
+        this.combatService.handleCombatTargetPlayer(player, msg);
     }
     handleCombatClearTarget(player) {
-        player.pvpAutoAttackActive = false;
-        player.attackTargetPlayerId = null;
-        player.movePath = [];
-        player.rawMovePath = [];
-        player.pathDestinationX = player.x;
-        player.pathDestinationY = player.y;
+        this.combatService.handleCombatClearTarget(player);
     }
     handleCombatAttack(player, msg) {
-        if (player.dead || player.hp <= 0)
-            return;
-        const targetPlayerId = Number(msg?.targetPlayerId);
-        if (!Number.isInteger(targetPlayerId) || targetPlayerId <= 0)
-            return;
-        if (targetPlayerId === player.id)
-            return;
-        this.tryPlayerAttack(player, targetPlayerId, Date.now(), false);
+        this.combatService.handleCombatAttack(player, msg);
     }
     handlePlayerRevive(player) {
         if (!player.dead && player.hp > 0)
@@ -1570,189 +846,10 @@ class GameController {
         this.sendRaw(player.ws, { type: 'system_message', text: 'Voce reviveu no local da morte.' });
     }
     handleSkillCast(player, msg) {
-        if (player.dead || player.hp <= 0)
-            return;
-        const skillId = String(msg?.skillId || '');
-        const skill = SKILL_DEFS[skillId];
-        if (!skill)
-            return;
-        const skillLevel = skillId === 'class_primary' || skillId === 'mod_fire_wing' ? 1 : this.getSkillLevel(player, skillId);
-        if (skillId !== 'class_primary' && skillId !== 'mod_fire_wing' && skillLevel <= 0) {
-            this.sendRaw(player.ws, { type: 'system_message', text: 'Habilidade nao aprendida.' });
-            return;
-        }
-        const now = Date.now();
-        player.skillCooldowns = player.skillCooldowns || {};
-        const classId = this.normalizeClassId(player.class);
-        const normalizedClass = classId === 'bandit' ? 'assassin' : classId === 'shifter' ? 'druid' : classId;
-        const classMismatch = skill.id !== 'class_primary'
-            && skill.id !== 'mod_fire_wing'
-            && normalizedClass !== skill.classId;
-        if (classMismatch) {
-            this.sendRaw(player.ws, { type: 'system_message', text: 'Essa habilidade nao pertence a sua classe.' });
-            return;
-        }
-        this.pruneExpiredSkillEffects(player, now);
-        const cooldownMs = Math.max(400, Number(skill.cooldownMs || 2000));
-        const nextAt = Number(player.skillCooldowns[skillId] || 0);
-        if (now < nextAt) {
-            this.sendRaw(player.ws, { type: 'system_message', text: `Habilidade em recarga (${Math.ceil((nextAt - now) / 1000)}s).` });
-            return;
-        }
-        const hpBeforeCast = Number(player.hp || 0);
-        let targetMob = null;
-        let mapInstanceId = '';
-        if (skill.target === 'mob') {
-            const targetMobId = String(msg?.targetMobId || player.attackTargetId || '');
-            mapInstanceId = this.mapInstanceId(player.mapKey, player.mapId);
-            targetMob = this.mobService.getMobs().find((m) => m.id === targetMobId && m.mapId === mapInstanceId);
-            if (!targetMob) {
-                this.sendRaw(player.ws, { type: 'system_message', text: 'Selecione um alvo para usar a habilidade.' });
-                return;
-            }
-            const currentDistance = (0, math_1.distance)(player, targetMob);
-            const edgeDistance = currentDistance - (targetMob.size / 2 + config_1.PLAYER_HALF_SIZE);
-            const range = Number(skill.range || 100);
-            if (edgeDistance > range) {
-                this.sendRaw(player.ws, { type: 'system_message', text: 'Muito longe para usar esta habilidade.' });
-                return;
-            }
-        }
-        if (skill.hpCostPct && skill.hpCostPct > 0) {
-            const hpCost = Math.max(1, Math.floor(Number(player.maxHp || 1) * Number(skill.hpCostPct)));
-            if (player.hp <= hpCost) {
-                this.sendRaw(player.ws, { type: 'system_message', text: 'HP insuficiente para usar esta habilidade.' });
-                return;
-            }
-            player.hp = Math.max(1, player.hp - hpCost);
-        }
-        player.skillCooldowns[skillId] = now + cooldownMs;
-        if (skill.healVitScale && skill.healVitScale > 0) {
-            const vit = Number(player.stats?.vit || 0);
-            const healScale = Number(skill.healVitScale) * (1 + (skillLevel - 1) * 0.2);
-            const heal = Math.max(10, Math.floor(vit * healScale + Number(player.maxHp || 0) * (0.08 + (skillLevel - 1) * 0.01)));
-            player.hp = Math.min(Number(player.maxHp || player.hp), Number(player.hp || 0) + heal);
-            this.sendSkillEffect(player.mapKey, player.mapId, {
-                sourceId: player.id,
-                targetId: player.id,
-                x: player.x,
-                y: player.y,
-                effectKey: skill.effectKey || skill.id
-            });
-        }
-        if (skill.buff) {
-            this.applyTimedSkillEffect(player, skill.buff, now);
-            this.sendSkillEffect(player.mapKey, player.mapId, {
-                sourceId: player.id,
-                targetId: player.id,
-                x: player.x,
-                y: player.y,
-                effectKey: skill.effectKey || skill.id
-            });
-        }
-        if (skill.target === 'self') {
-            if (Number(player.hp || 0) !== hpBeforeCast)
-                this.sendStatsUpdated(player);
-            return;
-        }
-        const basePower = Math.max(0.05, this.getSkillPowerWithLevel(skill, skillLevel));
-        const hpLostRatio = Number(player.maxHp || 1) > 0
-            ? Math.max(0, Math.min(1, (Number(player.maxHp || 1) - Number(player.hp || 0)) / Number(player.maxHp || 1)))
-            : 0;
-        const scaledPower = skill.lostHpScale
-            ? basePower * (1 + hpLostRatio * Number(skill.lostHpScale || 0))
-            : basePower;
-        if (skill.aoeRadius && skill.aoeRadius > 0) {
-            const mobsInRange = this.mobService.getMobsByMap(mapInstanceId).filter((m) => {
-                const d = (0, math_1.distance)({ x: targetMob.x, y: targetMob.y }, m);
-                return d <= Number(skill.aoeRadius);
-            });
-            for (const mob of mobsInRange) {
-                const damage = this.computeMobDamage(player, mob, scaledPower, Boolean(skill.magic), now);
-                this.applyDamageToMobAndHandleDeath(player, mob, damage, now);
-                this.broadcastMobHit(player, mob);
-                this.applyOnHitSkillEffects(player, damage, now);
-            }
-        }
-        else {
-            let damage = this.computeMobDamage(player, targetMob, scaledPower, Boolean(skill.magic), now);
-            if (skill.id === 'ass_letal_emboscada' && this.hasActiveSkillEffect(player, 'ocultar', now)) {
-                damage = Math.max(1, Math.floor(damage * 1.45));
-                this.removeSkillEffectById(player, 'ocultar');
-            }
-            this.applyDamageToMobAndHandleDeath(player, targetMob, damage, now);
-            this.broadcastMobHit(player, targetMob);
-            this.applyOnHitSkillEffects(player, damage, now);
-            if (skill.id === 'ass_letal_sentenca') {
-                const delayedDamage = Math.max(1, Math.floor(damage * 0.75));
-                setTimeout(() => {
-                    const liveMob = this.mobService.getMobs().find((m) => m.id === targetMob.id && m.mapId === mapInstanceId);
-                    if (!liveMob || liveMob.hp <= 0)
-                        return;
-                    this.applyDamageToMobAndHandleDeath(player, liveMob, delayedDamage, Date.now());
-                    this.broadcastMobHit(player, liveMob);
-                    this.sendSkillEffect(player.mapKey, player.mapId, {
-                        sourceId: player.id,
-                        targetId: liveMob.id,
-                        x: liveMob.x,
-                        y: liveMob.y,
-                        effectKey: 'ass_sentence_drop'
-                    });
-                }, 3000);
-            }
-        }
-        this.sendSkillEffect(player.mapKey, player.mapId, {
-            sourceId: player.id,
-            targetId: targetMob.id,
-            x: targetMob.x,
-            y: targetMob.y,
-            effectKey: skill.effectKey || skill.id
-        });
-        player.lastCombatAt = now;
-        if (Number(player.hp || 0) !== hpBeforeCast)
-            this.sendStatsUpdated(player);
+        this.skillService.handleSkillCast(player, msg);
     }
     handleSkillLearn(player, msg) {
-        const skillId = String(msg?.skillId || '');
-        const skill = SKILL_DEFS[skillId];
-        if (!skill)
-            return;
-        if (skillId === 'class_primary' || skillId === 'mod_fire_wing') {
-            this.sendRaw(player.ws, { type: 'system_message', text: 'Essa habilidade nao pode ser evoluida manualmente.' });
-            return;
-        }
-        const classId = this.normalizeClassId(player.class);
-        const normalizedClass = classId === 'bandit' ? 'assassin' : classId === 'shifter' ? 'druid' : classId;
-        if (normalizedClass !== skill.classId) {
-            this.sendRaw(player.ws, { type: 'system_message', text: 'Essa habilidade nao pertence a sua classe.' });
-            return;
-        }
-        const levels = this.normalizeSkillLevels(player.skillLevels || {});
-        const current = Math.max(0, Math.min(5, Number(levels[skillId] || 0)));
-        if (current >= 5) {
-            this.sendRaw(player.ws, { type: 'system_message', text: 'Essa habilidade ja esta no nivel maximo.' });
-            return;
-        }
-        const nextLevel = current + 1;
-        const prereq = this.getSkillPrerequisite(skillId);
-        if (prereq) {
-            const prereqLevel = Math.max(0, Math.min(5, Number(levels[prereq] || 0)));
-            if (prereqLevel < 1) {
-                this.sendRaw(player.ws, { type: 'system_message', text: 'Aprenda o pre-requisito antes desta habilidade.' });
-                return;
-            }
-        }
-        const skillPointsAvailable = this.getAvailableSkillPoints(player);
-        if (skillPointsAvailable <= 0) {
-            this.sendRaw(player.ws, { type: 'system_message', text: 'Sem pontos de habilidade disponiveis.' });
-            return;
-        }
-        levels[skillId] = nextLevel;
-        player.skillLevels = levels;
-        this.recomputePlayerStats(player);
-        this.persistPlayer(player);
-        this.sendRaw(player.ws, { type: 'system_message', text: `${skill.name} evoluiu para nivel ${nextLevel}.` });
-        this.sendStatsUpdated(player);
+        this.skillService.handleSkillLearn(player, msg);
     }
     handleStatsAllocate(player, msg) {
         const allocation = msg && typeof msg.allocation === 'object' ? msg.allocation : {};
@@ -1982,1169 +1079,73 @@ class GameController {
         return this.normalizeHotbarBindings(raw);
     }
     movePlayerTowardTarget(player, deltaSeconds, now) {
-        if (!Number.isFinite(Number(player.lastMoveProgressAt)))
-            player.lastMoveProgressAt = now;
-        if (!Number.isFinite(Number(player.lastMoveCheckX)))
-            player.lastMoveCheckX = player.x;
-        if (!Number.isFinite(Number(player.lastMoveCheckY)))
-            player.lastMoveCheckY = player.y;
-        const movedSinceCheck = Math.hypot(Number(player.x) - Number(player.lastMoveCheckX), Number(player.y) - Number(player.lastMoveCheckY));
-        if (movedSinceCheck >= 1.2) {
-            player.lastMoveCheckX = player.x;
-            player.lastMoveCheckY = player.y;
-            player.lastMoveProgressAt = now;
-        }
-        if (Array.isArray(player.movePath) && player.movePath.length > 0) {
-            const next = player.movePath[0];
-            if (next) {
-                player.targetX = next.x;
-                player.targetY = next.y;
-            }
-        }
-        const rawMoveSpeed = Number(player.stats?.moveSpeed);
-        const moveSpeedStat = Number.isFinite(rawMoveSpeed) && rawMoveSpeed > 0 ? rawMoveSpeed : 100;
-        const fx = this.getActiveSkillEffectAggregate(player, now);
-        const speed = config_1.BASE_MOVE_SPEED * (moveSpeedStat / 100) * Math.max(0.2, Number(fx.moveMul || 1));
-        const dx = player.targetX - player.x;
-        const dy = player.targetY - player.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist <= 2) {
-            if (Array.isArray(player.movePath) && player.movePath.length > 0) {
-                player.movePath.shift();
-                const next = player.movePath[0];
-                if (next) {
-                    player.targetX = next.x;
-                    player.targetY = next.y;
-                }
-                else {
-                    player.targetX = player.x;
-                    player.targetY = player.y;
-                    player.pathDestinationX = player.x;
-                    player.pathDestinationY = player.y;
-                    player.rawMovePath = [];
-                }
-            }
-            return;
-        }
-        const step = speed * deltaSeconds;
-        if (step >= dist) {
-            if (!this.isBlockedAt(player.mapKey, player.targetX, player.targetY)) {
-                player.x = player.targetX;
-                player.y = player.targetY;
-            }
-            if (Array.isArray(player.movePath) && player.movePath.length > 0) {
-                player.movePath.shift();
-                const next = player.movePath[0];
-                if (next) {
-                    player.targetX = next.x;
-                    player.targetY = next.y;
-                }
-                else {
-                    player.targetX = player.x;
-                    player.targetY = player.y;
-                    player.pathDestinationX = player.x;
-                    player.pathDestinationY = player.y;
-                    player.rawMovePath = [];
-                }
-            }
-            return;
-        }
-        const nextX = player.x + (dx / dist) * step;
-        const nextY = player.y + (dy / dist) * step;
-        if (!this.isBlockedAt(player.mapKey, nextX, nextY)) {
-            player.x = nextX;
-            player.y = nextY;
-            return;
-        }
-        // Fallback de deslizamento por eixo para evitar travar em quinas de colisao.
-        const axisX = player.x + (dx / dist) * step;
-        if (!this.isBlockedAt(player.mapKey, axisX, player.y)) {
-            player.x = axisX;
-            return;
-        }
-        const axisY = player.y + (dy / dist) * step;
-        if (!this.isBlockedAt(player.mapKey, player.x, axisY)) {
-            player.y = axisY;
-            return;
-        }
-        const destinationX = Number.isFinite(Number(player.pathDestinationX)) ? Number(player.pathDestinationX) : player.targetX;
-        const destinationY = Number.isFinite(Number(player.pathDestinationY)) ? Number(player.pathDestinationY) : player.targetY;
-        const stuckForMs = now - Number(player.lastMoveProgressAt || now);
-        if (stuckForMs >= PATH_STUCK_REPATH_MS) {
-            this.recalculatePathToward(player, destinationX, destinationY, now);
-        }
-        if (stuckForMs >= PATH_STUCK_TIMEOUT_MS) {
-            const fallback = this.projectToWalkable(player.mapKey, destinationX, destinationY);
-            this.assignPathTo(player, fallback.x, fallback.y);
-            player.lastMoveProgressAt = now;
-            player.lastMoveCheckX = player.x;
-            player.lastMoveCheckY = player.y;
-        }
-        if (!Array.isArray(player.movePath) || player.movePath.length === 0) {
-            player.targetX = player.x;
-            player.targetY = player.y;
-            player.pathDestinationX = player.x;
-            player.pathDestinationY = player.y;
-            player.rawMovePath = [];
-        }
+        this.movementService.movePlayerTowardTarget(player, deltaSeconds, now);
     }
     processAutoAttack(player, now) {
-        if (!player.autoAttackActive || !player.attackTargetId)
-            return;
-        const mob = this.mobService.getMobs().find((m) => m.id === player.attackTargetId && m.mapId === this.mapInstanceId(player.mapKey, player.mapId));
-        if (!mob) {
-            player.autoAttackActive = false;
-            player.attackTargetId = null;
-            player.movePath = [];
-            player.rawMovePath = [];
-            player.pathDestinationX = player.x;
-            player.pathDestinationY = player.y;
-            return;
-        }
-        const currentDistance = (0, math_1.distance)(player, mob);
-        const edgeDistance = currentDistance - (mob.size / 2 + config_1.PLAYER_HALF_SIZE);
-        const attackRange = Number(player.stats?.attackRange || 60);
-        const inRange = edgeDistance <= attackRange;
-        if (!inRange) {
-            const desiredDistance = mob.size / 2 + config_1.PLAYER_HALF_SIZE + Math.max(2, attackRange - 4);
-            const dx = player.x - mob.x;
-            const dy = player.y - mob.y;
-            const norm = Math.sqrt(dx * dx + dy * dy) || 1;
-            const projected = this.projectToWalkable(player.mapKey, (0, math_1.clamp)(mob.x + (dx / norm) * desiredDistance, 0, config_1.WORLD.width), (0, math_1.clamp)(mob.y + (dy / norm) * desiredDistance, 0, config_1.WORLD.height));
-            this.recalculatePathToward(player, projected.x, projected.y, now);
-            return;
-        }
-        player.movePath = [];
-        player.rawMovePath = [];
-        player.targetX = player.x;
-        player.targetY = player.y;
-        player.pathDestinationX = player.x;
-        player.pathDestinationY = player.y;
-        const fx = this.getActiveSkillEffectAggregate(player, now);
-        const rawAttackSpeed = Number(player.stats?.attackSpeed);
-        const attackSpeedStat = Number.isFinite(rawAttackSpeed) && rawAttackSpeed > 0 ? rawAttackSpeed : 100;
-        const boostedAttackSpeed = attackSpeedStat * Math.max(0.2, Number(fx.attackSpeedMul || 1));
-        const attackIntervalMs = 1000 * (100 / boostedAttackSpeed);
-        if (now - player.lastAttackAt < attackIntervalMs)
-            return;
-        player.lastAttackAt = now;
-        const hitChance = this.computeHitChance(Number(player.stats?.accuracy || 0), this.getMobEvasion(mob));
-        if (Math.random() > hitChance) {
-            this.broadcastMobHit(player, mob);
-            return;
-        }
-        const damage = this.computeMobDamage(player, mob, 1, false, now);
-        this.applyDamageToMobAndHandleDeath(player, mob, damage, now);
-        const healed = this.applyOnHitSkillEffects(player, damage, now);
-        if (healed > 0)
-            this.sendStatsUpdated(player);
-        player.lastCombatAt = now;
-        for (const receiver of this.players.values()) {
-            if (receiver.mapId !== player.mapId || receiver.mapKey !== player.mapKey)
-                continue;
-            try {
-                receiver.ws?.send(JSON.stringify({
-                    type: 'combat_hit',
-                    attackerId: player.id,
-                    mobId: mob.id,
-                    attackerX: player.x,
-                    attackerY: player.y,
-                    mobX: mob.x,
-                    mobY: mob.y
-                }));
-            }
-            catch {
-                // Ignore socket send failures; cleanup happens on disconnect.
-            }
-        }
+        this.combatRuntimeService.processAutoAttack(player, now);
     }
     computeMobDamage(player, mob, multiplier, forceMagic = false, now = Date.now()) {
-        const fx = this.getActiveSkillEffectAggregate(player, now);
-        const isMagic = forceMagic || player.stats?.damageType === 'magic';
-        const rawAttack = (Number(isMagic ? player.stats?.magicAttack : player.stats?.physicalAttack) || 1) * Math.max(0.2, Number(fx.attackMul || 1));
-        const defense = Number(isMagic ? mob.magicDefense : mob.physicalDefense) || 0;
-        const reducedDefense = this.shouldLuckyStrike(player, mob) ? defense * 0.5 : defense;
-        const base = Number(rawAttack) * Math.max(0.05, Number(multiplier || 1));
-        return this.computeDamageAfterMitigation(base, reducedDefense, Number(mob.level || 1));
+        return this.combatCoreService.computeMobDamage(player, mob, multiplier, forceMagic, now);
     }
     applyDamageToMobAndHandleDeath(player, mob, damage, now) {
-        if (!mob)
-            return false;
-        if (mob.state === 'leash_return' || mob.ignoreDamage)
-            return false;
-        const finalDamage = Math.max(1, Math.floor(Number(damage || 0)));
-        if (finalDamage <= 0)
-            return false;
-        this.mobService.addHate(mob, player.id, finalDamage);
-        if (!mob.targetPlayerId)
-            mob.targetPlayerId = player.id;
-        mob.state = mob.state === 'attack_windup' ? mob.state : 'aggro';
-        mob.nextRepathAt = now;
-        mob.hp = Math.max(0, Number(mob.hp || 0) - finalDamage);
-        if (mob.hp > 0)
-            return true;
-        this.grantXp(player, mob.xpReward);
-        const mapInstanceId = this.mapInstanceId(player.mapKey, player.mapId);
-        const dropDefs = [];
-        if (Math.random() < 0.5)
-            dropDefs.push('weapon');
-        dropDefs.push('potion_hp');
-        if (Math.random() < Number(config_1.SKILL_RESET_HOURGLASS_DROP_CHANCE || 0))
-            dropDefs.push('skill_reset_hourglass');
-        dropDefs.forEach((dropType, index) => {
-            const dropPos = this.computeLootDropPosition(mob.x, mob.y, index, dropDefs.length, player.mapKey);
-            if (dropType === 'weapon')
-                this.dropWeaponAt(dropPos.x, dropPos.y, mapInstanceId, this.pickRandomWeaponTemplate());
-            else if (dropType === 'potion_hp')
-                this.dropHpPotionAt(dropPos.x, dropPos.y, mapInstanceId);
-            else
-                this.dropSkillResetHourglassAt(dropPos.x, dropPos.y, mapInstanceId);
-        });
-        this.mobService.removeMob(mob.id);
-        return true;
+        return this.combatCoreService.applyDamageToMobAndHandleDeath(player, mob, damage, now);
     }
     pruneExpiredSkillEffects(player, now = Date.now()) {
-        if (!Array.isArray(player.activeSkillEffects)) {
-            player.activeSkillEffects = [];
-            return;
-        }
-        player.activeSkillEffects = player.activeSkillEffects.filter((fx) => Number(fx?.expiresAt || 0) > now);
+        this.skillEffectsService.pruneExpiredSkillEffects(player, now);
     }
     hasActiveSkillEffect(player, effectId, now = Date.now()) {
-        this.pruneExpiredSkillEffects(player, now);
-        return Array.isArray(player.activeSkillEffects)
-            && player.activeSkillEffects.some((fx) => String(fx?.id || '') === String(effectId));
+        return this.skillEffectsService.hasActiveSkillEffect(player, effectId, now);
     }
     removeSkillEffectById(player, effectId) {
-        if (!Array.isArray(player.activeSkillEffects))
-            return;
-        player.activeSkillEffects = player.activeSkillEffects.filter((fx) => String(fx?.id || '') !== String(effectId));
+        this.skillEffectsService.removeSkillEffectById(player, effectId);
     }
     getActiveSkillEffectAggregate(player, now = Date.now()) {
-        this.pruneExpiredSkillEffects(player, now);
-        const out = {
-            attackMul: 1,
-            defenseMul: 1,
-            magicDefenseMul: 1,
-            moveMul: 1,
-            attackSpeedMul: 1,
-            critAdd: 0,
-            evasionAdd: 0,
-            damageReduction: 0,
-            lifesteal: 0,
-            reflect: 0,
-            stealth: false
-        };
-        for (const fx of player.activeSkillEffects || []) {
-            const data = fx && typeof fx === 'object' ? fx : {};
-            if (Number(data.attackMul) > 0)
-                out.attackMul *= Number(data.attackMul);
-            if (Number(data.defenseMul) > 0)
-                out.defenseMul *= Number(data.defenseMul);
-            if (Number(data.magicDefenseMul) > 0)
-                out.magicDefenseMul *= Number(data.magicDefenseMul);
-            if (Number(data.moveMul) > 0)
-                out.moveMul *= Number(data.moveMul);
-            if (Number(data.attackSpeedMul) > 0)
-                out.attackSpeedMul *= Number(data.attackSpeedMul);
-            if (Number.isFinite(Number(data.critAdd)))
-                out.critAdd += Number(data.critAdd);
-            if (Number.isFinite(Number(data.evasionAdd)))
-                out.evasionAdd += Number(data.evasionAdd);
-            if (Number.isFinite(Number(data.damageReduction)))
-                out.damageReduction = Math.max(out.damageReduction, Number(data.damageReduction));
-            if (Number.isFinite(Number(data.lifesteal)))
-                out.lifesteal = Math.max(out.lifesteal, Number(data.lifesteal));
-            if (Number.isFinite(Number(data.reflect)))
-                out.reflect = Math.max(out.reflect, Number(data.reflect));
-            if (data.stealth)
-                out.stealth = true;
-        }
-        return out;
+        return this.skillEffectsService.getActiveSkillEffectAggregate(player, now);
     }
     applyTimedSkillEffect(player, buff, now = Date.now()) {
-        if (!buff || typeof buff !== 'object')
-            return;
-        if (!Array.isArray(player.activeSkillEffects))
-            player.activeSkillEffects = [];
-        const id = String(buff.id || (0, crypto_1.randomUUID)());
-        const expiresAt = now + Math.max(500, Number(buff.durationMs || 1000));
-        player.activeSkillEffects = player.activeSkillEffects.filter((fx) => String(fx?.id || '') !== id);
-        player.activeSkillEffects.push({ ...buff, id, expiresAt });
+        this.skillEffectsService.applyTimedSkillEffect(player, buff, now);
     }
     applyOnHitSkillEffects(player, dealtDamage, now = Date.now()) {
-        const effects = this.getActiveSkillEffectAggregate(player, now);
-        const lifesteal = Math.max(0, Math.min(0.6, Number(effects.lifesteal || 0)));
-        if (lifesteal <= 0)
-            return 0;
-        const heal = Math.max(1, Math.floor(Number(dealtDamage || 0) * lifesteal));
-        player.hp = Math.min(Number(player.maxHp || player.hp), Number(player.hp || 0) + heal);
-        return heal;
+        return this.skillEffectsService.applyOnHitSkillEffects(player, dealtDamage, now);
     }
     sendSkillEffect(mapKey, mapId, payload) {
-        for (const receiver of this.players.values()) {
-            if (receiver.mapKey !== mapKey || receiver.mapId !== mapId)
-                continue;
-            this.sendRaw(receiver.ws, {
-                type: 'skill.effect',
-                ...payload
-            });
-        }
+        this.skillEffectsService.sendSkillEffect(mapKey, mapId, payload);
     }
     broadcastMobHit(player, mob) {
-        for (const receiver of this.players.values()) {
-            if (receiver.mapId !== player.mapId || receiver.mapKey !== player.mapKey)
-                continue;
-            try {
-                receiver.ws?.send(JSON.stringify({
-                    type: 'combat_hit',
-                    attackerId: player.id,
-                    mobId: mob.id,
-                    attackerX: player.x,
-                    attackerY: player.y,
-                    mobX: mob.x,
-                    mobY: mob.y
-                }));
-            }
-            catch {
-                // Ignore socket send failures; cleanup happens on disconnect.
-            }
-        }
-    }
-    cellKey(x, y, mapKey, mapId) {
-        const cx = Math.floor(Number(x || 0) / MOB_AI_CELL_SIZE);
-        const cy = Math.floor(Number(y || 0) / MOB_AI_CELL_SIZE);
-        return `${mapKey}::${mapId}::${cx},${cy}`;
-    }
-    buildPlayerSpatialIndex() {
-        const index = new Map();
-        for (const player of this.players.values()) {
-            if (player.dead || player.hp <= 0)
-                continue;
-            const key = this.cellKey(player.x, player.y, player.mapKey, player.mapId);
-            const bucket = index.get(key);
-            if (bucket)
-                bucket.push(player);
-            else
-                index.set(key, [player]);
-        }
-        return index;
-    }
-    getPlayersNearCell(index, mapKey, mapId, x, y) {
-        const baseCx = Math.floor(Number(x || 0) / MOB_AI_CELL_SIZE);
-        const baseCy = Math.floor(Number(y || 0) / MOB_AI_CELL_SIZE);
-        const out = [];
-        for (let oy = -1; oy <= 1; oy++) {
-            for (let ox = -1; ox <= 1; ox++) {
-                const key = `${mapKey}::${mapId}::${baseCx + ox},${baseCy + oy}`;
-                const bucket = index.get(key);
-                if (!bucket || !bucket.length)
-                    continue;
-                for (const player of bucket)
-                    out.push(player);
-            }
-        }
-        return out;
-    }
-    randomInt(min, max) {
-        const safeMin = Math.floor(Math.max(0, Number(min || 0)));
-        const safeMax = Math.floor(Math.max(safeMin, Number(max || safeMin)));
-        return safeMin + Math.floor(Math.random() * (safeMax - safeMin + 1));
-    }
-    pickWanderTarget(homeX, homeY, radius) {
-        const r = Math.max(24, Number(radius || 120));
-        const angle = Math.random() * Math.PI * 2;
-        const dist = Math.random() * r;
-        return {
-            x: (0, math_1.clamp)(homeX + Math.cos(angle) * dist, 0, config_1.WORLD.width),
-            y: (0, math_1.clamp)(homeY + Math.sin(angle) * dist, 0, config_1.WORLD.height)
-        };
-    }
-    moveMobToward(mob, targetX, targetY, speed, deltaSeconds, mapKey) {
-        const dx = Number(targetX || 0) - Number(mob.x || 0);
-        const dy = Number(targetY || 0) - Number(mob.y || 0);
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist <= 0.001)
-            return true;
-        const step = Math.max(0, Number(speed || 0)) * Math.max(0, Number(deltaSeconds || 0));
-        if (step <= 0.0001)
-            return false;
-        const nx = (0, math_1.clamp)(Number(mob.x || 0) + (dx / dist) * Math.min(step, dist), 0, config_1.WORLD.width);
-        const ny = (0, math_1.clamp)(Number(mob.y || 0) + (dy / dist) * Math.min(step, dist), 0, config_1.WORLD.height);
-        if (!this.isBlockedAt(mapKey, nx, ny)) {
-            mob.x = nx;
-            mob.y = ny;
-        }
-        else {
-            const axisX = (0, math_1.clamp)(Number(mob.x || 0) + (dx / dist) * Math.min(step, dist), 0, config_1.WORLD.width);
-            const axisY = (0, math_1.clamp)(Number(mob.y || 0) + (dy / dist) * Math.min(step, dist), 0, config_1.WORLD.height);
-            if (!this.isBlockedAt(mapKey, axisX, Number(mob.y || 0)))
-                mob.x = axisX;
-            else if (!this.isBlockedAt(mapKey, Number(mob.x || 0), axisY))
-                mob.y = axisY;
-            else
-                return false;
-        }
-        return Math.abs(Number(targetX || 0) - Number(mob.x || 0)) < 2 && Math.abs(Number(targetY || 0) - Number(mob.y || 0)) < 2;
+        this.skillEffectsService.broadcastMobHit(player, mob);
     }
     processAutoAttackPlayer(player, now) {
-        if (!player.pvpAutoAttackActive || !player.attackTargetPlayerId)
-            return;
-        const target = this.players.get(player.attackTargetPlayerId);
-        if (!target || target.dead || target.hp <= 0) {
-            player.pvpAutoAttackActive = false;
-            player.attackTargetPlayerId = null;
-            player.movePath = [];
-            player.rawMovePath = [];
-            player.pathDestinationX = player.x;
-            player.pathDestinationY = player.y;
-            return;
-        }
-        if (player.mapId !== target.mapId || player.mapKey !== target.mapKey) {
-            player.pvpAutoAttackActive = false;
-            player.attackTargetPlayerId = null;
-            player.movePath = [];
-            player.rawMovePath = [];
-            player.pathDestinationX = player.x;
-            player.pathDestinationY = player.y;
-            return;
-        }
-        const permission = this.getPvpAttackPermission(player, target);
-        if (!permission.ok) {
-            player.pvpAutoAttackActive = false;
-            player.attackTargetPlayerId = null;
-            player.movePath = [];
-            player.rawMovePath = [];
-            player.pathDestinationX = player.x;
-            player.pathDestinationY = player.y;
-            return;
-        }
-        const currentDistance = (0, math_1.distance)(player, target);
-        const edgeDistance = Math.max(0, currentDistance - config_1.PLAYER_HALF_SIZE * 2);
-        const attackRange = Number(player.stats?.attackRange || 60);
-        if (edgeDistance > attackRange) {
-            const desiredDistance = config_1.PLAYER_HALF_SIZE * 2 + Math.max(2, attackRange - 4);
-            const dx = player.x - target.x;
-            const dy = player.y - target.y;
-            const norm = Math.sqrt(dx * dx + dy * dy) || 1;
-            const projected = this.projectToWalkable(player.mapKey, (0, math_1.clamp)(target.x + (dx / norm) * desiredDistance, 0, config_1.WORLD.width), (0, math_1.clamp)(target.y + (dy / norm) * desiredDistance, 0, config_1.WORLD.height));
-            this.recalculatePathToward(player, projected.x, projected.y, now);
-            return;
-        }
-        player.movePath = [];
-        player.rawMovePath = [];
-        player.targetX = player.x;
-        player.targetY = player.y;
-        player.pathDestinationX = player.x;
-        player.pathDestinationY = player.y;
-        this.tryPlayerAttack(player, target.id, now, true);
+        this.combatRuntimeService.processAutoAttackPlayer(player, now);
     }
     processMobAggroAndCombat(deltaSeconds, now) {
-        const mobs = this.mobService.getMobs();
-        const playerIndex = this.buildPlayerSpatialIndex();
-        if (this.mobsPeacefulMode) {
-            for (const mob of mobs) {
-                mob.targetPlayerId = null;
-                mob.lastAttackAt = 0;
-                mob.state = 'idle';
-                mob.ignoreDamage = false;
-            }
-            return;
-        }
-        for (const mob of mobs) {
-            const template = this.mobService.getTemplateByMob(mob);
-            const [mapKey, mapId] = String(mob.mapId || '').split('::');
-            if (!mapKey || !mapId)
-                continue;
-            if (!Number.isFinite(Number(mob.homeX)))
-                mob.homeX = Number(mob.x || 0);
-            if (!Number.isFinite(Number(mob.homeY)))
-                mob.homeY = Number(mob.y || 0);
-            if (!mob.state)
-                mob.state = 'idle';
-            if (!mob.hateTable)
-                mob.hateTable = {};
-            const home = { x: Number(mob.homeX || mob.x), y: Number(mob.homeY || mob.y) };
-            const distanceToHome = (0, math_1.distance)(mob, home);
-            if (mob.state === 'leash_return' || distanceToHome > template.leashRange) {
-                mob.state = 'leash_return';
-                mob.ignoreDamage = true;
-                mob.targetPlayerId = null;
-                mob.hateTable = {};
-                const regen = Number(mob.maxHp || 1) * MOB_LEASH_REGEN_PER_SEC * deltaSeconds;
-                mob.hp = Math.min(Number(mob.maxHp || 1), Number(mob.hp || 0) + regen);
-                const arrived = this.moveMobToward(mob, home.x, home.y, Number(template.moveSpeed) * 2, deltaSeconds, mapKey);
-                if (arrived || (0, math_1.distance)(mob, home) <= 8) {
-                    mob.x = home.x;
-                    mob.y = home.y;
-                    mob.state = 'idle';
-                    mob.ignoreDamage = false;
-                    mob.nextThinkAt = now + this.randomInt(Number(template.idleMinMs), Number(template.idleMaxMs));
-                }
-                continue;
-            }
-            mob.ignoreDamage = false;
-            let target = mob.targetPlayerId ? this.players.get(Number(mob.targetPlayerId)) : null;
-            if (!target || target.dead || target.hp <= 0 || target.mapKey !== mapKey || target.mapId !== mapId) {
-                target = null;
-                const hateTargetId = this.mobService.getTopHateTarget(mob);
-                if (hateTargetId) {
-                    const hated = this.players.get(hateTargetId);
-                    if (hated && !hated.dead && hated.hp > 0 && hated.mapKey === mapKey && hated.mapId === mapId) {
-                        target = hated;
-                        mob.targetPlayerId = hated.id;
-                    }
-                }
-            }
-            const canThink = now >= Number(mob.nextThinkAt || 0);
-            if (!target && canThink) {
-                const candidates = this.getPlayersNearCell(playerIndex, mapKey, mapId, mob.x, mob.y);
-                let nearest = null;
-                let nearestDist = Number.POSITIVE_INFINITY;
-                for (const player of candidates) {
-                    const d = (0, math_1.distance)(mob, player);
-                    if (d > template.aggroRange)
-                        continue;
-                    if (d < nearestDist) {
-                        nearestDist = d;
-                        nearest = player;
-                    }
-                }
-                if (nearest) {
-                    target = nearest;
-                    mob.targetPlayerId = nearest.id;
-                    mob.state = 'aggro';
-                    mob.nextRepathAt = now + MOB_DECISION_MS;
-                }
-                else {
-                    if (mob.state !== 'wander') {
-                        const wander = this.pickWanderTarget(home.x, home.y, template.wanderRadius);
-                        mob.wanderTargetX = wander.x;
-                        mob.wanderTargetY = wander.y;
-                        mob.state = 'wander';
-                    }
-                    else {
-                        mob.state = 'idle';
-                    }
-                    mob.nextThinkAt = now + this.randomInt(Number(template.idleMinMs), Number(template.idleMaxMs));
-                }
-            }
-            if (!target) {
-                if (mob.state === 'wander' && Number.isFinite(Number(mob.wanderTargetX)) && Number.isFinite(Number(mob.wanderTargetY))) {
-                    const arrived = this.moveMobToward(mob, Number(mob.wanderTargetX), Number(mob.wanderTargetY), Number(template.moveSpeed) * 0.55, deltaSeconds, mapKey);
-                    if (arrived) {
-                        mob.state = 'idle';
-                        mob.nextThinkAt = now + this.randomInt(Number(template.idleMinMs), Number(template.idleMaxMs));
-                        mob.wanderTargetX = null;
-                        mob.wanderTargetY = null;
-                    }
-                }
-                continue;
-            }
-            const centerDistance = (0, math_1.distance)(mob, target);
-            if (centerDistance > template.leashRange) {
-                mob.state = 'leash_return';
-                continue;
-            }
-            const edgeDistance = Math.max(0, centerDistance - (mob.size / 2 + config_1.PLAYER_HALF_SIZE));
-            if (edgeDistance > template.attackRange) {
-                mob.state = 'aggro';
-                if (now >= Number(mob.nextRepathAt || 0)) {
-                    mob.nextRepathAt = now + Number(template.repathMs || MOB_DECISION_MS);
-                }
-                this.moveMobToward(mob, target.x, target.y, Number(template.moveSpeed), deltaSeconds, mapKey);
-                continue;
-            }
-            if (now < Number(mob.nextAttackAt || 0))
-                continue;
-            if (mob.state !== 'attack_windup') {
-                mob.state = 'attack_windup';
-                mob.nextAttackAt = now + MOB_ATTACK_WINDUP_MS;
-                continue;
-            }
-            mob.state = 'aggro';
-            mob.lastAttackAt = now;
-            mob.nextAttackAt = now + Number(template.attackCadenceMs || config_1.MOB_ATTACK_INTERVAL_MS);
-            const baseDamage = mob.kind === 'boss' ? 34 : mob.kind === 'subboss' ? 21 : mob.kind === 'elite' ? 14 : 8;
-            const targetFx = this.getActiveSkillEffectAggregate(target, now);
-            const hitChance = this.computeHitChance(Number(template.accuracy || 60), Number(target.stats?.evasion || 0) + Number(targetFx.evasionAdd || 0));
-            if (Math.random() > hitChance)
-                continue;
-            const defense = Number(target.stats?.physicalDefense || 0) * Math.max(0.1, Number(targetFx.defenseMul || 1));
-            const luckyBypass = Math.random() < Number(template.luckyStrikeChance || 0);
-            const effectiveDefense = luckyBypass ? defense * 0.5 : defense;
-            let damage = this.computeDamageAfterMitigation(baseDamage, effectiveDefense, Number(target.level || 1));
-            damage = Math.max(1, Math.floor(damage * (1 - Math.max(0, Math.min(0.95, Number(targetFx.damageReduction || 0))))));
-            target.hp = Math.max(0, target.hp - damage);
-            target.lastCombatAt = now;
-            if (target.hp <= 0) {
-                target.dead = true;
-                target.deathX = target.x;
-                target.deathY = target.y;
-                target.autoAttackActive = false;
-                target.attackTargetId = null;
-                target.pvpAutoAttackActive = false;
-                target.attackTargetPlayerId = null;
-                this.sendRaw(target.ws, { type: 'player.dead' });
-            }
-            const reflect = Math.max(0, Math.min(0.5, Number(targetFx.reflect || 0)));
-            if (reflect > 0 && Number(mob.hp || 0) > 0) {
-                const reflected = Math.max(1, Math.floor(damage * reflect));
-                mob.hp = Math.max(0, Number(mob.hp || 0) - reflected);
-                if (mob.hp <= 0) {
-                    this.applyDamageToMobAndHandleDeath(target, mob, reflected, now);
-                }
-            }
-            this.persistPlayer(target);
-            this.syncAllPartyStates();
-            for (const receiver of this.players.values()) {
-                if (receiver.mapKey !== mapKey || receiver.mapId !== mapId)
-                    continue;
-                this.sendRaw(receiver.ws, {
-                    type: 'combat.mobHitPlayer',
-                    mobId: mob.id,
-                    mobX: mob.x,
-                    mobY: mob.y,
-                    targetPlayerId: target.id,
-                    targetX: target.x,
-                    targetY: target.y,
-                    damage,
-                    luckyStrike: luckyBypass,
-                    targetHp: target.hp,
-                    targetMaxHp: target.maxHp
-                });
-            }
-        }
+        this.combatRuntimeService.processMobAggroAndCombat(deltaSeconds, now);
     }
     tryPlayerAttack(player, targetPlayerId, now, silent) {
-        const target = this.players.get(targetPlayerId);
-        if (!target) {
-            if (!silent)
-                this.sendRaw(player.ws, { type: 'system_message', text: 'Alvo de PVP nao encontrado.' });
-            return;
-        }
-        if (target.dead || target.hp <= 0)
-            return;
-        const permission = this.getPvpAttackPermission(player, target);
-        if (!permission.ok) {
-            if (!silent)
-                this.sendRaw(player.ws, { type: 'system_message', text: permission.reason || 'Nao pode atacar esse alvo.' });
-            player.pvpAutoAttackActive = false;
-            player.attackTargetPlayerId = null;
-            return;
-        }
-        if (player.mapId !== target.mapId || player.mapKey !== target.mapKey)
-            return;
-        const currentDistance = (0, math_1.distance)(player, target);
-        const edgeDistance = Math.max(0, currentDistance - config_1.PLAYER_HALF_SIZE * 2);
-        const attackRange = Number(player.stats?.attackRange || 60);
-        if (edgeDistance > attackRange) {
-            if (!silent)
-                this.sendRaw(player.ws, { type: 'system_message', text: 'Jogador fora de alcance.' });
-            return;
-        }
-        const fx = this.getActiveSkillEffectAggregate(player, now);
-        const rawAttackSpeed = Number(player.stats?.attackSpeed);
-        const attackSpeedStat = Number.isFinite(rawAttackSpeed) && rawAttackSpeed > 0 ? rawAttackSpeed : 100;
-        const boostedAttackSpeed = attackSpeedStat * Math.max(0.2, Number(fx.attackSpeedMul || 1));
-        const attackIntervalMs = 1000 * (100 / boostedAttackSpeed);
-        if (now - player.lastAttackAt < attackIntervalMs)
-            return;
-        player.lastAttackAt = now;
-        const hitChance = this.computeHitChance(Number(player.stats?.accuracy || 0), Number(target.stats?.evasion || 0) + Number(this.getActiveSkillEffectAggregate(target, now).evasionAdd || 0));
-        if (Math.random() > hitChance)
-            return;
-        const isMagic = player.stats?.damageType === 'magic';
-        let rawAttack = Number(isMagic ? player.stats?.magicAttack : player.stats?.physicalAttack) || 1;
-        rawAttack *= Math.max(0.2, Number(fx.attackMul || 1));
-        const critChance = Math.max(0, Math.min(0.95, Number(player.stats?.criticalChance || 0) + Number(fx.critAdd || 0)));
-        if (Math.random() < critChance)
-            rawAttack *= 1.5;
-        const targetFx = this.getActiveSkillEffectAggregate(target, now);
-        let targetDefense = Number(isMagic ? target.stats?.magicDefense : target.stats?.physicalDefense) || 0;
-        targetDefense *= isMagic
-            ? Math.max(0.1, Number(targetFx.magicDefenseMul || 1))
-            : Math.max(0.1, Number(targetFx.defenseMul || 1));
-        if (this.shouldLuckyStrike(player, target))
-            targetDefense *= 0.5;
-        let damage = this.computeDamageAfterMitigation(rawAttack, targetDefense, Number(target.level || 1));
-        damage = Math.max(1, Math.floor(damage * (1 - Math.max(0, Math.min(0.95, Number(targetFx.damageReduction || 0))))));
-        const attackerHpBefore = Number(player.hp || 0);
-        target.hp = Math.max(0, target.hp - damage);
-        if (target.hp <= 0) {
-            target.dead = true;
-            target.deathX = target.x;
-            target.deathY = target.y;
-            target.autoAttackActive = false;
-            target.attackTargetId = null;
-            target.pvpAutoAttackActive = false;
-            target.attackTargetPlayerId = null;
-            this.sendRaw(target.ws, { type: 'player.dead' });
-        }
-        player.lastCombatAt = now;
-        target.lastCombatAt = now;
-        this.applyOnHitSkillEffects(player, damage, now);
-        const reflect = Math.max(0, Math.min(0.5, Number(targetFx.reflect || 0)));
-        if (reflect > 0 && player.hp > 0) {
-            const reflected = Math.max(1, Math.floor(damage * reflect));
-            player.hp = Math.max(0, Number(player.hp || 0) - reflected);
-            if (player.hp <= 0) {
-                player.dead = true;
-                player.deathX = player.x;
-                player.deathY = player.y;
-                player.autoAttackActive = false;
-                player.attackTargetId = null;
-                player.pvpAutoAttackActive = false;
-                player.attackTargetPlayerId = null;
-                this.sendRaw(player.ws, { type: 'player.dead' });
-            }
-        }
-        if (Number(player.hp || 0) !== attackerHpBefore)
-            this.sendStatsUpdated(player);
-        this.persistPlayer(target);
-        this.syncAllPartyStates();
-        for (const receiver of this.players.values()) {
-            if (receiver.mapId !== player.mapId || receiver.mapKey !== player.mapKey)
-                continue;
-            this.sendRaw(receiver.ws, {
-                type: 'combat.playerHit',
-                attackerId: player.id,
-                targetPlayerId: target.id,
-                attackerX: player.x,
-                attackerY: player.y,
-                targetX: target.x,
-                targetY: target.y,
-                damage,
-                targetHp: target.hp,
-                targetMaxHp: target.maxHp
-            });
-        }
+        this.combatCoreService.tryPlayerAttack(player, targetPlayerId, now, silent);
     }
     getPvpAttackPermission(player, target) {
-        if (this.arePlayersInSameParty(player, target)) {
-            return { ok: false, reason: 'Voce nao pode atacar membros do seu grupo.' };
-        }
-        const mode = player.pvpMode === 'evil' ? 'evil' : player.pvpMode === 'group' ? 'group' : 'peace';
-        const targetMode = target.pvpMode === 'evil' ? 'evil' : target.pvpMode === 'group' ? 'group' : 'peace';
-        if (mode === 'peace') {
-            return { ok: false, reason: 'Modo Paz ativo: voce nao pode atacar jogadores.' };
-        }
-        if (mode === 'group') {
-            if (!player.partyId || !this.parties.has(player.partyId)) {
-                return { ok: false, reason: 'Modo Grupo exige estar em grupo.' };
-            }
-            if (targetMode !== 'group' && targetMode !== 'evil') {
-                return { ok: false, reason: 'Modo Grupo so pode atacar jogadores nos modos Grupo ou Mal.' };
-            }
-            return { ok: true };
-        }
-        if (mode === 'evil') {
-            return { ok: true };
-        }
-        return { ok: false, reason: 'Modo PVP invalido.' };
-    }
-    arePlayersInSameParty(a, b) {
-        if (!a.partyId || !b.partyId)
-            return false;
-        if (a.partyId !== b.partyId)
-            return false;
-        return this.parties.has(a.partyId);
+        return this.combatService.getPvpAttackPermission(player, target);
     }
     assignPathTo(player, destinationX, destinationY) {
-        const projected = this.projectToWalkable(player.mapKey, destinationX, destinationY);
-        player.pathDestinationX = projected.x;
-        player.pathDestinationY = projected.y;
-        const rawPath = this.findPathWithNearbyGoals(player.mapKey, player.x, player.y, projected.x, projected.y);
-        player.rawMovePath = rawPath;
-        player.movePath = this.smoothWorldPath(player.mapKey, player.x, player.y, rawPath);
-        if (player.movePath.length > 0) {
-            player.targetX = player.movePath[0].x;
-            player.targetY = player.movePath[0].y;
-            return;
-        }
-        if (!this.isPathSegmentBlocked(player.mapKey, player.x, player.y, projected.x, projected.y)) {
-            player.targetX = projected.x;
-            player.targetY = projected.y;
-            return;
-        }
-        player.rawMovePath = [];
-        player.targetX = player.x;
-        player.targetY = player.y;
-    }
-    findPathWithNearbyGoals(mapKey, fromX, fromY, toX, toY) {
-        const direct = this.findPath(mapKey, fromX, fromY, toX, toY);
-        if (direct.length > 0)
-            return direct;
-        const goal = this.worldToPathCell(toX, toY);
-        let candidatesChecked = 0;
-        const maxCandidates = PATH_NEARBY_GOAL_MAX_CANDIDATES;
-        const maxRadius = PATH_NEARBY_GOAL_MAX_RADIUS;
-        for (let r = 1; r <= maxRadius && candidatesChecked < maxCandidates; r++) {
-            for (let dx = -r; dx <= r && candidatesChecked < maxCandidates; dx++) {
-                const checks = [
-                    { cx: goal.cx + dx, cy: goal.cy - r },
-                    { cx: goal.cx + dx, cy: goal.cy + r }
-                ];
-                for (const cell of checks) {
-                    candidatesChecked += 1;
-                    if (!this.isPathCellWalkable(mapKey, cell.cx, cell.cy))
-                        continue;
-                    const world = this.pathCellToWorld(cell.cx, cell.cy);
-                    const candidate = this.findPath(mapKey, fromX, fromY, world.x, world.y);
-                    if (candidate.length > 0)
-                        return candidate;
-                    if (candidatesChecked >= maxCandidates)
-                        break;
-                }
-            }
-            for (let dy = -r + 1; dy <= r - 1 && candidatesChecked < maxCandidates; dy++) {
-                const checks = [
-                    { cx: goal.cx - r, cy: goal.cy + dy },
-                    { cx: goal.cx + r, cy: goal.cy + dy }
-                ];
-                for (const cell of checks) {
-                    candidatesChecked += 1;
-                    if (!this.isPathCellWalkable(mapKey, cell.cx, cell.cy))
-                        continue;
-                    const world = this.pathCellToWorld(cell.cx, cell.cy);
-                    const candidate = this.findPath(mapKey, fromX, fromY, world.x, world.y);
-                    if (candidate.length > 0)
-                        return candidate;
-                    if (candidatesChecked >= maxCandidates)
-                        break;
-                }
-            }
-        }
-        return [];
-    }
-    smoothWorldPath(mapKey, startX, startY, points) {
-        if (!Array.isArray(points) || points.length <= 2)
-            return Array.isArray(points) ? points : [];
-        const path = points
-            .map((pt) => ({ x: Number(pt?.x), y: Number(pt?.y) }))
-            .filter((pt) => Number.isFinite(pt.x) && Number.isFinite(pt.y));
-        if (path.length <= 2)
-            return path;
-        const smoothed = [];
-        let anchor = { x: Number(startX), y: Number(startY) };
-        let index = 0;
-        while (index < path.length) {
-            let best = index;
-            for (let probe = path.length - 1; probe >= index; probe--) {
-                const node = path[probe];
-                if (!this.isPathSegmentBlocked(mapKey, anchor.x, anchor.y, node.x, node.y)) {
-                    best = probe;
-                    break;
-                }
-            }
-            const picked = path[best];
-            smoothed.push(picked);
-            anchor = picked;
-            index = best + 1;
-        }
-        return smoothed;
+        this.movementService.assignPathTo(player, destinationX, destinationY);
     }
     recalculatePathToward(player, destinationX, destinationY, now) {
-        if (now < Number(player.nextPathfindAt || 0))
-            return;
-        player.nextPathfindAt = now + PATH_RECALC_MS;
-        this.assignPathTo(player, destinationX, destinationY);
-    }
-    worldToPathCell(x, y) {
-        const maxCellX = Math.floor(config_1.WORLD.width / PATHFIND_CELL_SIZE);
-        const maxCellY = Math.floor(config_1.WORLD.height / PATHFIND_CELL_SIZE);
-        return {
-            cx: (0, math_1.clamp)(Math.floor((0, math_1.clamp)(x, 0, config_1.WORLD.width) / PATHFIND_CELL_SIZE), 0, maxCellX),
-            cy: (0, math_1.clamp)(Math.floor((0, math_1.clamp)(y, 0, config_1.WORLD.height) / PATHFIND_CELL_SIZE), 0, maxCellY)
-        };
-    }
-    pathCellToWorld(cx, cy) {
-        return {
-            x: (0, math_1.clamp)(cx * PATHFIND_CELL_SIZE + PATHFIND_CELL_SIZE / 2, 0, config_1.WORLD.width),
-            y: (0, math_1.clamp)(cy * PATHFIND_CELL_SIZE + PATHFIND_CELL_SIZE / 2, 0, config_1.WORLD.height)
-        };
-    }
-    isPathCellWalkable(mapKey, cx, cy) {
-        const maxCellX = Math.floor(config_1.WORLD.width / PATHFIND_CELL_SIZE);
-        const maxCellY = Math.floor(config_1.WORLD.height / PATHFIND_CELL_SIZE);
-        if (cx < 0 || cy < 0 || cx > maxCellX || cy > maxCellY)
-            return false;
-        const world = this.pathCellToWorld(cx, cy);
-        const offset = Math.max(2, PATH_PLAN_RADIUS * 0.55);
-        const probes = [
-            { x: world.x, y: world.y },
-            { x: world.x + offset, y: world.y },
-            { x: world.x - offset, y: world.y },
-            { x: world.x, y: world.y + offset },
-            { x: world.x, y: world.y - offset },
-            { x: world.x + offset, y: world.y + offset },
-            { x: world.x - offset, y: world.y + offset },
-            { x: world.x + offset, y: world.y - offset },
-            { x: world.x - offset, y: world.y - offset }
-        ];
-        for (const probe of probes) {
-            if (this.isPathBlockedAt(mapKey, probe.x, probe.y, PATH_PLAN_RADIUS))
-                return false;
-        }
-        return true;
-    }
-    findPath(mapKey, fromX, fromY, toX, toY) {
-        const startRaw = this.worldToPathCell(fromX, fromY);
-        const goalRaw = this.worldToPathCell(toX, toY);
-        const start = this.findNearestWalkableCell(mapKey, startRaw.cx, startRaw.cy, 20) || startRaw;
-        const goal = this.findNearestWalkableCell(mapKey, goalRaw.cx, goalRaw.cy, 72) || goalRaw;
-        const sameCell = start.cx === goal.cx && start.cy === goal.cy;
-        if (sameCell)
-            return [{ x: (0, math_1.clamp)(toX, 0, config_1.WORLD.width), y: (0, math_1.clamp)(toY, 0, config_1.WORLD.height) }];
-        const walkableMemo = new Map();
-        const isWalkable = (cx, cy) => {
-            const key = `${cx},${cy}`;
-            if (walkableMemo.has(key))
-                return Boolean(walkableMemo.get(key));
-            const ok = this.isPathCellWalkable(mapKey, cx, cy);
-            walkableMemo.set(key, ok);
-            return ok;
-        };
-        const startKey = `${start.cx},${start.cy}`;
-        const goalKey = `${goal.cx},${goal.cy}`;
-        const open = new Set([startKey]);
-        const closed = new Set();
-        const g = new Map([[startKey, 0]]);
-        const f = new Map();
-        const cameFrom = new Map();
-        f.set(startKey, this.pathHeuristic(start.cx, start.cy, goal.cx, goal.cy));
-        const dirs = [
-            { x: 1, y: 0, c: 1 },
-            { x: -1, y: 0, c: 1 },
-            { x: 0, y: 1, c: 1 },
-            { x: 0, y: -1, c: 1 },
-            { x: 1, y: 1, c: 1.4142 },
-            { x: 1, y: -1, c: 1.4142 },
-            { x: -1, y: 1, c: 1.4142 },
-            { x: -1, y: -1, c: 1.4142 }
-        ];
-        let iter = 0;
-        while (open.size > 0 && iter < PATHFIND_MAX_ITERS) {
-            iter += 1;
-            let current = '';
-            let bestF = Number.POSITIVE_INFINITY;
-            for (const node of open) {
-                const score = Number(f.get(node) ?? Number.POSITIVE_INFINITY);
-                if (score < bestF) {
-                    bestF = score;
-                    current = node;
-                }
-            }
-            if (!current)
-                break;
-            if (current === goalKey) {
-                return this.rebuildPath(cameFrom, current, toX, toY);
-            }
-            open.delete(current);
-            closed.add(current);
-            const [cxRaw, cyRaw] = current.split(',');
-            const cx = Number(cxRaw);
-            const cy = Number(cyRaw);
-            for (const dir of dirs) {
-                const nx = cx + dir.x;
-                const ny = cy + dir.y;
-                const nkey = `${nx},${ny}`;
-                if (closed.has(nkey))
-                    continue;
-                if (!isWalkable(nx, ny))
-                    continue;
-                if (dir.x !== 0 && dir.y !== 0) {
-                    const from = this.pathCellToWorld(cx, cy);
-                    const to = this.pathCellToWorld(nx, ny);
-                    if (this.isPathSegmentBlocked(mapKey, from.x, from.y, to.x, to.y)) {
-                        continue;
-                    }
-                }
-                const tentative = Number(g.get(current) ?? Number.POSITIVE_INFINITY) + dir.c;
-                if (!open.has(nkey))
-                    open.add(nkey);
-                else if (tentative >= Number(g.get(nkey) ?? Number.POSITIVE_INFINITY))
-                    continue;
-                cameFrom.set(nkey, current);
-                g.set(nkey, tentative);
-                f.set(nkey, tentative + this.pathHeuristic(nx, ny, goal.cx, goal.cy));
-            }
-        }
-        return [];
-    }
-    isPathBlockedAt(mapKey, x, y, radiusOverride) {
-        const px = (0, math_1.clamp)(x, 0, config_1.WORLD.width);
-        const py = (0, math_1.clamp)(y, 0, config_1.WORLD.height);
-        const radius = Number.isFinite(Number(radiusOverride)) ? Number(radiusOverride) : PATH_PROBE_RADIUS;
-        const tiledSampler = this.getMapTiledCollisionSampler(mapKey);
-        if (tiledSampler)
-            return tiledSampler.isBlockedAt(px, py, radius);
-        const features = config_1.MAP_FEATURES_BY_KEY[mapKey] || [];
-        for (const feature of features) {
-            if (!feature.collision)
-                continue;
-            if (feature.shape === 'rect') {
-                const insideX = px >= (feature.x - radius) && px <= (feature.x + feature.w + radius);
-                const insideY = py >= (feature.y - radius) && py <= (feature.y + feature.h + radius);
-                if (insideX && insideY)
-                    return true;
-                continue;
-            }
-            const dx = px - feature.x;
-            const dy = py - feature.y;
-            if (dx * dx + dy * dy <= (feature.r + radius) * (feature.r + radius))
-                return true;
-        }
-        return false;
-    }
-    isPathSegmentBlocked(mapKey, x1, y1, x2, y2) {
-        const dx = x2 - x1;
-        const dy = y2 - y1;
-        const len = Math.sqrt(dx * dx + dy * dy);
-        if (len <= 0.01)
-            return false;
-        const step = Math.max(6, PATHFIND_CELL_SIZE * 0.5);
-        const steps = Math.max(1, Math.ceil(len / step));
-        for (let i = 1; i <= steps; i++) {
-            const t = i / steps;
-            const x = x1 + dx * t;
-            const y = y1 + dy * t;
-            if (this.isPathBlockedAt(mapKey, x, y))
-                return true;
-        }
-        return false;
-    }
-    findNearestWalkableCell(mapKey, cx, cy, maxRadius) {
-        if (this.isPathCellWalkable(mapKey, cx, cy))
-            return { cx, cy };
-        for (let r = 1; r <= maxRadius; r++) {
-            for (let dx = -r; dx <= r; dx++) {
-                const top = { cx: cx + dx, cy: cy - r };
-                const bottom = { cx: cx + dx, cy: cy + r };
-                if (this.isPathCellWalkable(mapKey, top.cx, top.cy))
-                    return top;
-                if (this.isPathCellWalkable(mapKey, bottom.cx, bottom.cy))
-                    return bottom;
-            }
-            for (let dy = -r + 1; dy <= r - 1; dy++) {
-                const left = { cx: cx - r, cy: cy + dy };
-                const right = { cx: cx + r, cy: cy + dy };
-                if (this.isPathCellWalkable(mapKey, left.cx, left.cy))
-                    return left;
-                if (this.isPathCellWalkable(mapKey, right.cx, right.cy))
-                    return right;
-            }
-        }
-        return null;
-    }
-    pathHeuristic(ax, ay, bx, by) {
-        const dx = Math.abs(ax - bx);
-        const dy = Math.abs(ay - by);
-        const diag = Math.min(dx, dy);
-        const straight = dx + dy - diag * 2;
-        return diag * 1.4142 + straight;
-    }
-    rebuildPath(cameFrom, current, toX, toY) {
-        const reversed = [current];
-        while (cameFrom.has(current)) {
-            current = String(cameFrom.get(current));
-            reversed.push(current);
-        }
-        reversed.reverse();
-        const path = reversed
-            .slice(1)
-            .map((key) => {
-            const [cxRaw, cyRaw] = key.split(',');
-            const cx = Number(cxRaw);
-            const cy = Number(cyRaw);
-            return this.pathCellToWorld(cx, cy);
-        });
-        path.push({ x: (0, math_1.clamp)(toX, 0, config_1.WORLD.width), y: (0, math_1.clamp)(toY, 0, config_1.WORLD.height) });
-        return path;
+        this.movementService.recalculatePathToward(player, destinationX, destinationY, now);
     }
     processPortalCollision(player, now) {
-        if (now - (player.lastPortalAt || 0) < config_1.PORTAL_COOLDOWN_MS)
-            return;
-        const portals = config_1.PORTALS_BY_MAP_KEY[player.mapKey] || [];
-        for (const portal of portals) {
-            const insideX = player.x >= portal.x && player.x <= portal.x + portal.w;
-            const insideY = player.y >= portal.y && player.y <= portal.y + portal.h;
-            if (!insideX || !insideY)
-                continue;
-            player.mapKey = portal.toMapKey;
-            const projected = this.projectToWalkable(portal.toMapKey, (0, math_1.clamp)(portal.toX, 0, config_1.WORLD.width), (0, math_1.clamp)(portal.toY, 0, config_1.WORLD.height));
-            player.x = projected.x;
-            player.y = projected.y;
-            player.targetX = player.x;
-            player.targetY = player.y;
-            player.movePath = [];
-            player.rawMovePath = [];
-            player.pathDestinationX = player.x;
-            player.pathDestinationY = player.y;
-            player.attackTargetId = null;
-            player.autoAttackActive = false;
-            player.lastPortalAt = now;
-            player.ws?.send(JSON.stringify({ type: 'system_message', text: `Portal: ${portal.toMapKey.toUpperCase()}` }));
-            this.sendPartyAreaList(player);
-            return;
-        }
+        this.mapService.processPortalCollision(player, now, (movedPlayer) => this.sendPartyAreaList(movedPlayer));
     }
     mapInstanceId(mapKey, mapId) {
-        return (0, config_1.composeMapInstanceId)(mapKey, mapId);
+        return this.mapService.mapInstanceId(mapKey, mapId);
     }
     isBlockedAt(mapKey, x, y) {
-        const px = (0, math_1.clamp)(x, 0, config_1.WORLD.width);
-        const py = (0, math_1.clamp)(y, 0, config_1.WORLD.height);
-        const radius = Math.max(8, config_1.PLAYER_HALF_SIZE - 6) + MOVE_COLLISION_PADDING;
-        const tiledSampler = this.getMapTiledCollisionSampler(mapKey);
-        if (tiledSampler)
-            return tiledSampler.isBlockedAt(px, py, radius);
-        const features = config_1.MAP_FEATURES_BY_KEY[mapKey] || [];
-        for (const feature of features) {
-            if (!feature.collision)
-                continue;
-            if (feature.shape === 'rect') {
-                const insideX = px >= (feature.x - radius) && px <= (feature.x + feature.w + radius);
-                const insideY = py >= (feature.y - radius) && py <= (feature.y + feature.h + radius);
-                if (insideX && insideY)
-                    return true;
-                continue;
-            }
-            const dx = px - feature.x;
-            const dy = py - feature.y;
-            if (dx * dx + dy * dy <= (feature.r + radius) * (feature.r + radius))
-                return true;
-        }
-        return false;
+        return this.mapService.isBlockedAt(mapKey, x, y);
     }
     getMapTiledCollisionSampler(mapKey) {
-        if (mapKey === 'forest')
-            return (0, tiledForestCollision_1.getForestTiledCollisionSampler)();
-        return null;
+        return this.mapService.getMapTiledCollisionSampler(mapKey);
     }
     projectToWalkable(mapKey, x, y) {
-        const px = (0, math_1.clamp)(x, 0, config_1.WORLD.width);
-        const py = (0, math_1.clamp)(y, 0, config_1.WORLD.height);
-        if (!this.isBlockedAt(mapKey, px, py))
-            return { x: px, y: py };
-        const goalCell = this.worldToPathCell(px, py);
-        const nearestGoalCell = this.findNearestWalkableCell(mapKey, goalCell.cx, goalCell.cy, 96);
-        if (nearestGoalCell) {
-            const snapped = this.pathCellToWorld(nearestGoalCell.cx, nearestGoalCell.cy);
-            if (!this.isBlockedAt(mapKey, snapped.x, snapped.y))
-                return snapped;
-        }
-        // Fallback limitado para evitar travar o tick quando o clique cai em regiao muito bloqueada.
-        for (let radius = 8; radius <= PROJECT_TO_WALKABLE_MAX_RADIUS; radius += 8) {
-            for (let i = 0; i < PROJECT_TO_WALKABLE_ANGLE_STEPS; i++) {
-                const angle = (Math.PI * 2 * i) / PROJECT_TO_WALKABLE_ANGLE_STEPS;
-                const nx = (0, math_1.clamp)(px + Math.cos(angle) * radius, 0, config_1.WORLD.width);
-                const ny = (0, math_1.clamp)(py + Math.sin(angle) * radius, 0, config_1.WORLD.height);
-                if (!this.isBlockedAt(mapKey, nx, ny))
-                    return { x: nx, y: ny };
-            }
-        }
-        return { x: px, y: py };
+        return this.mapService.projectToWalkable(mapKey, x, y);
     }
     grantXp(player, amount) {
         player.xp += amount;
@@ -3168,34 +1169,7 @@ class GameController {
             this.sendStatsUpdated(player);
     }
     normalizeInventorySlots(items, equippedWeaponId = null) {
-        const out = [];
-        const used = new Set();
-        for (const item of items) {
-            const clone = { ...item };
-            if (this.isStackableItem(clone)) {
-                const max = this.getItemMaxStack(clone);
-                const rawQty = Number(clone.quantity);
-                clone.quantity = Number.isFinite(rawQty) ? (0, math_1.clamp)(Math.floor(rawQty), 1, max) : 1;
-                clone.maxStack = max;
-                clone.stackable = true;
-            }
-            else {
-                clone.quantity = 1;
-            }
-            if (equippedWeaponId && clone.id === equippedWeaponId) {
-                clone.slotIndex = -1;
-                out.push(clone);
-                continue;
-            }
-            if (!Number.isInteger(clone.slotIndex) || clone.slotIndex < 0 || clone.slotIndex >= config_1.INVENTORY_SIZE || used.has(clone.slotIndex)) {
-                clone.slotIndex = this.firstFreeInventorySlot(out);
-            }
-            if (clone.slotIndex === -1)
-                continue;
-            used.add(clone.slotIndex);
-            out.push(clone);
-        }
-        return out;
+        return this.inventoryService.normalizeInventorySlots(items, equippedWeaponId);
     }
     getEquippedWeapon(player) {
         if (!player.equippedWeaponId)
@@ -3308,71 +1282,8 @@ class GameController {
             expiresAt: Date.now() + config_1.GROUND_ITEM_TTL_MS
         });
     }
-    isStackableItem(item) {
-        if (!item || typeof item !== 'object')
-            return false;
-        if (item.stackable === true)
-            return true;
-        return String(item.type || '') === 'potion_hp';
-    }
-    getItemMaxStack(item) {
-        const parsed = Number(item?.maxStack);
-        if (Number.isFinite(parsed) && parsed > 1)
-            return Math.floor(parsed);
-        return 64;
-    }
-    canItemsStack(a, b) {
-        if (!this.isStackableItem(a) || !this.isStackableItem(b))
-            return false;
-        return String(a.type || '') === String(b.type || '')
-            && String(a.name || '') === String(b.name || '')
-            && String(a.slot || '') === String(b.slot || '');
-    }
     addItemToInventory(player, item, quantity) {
-        let remaining = Math.max(0, Math.floor(Number(quantity || 0)));
-        if (remaining <= 0)
-            return 0;
-        if (!this.isStackableItem(item)) {
-            while (remaining > 0) {
-                const freeSlot = this.firstFreeInventorySlot(player.inventory);
-                if (freeSlot === -1)
-                    break;
-                player.inventory.push({ ...item, id: (0, crypto_1.randomUUID)(), quantity: 1, slotIndex: freeSlot });
-                remaining -= 1;
-            }
-            return remaining;
-        }
-        const max = this.getItemMaxStack(item);
-        for (const existing of player.inventory) {
-            if (remaining <= 0)
-                break;
-            if (!this.canItemsStack(existing, item))
-                continue;
-            const current = Math.max(1, Math.floor(Number(existing.quantity || 1)));
-            if (current >= max)
-                continue;
-            const add = Math.min(max - current, remaining);
-            existing.quantity = current + add;
-            existing.maxStack = max;
-            existing.stackable = true;
-            remaining -= add;
-        }
-        while (remaining > 0) {
-            const freeSlot = this.firstFreeInventorySlot(player.inventory);
-            if (freeSlot === -1)
-                break;
-            const add = Math.min(max, remaining);
-            player.inventory.push({
-                ...item,
-                id: (0, crypto_1.randomUUID)(),
-                quantity: add,
-                stackable: true,
-                maxStack: max,
-                slotIndex: freeSlot
-            });
-            remaining -= add;
-        }
-        return remaining;
+        return this.inventoryService.addItemToInventory(player, item, quantity);
     }
     pruneExpiredGroundItems(now) {
         this.groundItems = this.groundItems.filter((item) => {
@@ -3382,169 +1293,39 @@ class GameController {
         });
     }
     getAreaIdForPlayer(player) {
-        return this.mapInstanceId(player.mapKey, player.mapId);
-    }
-    sendPartyError(player, message) {
-        this.sendRaw(player.ws, { type: 'party.error', message });
-    }
-    buildPartySnapshot(party) {
-        const members = party.memberIds
-            .map((id) => this.players.get(id))
-            .filter((p) => Boolean(p))
-            .map((member) => ({
-            playerId: member.id,
-            name: member.name,
-            class: member.class,
-            level: member.level,
-            hp: member.hp,
-            maxHp: member.maxHp,
-            role: member.id === party.leaderId ? 'leader' : 'member',
-            online: true
-        }));
-        return {
-            id: party.id,
-            leaderId: party.leaderId,
-            areaId: party.areaId,
-            maxMembers: party.maxMembers,
-            members
-        };
+        return this.mapService.getAreaIdForPlayer(player);
     }
     sendPartyStateToPlayer(player, party) {
-        this.sendRaw(player.ws, {
-            type: 'party.state',
-            party: party ? this.buildPartySnapshot(party) : null
-        });
-    }
-    syncPartyStateForMembers(party, includeAreaList = false) {
-        party.areaId = this.players.get(party.leaderId) ? this.getAreaIdForPlayer(this.players.get(party.leaderId)) : party.areaId;
-        for (const memberId of party.memberIds) {
-            const member = this.players.get(memberId);
-            if (!member)
-                continue;
-            member.partyId = party.id;
-            this.sendPartyStateToPlayer(member, party);
-            if (includeAreaList)
-                this.sendPartyAreaList(member);
-        }
+        this.partyService.sendPartyStateToPlayer(player, party);
     }
     syncAllPartyStates() {
-        for (const party of this.parties.values()) {
-            this.syncPartyStateForMembers(party);
-        }
+        this.partyService.syncAllPartyStates();
     }
     sendPartyAreaList(player) {
-        const areaId = this.getAreaIdForPlayer(player);
-        const parties = [...this.parties.values()]
-            .filter((party) => party.areaId === areaId)
-            .map((party) => {
-            const leader = this.players.get(party.leaderId);
-            const levels = party.memberIds
-                .map((id) => this.players.get(id))
-                .filter((p) => Boolean(p))
-                .map((p) => p.level);
-            const avgLevel = levels.length > 0 ? Math.round(levels.reduce((sum, lv) => sum + lv, 0) / levels.length) : 1;
-            return {
-                partyId: party.id,
-                leaderId: party.leaderId,
-                leaderName: leader?.name || `#${party.leaderId}`,
-                members: party.memberIds.length,
-                maxMembers: party.maxMembers,
-                avgLevel
-            };
-        });
-        this.sendRaw(player.ws, { type: 'party.areaList', parties });
+        this.partyService.sendPartyAreaList(player);
     }
     pruneExpiredPartyInvites(now) {
-        for (const [inviteId, invite] of this.partyInvites.entries()) {
-            if (invite.expiresAt > now)
-                continue;
-            this.partyInvites.delete(inviteId);
-        }
+        this.partyService.pruneExpiredPartyInvites(now);
     }
     pruneExpiredPartyJoinRequests(now) {
-        for (const [requestId, request] of this.partyJoinRequests.entries()) {
-            if (request.expiresAt > now)
-                continue;
-            this.partyJoinRequests.delete(requestId);
-        }
+        this.partyService.pruneExpiredPartyJoinRequests(now);
     }
     clearPendingInvitesForPlayer(playerId) {
-        for (const [inviteId, invite] of this.partyInvites.entries()) {
-            if (invite.fromPlayerId === playerId || invite.toPlayerId === playerId) {
-                this.partyInvites.delete(inviteId);
-            }
-        }
+        this.partyService.clearPendingInvitesForPlayer(playerId);
     }
     clearJoinRequestsForPlayer(playerId) {
-        for (const [requestId, request] of this.partyJoinRequests.entries()) {
-            if (request.fromPlayerId === playerId || request.toLeaderId === playerId) {
-                this.partyJoinRequests.delete(requestId);
-            }
-        }
+        this.partyService.clearJoinRequestsForPlayer(playerId);
     }
     clearJoinRequestsForParty(partyId) {
-        for (const [requestId, request] of this.partyJoinRequests.entries()) {
-            if (request.partyId === partyId)
-                this.partyJoinRequests.delete(requestId);
-        }
-    }
-    sendFriendError(player, message) {
-        this.sendRaw(player.ws, { type: 'friend.error', message });
-    }
-    getFriendSet(playerId) {
-        if (!this.friendLinks.has(playerId))
-            this.friendLinks.set(playerId, new Set());
-        return this.friendLinks.get(playerId);
-    }
-    areFriends(a, b) {
-        return this.getFriendSet(a).has(b) && this.getFriendSet(b).has(a);
-    }
-    linkFriends(a, b) {
-        this.getFriendSet(a).add(b);
-        this.getFriendSet(b).add(a);
-    }
-    unlinkFriends(a, b) {
-        this.getFriendSet(a).delete(b);
-        this.getFriendSet(b).delete(a);
-    }
-    consumeFriendRequestRate(playerId) {
-        const now = Date.now();
-        const windowMs = 60000;
-        const maxPerWindow = 10;
-        const timestamps = (this.friendRequestWindow.get(playerId) || []).filter((ts) => now - ts <= windowMs);
-        if (timestamps.length >= maxPerWindow) {
-            this.friendRequestWindow.set(playerId, timestamps);
-            return false;
-        }
-        timestamps.push(now);
-        this.friendRequestWindow.set(playerId, timestamps);
-        return true;
+        this.partyService.clearJoinRequestsForParty(partyId);
     }
     pruneExpiredFriendRequests(now) {
-        for (const [requestId, request] of this.friendRequests.entries()) {
-            if (request.expiresAt > now)
-                continue;
-            this.friendRequests.delete(requestId);
-            const from = this.players.get(request.fromPlayerId);
-            const to = this.players.get(request.toPlayerId);
-            if (from)
-                this.sendFriendState(from);
-            if (to)
-                this.sendFriendState(to);
-        }
-        if (now - this.lastFriendDbPruneAt >= 10000) {
-            this.lastFriendDbPruneAt = now;
-            void this.persistence.pruneExpiredFriendRequests(new Date(now));
-        }
+        void this.friendService.pruneExpiredFriendRequests(now).catch((error) => {
+            (0, logger_1.logEvent)('ERROR', 'friend_prune_error', { error: String(error) });
+        });
     }
     clearFriendRequestsForPlayer(playerId) {
-        for (const [requestId, request] of this.friendRequests.entries()) {
-            if (request.fromPlayerId === playerId || request.toPlayerId === playerId) {
-                this.friendRequests.delete(requestId);
-            }
-        }
-        this.friendRequestWindow.delete(playerId);
-        void this.persistence.clearFriendRequestsForPlayer(playerId);
+        this.friendService.clearFriendRequestsForPlayer(playerId);
     }
     findOnlinePlayerByName(rawName) {
         const needle = String(rawName || '').trim().toLowerCase();
@@ -3557,85 +1338,13 @@ class GameController {
         }) || null;
     }
     sendFriendState(player) {
-        const friends = [...this.getFriendSet(player.id)].map((friendId) => {
-            const friend = this.players.get(friendId);
-            return {
-                playerId: friendId,
-                name: friend?.name || `#${friendId}`,
-                online: Boolean(friend)
-            };
-        });
-        const incoming = [...this.friendRequests.values()]
-            .filter((req) => req.toPlayerId === player.id)
-            .map((req) => {
-            const from = this.players.get(req.fromPlayerId);
-            return {
-                requestId: req.id,
-                fromPlayerId: req.fromPlayerId,
-                fromName: from?.name || `#${req.fromPlayerId}`,
-                expiresAt: req.expiresAt
-            };
-        });
-        const outgoing = [...this.friendRequests.values()]
-            .filter((req) => req.fromPlayerId === player.id)
-            .map((req) => {
-            const to = this.players.get(req.toPlayerId);
-            return {
-                requestId: req.id,
-                toPlayerId: req.toPlayerId,
-                toName: to?.name || `#${req.toPlayerId}`,
-                expiresAt: req.expiresAt
-            };
-        });
-        this.sendRaw(player.ws, { type: 'friend.state', friends, incoming, outgoing });
+        this.friendService.sendFriendState(player);
     }
     async hydrateFriendStateForPlayer(player) {
-        const friendships = await this.persistence.getFriendshipsForPlayer(player.id);
-        for (const fs of friendships) {
-            const a = Number(fs.playerAId);
-            const b = Number(fs.playerBId);
-            this.linkFriends(a, b);
-        }
-        const pending = await this.persistence.getPendingFriendRequestsForPlayer(player.id);
-        for (const req of [...pending.incoming, ...pending.outgoing]) {
-            this.friendRequests.set(String(req.id), {
-                id: String(req.id),
-                fromPlayerId: Number(req.fromPlayerId),
-                toPlayerId: Number(req.toPlayerId),
-                createdAt: req.createdAt.getTime(),
-                expiresAt: req.expiresAt.getTime()
-            });
-        }
+        await this.friendService.hydrateFriendStateForPlayer(player);
     }
     removePlayerFromParty(player) {
-        const party = player.partyId ? this.parties.get(player.partyId) : null;
-        player.partyId = null;
-        if (player.pvpMode === 'group') {
-            player.pvpMode = 'peace';
-            this.broadcastRaw({
-                type: 'player.pvpModeUpdated',
-                playerId: player.id,
-                mode: 'peace'
-            });
-            this.persistPlayer(player);
-        }
-        if (!party) {
-            this.sendPartyStateToPlayer(player, null);
-            return;
-        }
-        party.memberIds = party.memberIds.filter((id) => id !== player.id);
-        this.sendPartyStateToPlayer(player, null);
-        this.clearPendingInvitesForPlayer(player.id);
-        if (party.memberIds.length === 0) {
-            this.clearJoinRequestsForParty(party.id);
-            this.parties.delete(party.id);
-            return;
-        }
-        if (party.leaderId === player.id) {
-            party.leaderId = party.memberIds[0];
-            this.clearJoinRequestsForParty(party.id);
-        }
-        this.syncPartyStateForMembers(party, true);
+        this.partyService.removePlayerFromParty(player);
     }
     normalizeClassId(rawClass) {
         const key = String(rawClass || '').toLowerCase();
@@ -3803,10 +1512,6 @@ class GameController {
         if (atkLuck < defLuck * 2)
             return false;
         return Math.random() < LUCKY_STRIKE_CHANCE;
-    }
-    getMobAccuracy(mob) {
-        const base = mob?.kind === 'boss' ? 90 : mob?.kind === 'subboss' ? 80 : mob?.kind === 'elite' ? 70 : 60;
-        return base;
     }
     getMobEvasion(mob) {
         return mob?.kind === 'boss' ? 16 : mob?.kind === 'subboss' ? 11 : mob?.kind === 'elite' ? 8 : 5;

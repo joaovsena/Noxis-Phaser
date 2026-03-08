@@ -25,6 +25,9 @@ export class Game {
         this.mapWidth = 6400;
         this.mapHeight = 6400;
         this.camera = { x: 0, y: 0 };
+        this.cameraFollowSnap = true;
+        this.cameraFollowMin = 0.14;
+        this.cameraFollowMax = 0.38;
         this.currentMapCode = 'A1';
         this.currentMapId = 'Z1';
         this.currentMapKey = 'forest';
@@ -140,6 +143,11 @@ export class Game {
         this.lastMoveAck = null;
         this.lastMoveSent = null;
         this.moveReqCounter = 0;
+        this.moveCommandMinIntervalMs = 70;
+        this.lastMoveCommandAt = 0;
+        this.moveCommandTimer = null;
+        this.queuedMoveCommand = null;
+        this.localMoveIntent = null;
         this.autoAttackEnabled = true;
         this.localPlannedPath = [];
         this.chatBubbles = {};
@@ -976,12 +984,45 @@ export class Game {
     }
 
     sendMoveToWorld(x, y) {
-        const reqId = `m-${++this.moveReqCounter}-${Date.now()}`;
         const clampedX = Math.max(0, Math.min(this.mapWidth, x));
         const clampedY = Math.max(0, Math.min(this.mapHeight, y));
         this.cancelPendingPickup();
-        this.network.send({ type: 'move', reqId, x: clampedX, y: clampedY });
-        this.lastMoveSent = { reqId, x: clampedX, y: clampedY, projectedX: clampedX, projectedY: clampedY, at: Date.now() };
+        if (this.localId && this.players[this.localId]) {
+            this.localMoveIntent = {
+                x: clampedX,
+                y: clampedY,
+                expiresAt: Date.now() + 1200,
+                reqId: null
+            };
+        }
+        this.queueMoveCommand(clampedX, clampedY);
+    }
+
+    queueMoveCommand(x, y) {
+        const now = Date.now();
+        const elapsed = now - Number(this.lastMoveCommandAt || 0);
+        if (elapsed >= this.moveCommandMinIntervalMs) {
+            this.sendMoveCommandNow(x, y);
+            return;
+        }
+        this.queuedMoveCommand = { x, y };
+        if (this.moveCommandTimer) return;
+        const delay = Math.max(0, this.moveCommandMinIntervalMs - elapsed);
+        this.moveCommandTimer = setTimeout(() => {
+            this.moveCommandTimer = null;
+            const queued = this.queuedMoveCommand;
+            this.queuedMoveCommand = null;
+            if (!queued) return;
+            this.sendMoveCommandNow(Number(queued.x), Number(queued.y));
+        }, delay);
+    }
+
+    sendMoveCommandNow(x, y) {
+        const reqId = `m-${++this.moveReqCounter}-${Date.now()}`;
+        this.lastMoveCommandAt = Date.now();
+        this.network.send({ type: 'move', reqId, x, y });
+        this.lastMoveSent = { reqId, x, y, projectedX: x, projectedY: y, at: Date.now() };
+        if (this.localMoveIntent) this.localMoveIntent.reqId = reqId;
     }
 
     /**
@@ -1069,6 +1110,7 @@ export class Game {
         this.fpsFrameCount = 0;
         this.fpsValue = 0;
         this.lastRenderAt = 0;
+        this.cameraFollowSnap = true;
         this.perfHudDirty = true;
         this.refreshPerformanceHud(true);
 
@@ -1099,6 +1141,12 @@ export class Game {
      * Callback de desconexão do socket.
      */
     onDisconnected() {
+        if (this.moveCommandTimer) {
+            clearTimeout(this.moveCommandTimer);
+            this.moveCommandTimer = null;
+        }
+        this.queuedMoveCommand = null;
+        this.localMoveIntent = null;
         if (this.partyAreaPollTimer) {
             clearInterval(this.partyAreaPollTimer);
             this.partyAreaPollTimer = null;
@@ -1140,6 +1188,7 @@ export class Game {
         this.fpsFrameCount = 0;
         this.fpsValue = 0;
         this.lastRenderAt = 0;
+        this.cameraFollowSnap = true;
         this.perfHudDirty = true;
         this.playerCard.classList.add('hidden');
         this.minimapWrap.classList.add('hidden');
@@ -1162,6 +1211,8 @@ export class Game {
         this.players = {};
         this.mobs = {};
         this.groundItems = {};
+        this.localMoveIntent = null;
+        this.queuedMoveCommand = null;
         this.inventory = [];
         this.equippedWeaponId = null;
         this.selectedMobId = null;
@@ -1188,6 +1239,9 @@ export class Game {
         if (this.lastMoveSent && String(this.lastMoveSent.reqId || '') === String(message.reqId || '')) {
             if (Number.isFinite(Number(message.projectedX))) this.lastMoveSent.projectedX = Number(message.projectedX);
             if (Number.isFinite(Number(message.projectedY))) this.lastMoveSent.projectedY = Number(message.projectedY);
+        }
+        if (this.localMoveIntent && String(this.localMoveIntent.reqId || '') === String(message.reqId || '')) {
+            this.localMoveIntent = null;
         }
         if (!this.localId || !this.players[this.localId]) return;
         this.players[this.localId].pathNodes = Array.isArray(message.pathNodes) ? message.pathNodes : [];
@@ -3060,10 +3114,17 @@ export class Game {
             p.unspentPoints = Number.isFinite(Number(incoming.unspentPoints)) ? Math.max(0, Number(incoming.unspentPoints)) : 0;
             p.pathNodes = Array.isArray(incoming.pathNodes) ? incoming.pathNodes : [];
             p.pathNodesRaw = Array.isArray(incoming.pathNodesRaw) ? incoming.pathNodesRaw : [];
+            const isLocal = String(id) === String(this.localId);
             p.targetX = incoming.x;
             p.targetY = incoming.y;
+            if (isLocal && this.localMoveIntent) {
+                const now = Date.now();
+                if (now > Number(this.localMoveIntent.expiresAt || 0)) {
+                    this.localMoveIntent = null;
+                }
+            }
 
-            if (String(id) === String(this.localId)) {
+            if (isLocal) {
                 this.playerRole = p.role === 'adm' ? 'adm' : 'player';
                 const nowDead = Boolean(p.dead || p.hp <= 0);
                 this.isDead = nowDead;
@@ -3334,9 +3395,10 @@ export class Game {
             }
             const moveSpeedStat = Number.isFinite(Number(p?.stats?.moveSpeed)) ? Number(p.stats.moveSpeed) : 100;
             const worldUnitsPerSec = baseMoveSpeed * Math.max(0.2, moveSpeedStat / 100);
-            const maxStep = Math.max(0.01, worldUnitsPerSec * (dt / 1000) * 1.15);
+            const capMul = String(id) === String(this.localId) ? 2.6 : 1.8;
+            const maxStep = Math.max(0.01, worldUnitsPerSec * (dt / 1000) * capMul);
             const blendedStep = Math.max(0.01, dist * lerp);
-            const step = Math.min(dist, Math.min(maxStep, blendedStep));
+            const step = Math.min(dist, Math.max(Math.min(maxStep, blendedStep), maxStep * 0.55));
             p.x += (dx / dist) * step;
             p.y += (dy / dist) * step;
             if (Math.abs(p.targetX - p.x) < snap) p.x = p.targetX;
@@ -5328,7 +5390,7 @@ export class Game {
                 const faceDx = hasServerVec ? dx : visualDx;
                 const faceDy = hasServerVec ? dy : visualDy;
                 if (Math.abs(faceDx) > 0.001 || Math.abs(faceDy) > 0.001) {
-                    p.facing = this.resolveFacing(faceDx, faceDy);
+                    p.facing = this.resolveFacingStable(p.facing || 's', faceDx, faceDy);
                 }
             }
 
@@ -5860,6 +5922,39 @@ export class Game {
         this.updateHudDebugPanelUI();
     }
 
+    normalizeAngleDeg(a) {
+        let out = Number(a || 0);
+        while (out > 180) out -= 360;
+        while (out <= -180) out += 360;
+        return out;
+    }
+
+    facingToAngleDeg(facing) {
+        const table = {
+            e: 0,
+            se: 45,
+            s: 90,
+            sw: 135,
+            w: 180,
+            nw: -135,
+            n: -90,
+            ne: -45
+        };
+        return Number(table[String(facing || '').toLowerCase()] ?? 90);
+    }
+
+    resolveFacingStable(currentFacing, dx, dy) {
+        if (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001) return currentFacing || 's';
+        const candidate = this.resolveFacing(dx, dy);
+        if (!currentFacing || candidate === currentFacing) return candidate;
+        const angle = this.normalizeAngleDeg(Math.atan2(dy, dx) * (180 / Math.PI));
+        const currentCenter = this.facingToAngleDeg(currentFacing);
+        const currentDelta = Math.abs(this.normalizeAngleDeg(angle - currentCenter));
+        const switchThreshold = 36;
+        if (currentDelta <= switchThreshold) return currentFacing;
+        return candidate;
+    }
+
     /**
      * Resolve direcao em 8 sentidos a partir do vetor de movimento.
      */
@@ -5887,8 +5982,19 @@ export class Game {
         if (this.localId && this.players[this.localId]) {
             const me = this.players[this.localId];
             const focus = this.worldToRenderCoords(me.x, me.y);
-            this.camera.x = focus.x - this.canvas.width / 2;
-            this.camera.y = focus.y - this.canvas.height / 2;
+            const targetCamX = Math.max(0, Math.min(focus.x - this.canvas.width / 2, this.mapWidth - this.canvas.width));
+            const targetCamY = Math.max(0, Math.min(focus.y - this.canvas.height / 2, this.mapHeight - this.canvas.height));
+            if (this.cameraFollowSnap) {
+                this.camera.x = targetCamX;
+                this.camera.y = targetCamY;
+                this.cameraFollowSnap = false;
+            } else {
+                const dt = Math.max(1, Number(deltaMs || 16.67));
+                const alpha = 1 - Math.exp(-14 * (dt / 1000));
+                const lerp = Math.max(this.cameraFollowMin, Math.min(this.cameraFollowMax, alpha));
+                this.camera.x += (targetCamX - this.camera.x) * lerp;
+                this.camera.y += (targetCamY - this.camera.y) * lerp;
+            }
             this.camera.x = Math.max(0, Math.min(this.camera.x, this.mapWidth - this.canvas.width));
             this.camera.y = Math.max(0, Math.min(this.camera.y, this.mapHeight - this.canvas.height));
         }
