@@ -2455,7 +2455,7 @@ export class Game {
     getMobAt(x, y) {
         for (const id of Object.keys(this.mobs)) {
             const mob = this.mobs[id];
-            const half = mob.size / 2;
+            const half = this.getMobRenderSize(mob) / 2;
             if (x >= mob.x - half && x <= mob.x + half && y >= mob.y - half && y <= mob.y + half) return id;
         }
         return null;
@@ -6159,21 +6159,22 @@ export class Game {
                 screenX += mob.hitAnim.ox;
                 screenY += mob.hitAnim.oy;
             }
-            const half = mob.size / 2;
-            this.drawMobSprite(mob, screenX, screenY, now);
+            const drawSize = this.getMobRenderSize(mob);
+            const half = drawSize / 2;
+            this.drawMobSprite(mob, screenX, screenY, now, drawSize);
 
             const isHovered = this.hoveredMobId === id;
             const isSelected = this.selectedMobId === id;
             if (isHovered || isSelected) {
                 this.ctx.strokeStyle = isSelected ? '#ffffff' : '#ffd32a';
                 this.ctx.lineWidth = 3;
-                this.ctx.strokeRect(screenX - half, screenY - half, mob.size, mob.size);
+                this.ctx.strokeRect(screenX - half, screenY - half, drawSize, drawSize);
             }
 
             this.ctx.fillStyle = '#000';
-            this.ctx.fillRect(screenX - half, screenY - half - 10, mob.size, 6);
+            this.ctx.fillRect(screenX - half, screenY - half - 10, drawSize, 6);
             this.ctx.fillStyle = '#2ed573';
-            this.ctx.fillRect(screenX - half, screenY - half - 10, mob.size * (mob.hp / mob.maxHp), 6);
+            this.ctx.fillRect(screenX - half, screenY - half - 10, drawSize * (mob.hp / mob.maxHp), 6);
 
             this.ctx.fillStyle = '#fff';
             this.ctx.font = '11px Arial';
@@ -6190,9 +6191,10 @@ export class Game {
         return 'Monstro';
     }
 
-    drawMobSprite(mob, x, y, now) {
+    drawMobSprite(mob, x, y, now, baseSizeOverride = null) {
         const pulse = 1 + Math.sin(now / 240 + (mob.x + mob.y) * 0.001) * 0.05;
-        const size = mob.size * pulse;
+        const baseSize = Number(baseSizeOverride) || this.getMobRenderSize(mob);
+        const size = baseSize * pulse;
         const half = size / 2;
         const kind = mob.kind || 'normal';
 
@@ -6251,6 +6253,19 @@ export class Game {
         this.ctx.fillStyle = '#d62828';
         this.ctx.fillRect(x - half * 0.18, y - half * 0.14, half * 0.14, half * 0.14);
         this.ctx.fillRect(x + half * 0.04, y - half * 0.14, half * 0.14, half * 0.14);
+    }
+
+    getMobRenderScale(kind) {
+        const k = String(kind || 'normal');
+        if (k === 'boss') return 1.46;
+        if (k === 'subboss') return 1.38;
+        if (k === 'elite') return 1.32;
+        return 1.26;
+    }
+
+    getMobRenderSize(mob) {
+        const base = Math.max(1, Number(mob?.size || 40));
+        return base * this.getMobRenderScale(mob?.kind);
     }
 
     /**
