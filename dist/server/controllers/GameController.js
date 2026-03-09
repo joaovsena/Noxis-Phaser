@@ -335,16 +335,18 @@ class GameController {
     async handleCharacterBack(ws) {
         try {
             const playerId = Number(ws?.playerId || 0);
-            if (!Number.isInteger(playerId) || playerId <= 0)
+            const hasActiveRuntime = Number.isInteger(playerId) && playerId > 0 && this.players.has(playerId);
+            const activePlayer = hasActiveRuntime ? this.players.get(playerId) : null;
+            const authUserId = String(ws.authUserId || activePlayer?.userId || '').trim();
+            if (!authUserId) {
+                this.sendRaw(ws, { type: 'auth_error', message: 'Sessao invalida para troca de personagem.' });
                 return;
-            const player = this.players.get(playerId);
-            if (!player)
-                return;
-            await this.handleDisconnect(playerId);
+            }
+            if (hasActiveRuntime)
+                await this.handleDisconnect(playerId);
             ws.playerId = undefined;
-            if (!ws.authUserId)
-                return;
-            const account = await this.persistence.getUserById(String(ws.authUserId));
+            ws.authUserId = authUserId;
+            const account = await this.persistence.getUserById(authUserId);
             const characters = Array.isArray(account?.players)
                 ? account.players
                 : [];

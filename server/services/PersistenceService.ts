@@ -57,6 +57,7 @@ export class PersistenceService {
                 level: player.level,
                 xp: player.xp,
                 hp: player.hp,
+                role: player.role,
                 stats: player.stats,
                 allocatedStats: player.allocatedStats,
                 unspentPoints: player.unspentPoints,

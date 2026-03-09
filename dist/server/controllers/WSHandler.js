@@ -27,6 +27,10 @@ class WSHandler {
                 this.controller.handleAuth(ws, msg);
                 return;
             }
+            if (msg.type === 'character.back') {
+                void this.controller.handleCharacterBack(ws);
+                return;
+            }
             if (msg.type === 'character_create') {
                 void this.controller.handleCharacterCreate(ws, msg);
                 return;

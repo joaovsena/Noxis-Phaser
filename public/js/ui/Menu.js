@@ -92,6 +92,7 @@ export class MenuUI {
     }
 
     showCharacterSelect(payload = {}) {
+        this.show();
         this.characterSlots = Array.isArray(payload.slots) ? payload.slots.slice(0, 3) : [null, null, null];
         while (this.characterSlots.length < 3) this.characterSlots.push(null);
         this.maxSlots = Number.isInteger(Number(payload.maxSlots)) ? Math.max(1, Number(payload.maxSlots)) : 3;
@@ -102,6 +103,7 @@ export class MenuUI {
     }
 
     showCharacterCreate() {
+        this.show();
         this.createCharName.value = '';
         this.createCharClass.value = this.createCharClass.value || 'knight';
         this.createCharGender.value = this.createCharGender.value || 'male';
