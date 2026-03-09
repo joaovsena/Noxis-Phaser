@@ -47,6 +47,7 @@ export class Game {
 
         this.playerCard = document.getElementById('player-card');
         this.perfHud = document.getElementById('perf-hud');
+        this.afkStatus = document.getElementById('afk-status');
         this.playerAvatar = document.getElementById('player-avatar');
         this.playerName = document.getElementById('player-name');
         this.playerCharSelectBtn = document.getElementById('player-char-select');
@@ -499,6 +500,14 @@ export class Game {
             if (!isQuote) return;
             e.preventDefault();
             this.selectNearestTarget();
+        });
+
+        window.addEventListener('keydown', (e) => {
+            if (!this.localId) return;
+            if (isTypingInField()) return;
+            if (e.key !== '.' && e.code !== 'Period') return;
+            e.preventDefault();
+            this.network.send({ type: 'player.toggleAfk' });
         });
 
         window.addEventListener('keydown', (e) => {
@@ -1143,6 +1152,7 @@ export class Game {
         this.reviveOverlay.classList.add('hidden');
         this.canvas.style.display = 'none';
         if (this.perfHud) this.perfHud.classList.add('hidden');
+        if (this.afkStatus) this.afkStatus.classList.add('hidden');
         this.playerCard.classList.add('hidden');
         this.minimapWrap.classList.add('hidden');
         this.chatWrap.classList.add('hidden');
@@ -1173,6 +1183,7 @@ export class Game {
         if (this.menu) this.menu.hide();
         this.canvas.style.display = 'block';
         if (this.perfHud) this.perfHud.classList.remove('hidden');
+        this.updateAfkBanner();
         this.playerCard.classList.remove('hidden');
         this.minimapWrap.classList.remove('hidden');
         this.chatWrap.classList.remove('hidden');
@@ -1267,6 +1278,7 @@ export class Game {
         this.localId = null;
         this.canvas.style.display = 'none';
         if (this.perfHud) this.perfHud.classList.add('hidden');
+        if (this.afkStatus) this.afkStatus.classList.add('hidden');
         this.fpsWindowStartAt = 0;
         this.fpsFrameCount = 0;
         this.fpsValue = 0;
@@ -1290,10 +1302,17 @@ export class Game {
         this.refreshPerformanceHud(true);
     }
 
+    updateAfkBanner() {
+        if (!this.afkStatus) return;
+        const me = this.localId ? this.players[this.localId] : null;
+        this.afkStatus.classList.toggle('hidden', !Boolean(me?.afkActive));
+    }
+
     resetSessionUiState() {
         this.players = {};
         this.mobs = {};
         this.groundItems = {};
+        if (this.afkStatus) this.afkStatus.classList.add('hidden');
         this.localMoveIntent = null;
         this.queuedMoveCommand = null;
         this.inventory = [];
@@ -2915,6 +2934,7 @@ export class Game {
             skillLevels,
             skillPointsAvailable,
             unspentPoints,
+            afkActive: Boolean(player.afkActive),
             x: player.x,
             y: player.y,
             targetX: player.x,
@@ -2975,6 +2995,7 @@ export class Game {
         this.syncPlayers(message.players || {});
         this.syncMobs(message.mobs || []);
         this.syncGroundItems(message.groundItems || []);
+        this.updateAfkBanner();
         this.updatePlayerCard();
         this.updateTargetPlayerCard();
     }
@@ -3197,6 +3218,7 @@ export class Game {
             p.unspentPoints = Number.isFinite(Number(incoming.unspentPoints)) ? Math.max(0, Number(incoming.unspentPoints)) : 0;
             p.pathNodes = Array.isArray(incoming.pathNodes) ? incoming.pathNodes : [];
             p.pathNodesRaw = Array.isArray(incoming.pathNodesRaw) ? incoming.pathNodesRaw : [];
+            p.afkActive = Boolean(incoming.afkActive);
             const isLocal = String(id) === String(this.localId);
             p.targetX = incoming.x;
             p.targetY = incoming.y;
@@ -3213,6 +3235,7 @@ export class Game {
                 this.isDead = nowDead;
                 this.reviveOverlay.classList.toggle('hidden', !nowDead);
                 this.updateAdminMapSettings();
+                this.updateAfkBanner();
             }
         }
     }

@@ -170,6 +170,9 @@ export class WSHandler {
             case 'skill.learn':
                 this.controller.handleSkillLearn(player, msg as any);
                 break;
+            case 'player.toggleAfk':
+                this.controller.handleToggleAfk(player);
+                break;
             case 'hotbar.set':
                 this.controller.handleHotbarSet(player, msg as any);
                 break;

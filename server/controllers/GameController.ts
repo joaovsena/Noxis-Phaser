@@ -65,6 +65,9 @@ const SOFT_CAP_THRESHOLD = 150;
 const SOFT_CAP_COST = 2;
 const BASE_POINT_COST = 1;
 const LUCKY_STRIKE_CHANCE = 0.15;
+const AFK_THINK_MS = 260;
+const AFK_VISION_RANGE = 900;
+const AFK_RETURN_EPSILON = 10;
 const ATTRIBUTE_DRIVEN_OVERRIDE_KEYS = [
     'physicalAttack',
     'magicAttack',
@@ -663,13 +666,22 @@ export class GameController {
             lastMoveCheckX: spawn.x,
             lastMoveCheckY: spawn.y,
             lastMoveProgressAt: Date.now(),
-            pendingSkillCast: null
+            pendingSkillCast: null,
+            afkActive: false,
+            afkOriginX: spawn.x,
+            afkOriginY: spawn.y,
+            afkOriginMapKey: mapKey,
+            afkOriginMapId: mapId,
+            afkNextThinkAt: 0
         };
         this.recomputePlayerStats(runtime);
         return runtime;
     }
 
     handleMove(player: PlayerRuntime, msg: MoveMessage) {
+        if (player.afkActive) {
+            this.setAfkState(player, false);
+        }
         player.pendingSkillCast = null;
         this.movementService.handleMove(player, msg);
     }
@@ -717,6 +729,7 @@ export class GameController {
         player.pathDestinationY = player.y;
         player.attackTargetId = null;
         player.autoAttackActive = false;
+        this.setAfkState(player, false);
         player.ws.send(JSON.stringify({ type: 'system_message', text: `Instancia alterada para ${target}.` }));
         this.sendPartyAreaList(player);
     }
@@ -1144,6 +1157,7 @@ export class GameController {
         player.attackTargetId = null;
         player.pvpAutoAttackActive = false;
         player.attackTargetPlayerId = null;
+        this.setAfkState(player, false);
         this.persistPlayer(player);
         this.sendRaw(player.ws, { type: 'system_message', text: 'Voce reviveu no local da morte.' });
     }
@@ -1154,6 +1168,11 @@ export class GameController {
 
     handleSkillLearn(player: PlayerRuntime, msg: any) {
         this.skillService.handleSkillLearn(player, msg);
+    }
+
+    handleToggleAfk(player: PlayerRuntime) {
+        if (player.dead || player.hp <= 0) return;
+        this.setAfkState(player, !Boolean(player.afkActive));
     }
 
     handleStatsAllocate(player: PlayerRuntime, msg: any) {
@@ -1249,6 +1268,7 @@ export class GameController {
         for (const player of this.players.values()) {
             this.pruneExpiredSkillEffects(player, now);
             if (player.dead || player.hp <= 0) continue;
+            this.processAfkBehavior(player, now);
             this.movePlayerTowardTarget(player, deltaSeconds, now);
             this.skillService.processPendingSkillCast(player, now);
             this.processPortalCollision(player, now);
@@ -1333,6 +1353,7 @@ export class GameController {
             level: player.level,
             hp: player.hp,
             maxHp: player.maxHp,
+            afkActive: Boolean(player.afkActive),
             equippedWeaponName: weapon ? weapon.name : null,
             pathNodes: Array.isArray(player.movePath) ? player.movePath.slice(0, 40).map((pt: any) => ({ x: Number(pt.x), y: Number(pt.y) })) : [],
             xp: player.xp,
@@ -1443,6 +1464,85 @@ export class GameController {
 
     private processAutoAttackPlayer(player: PlayerRuntime, now: number) {
         this.combatRuntimeService.processAutoAttackPlayer(player, now);
+    }
+
+    private setAfkState(player: PlayerRuntime, active: boolean) {
+        const next = Boolean(active);
+        if (Boolean(player.afkActive) === next) return;
+        player.afkActive = next;
+        player.afkNextThinkAt = 0;
+        if (next) {
+            player.afkOriginX = Number(player.x);
+            player.afkOriginY = Number(player.y);
+            player.afkOriginMapKey = String(player.mapKey);
+            player.afkOriginMapId = String(player.mapId);
+            this.sendRaw(player.ws, { type: 'system_message', text: 'Voce esta no modo AFK.' });
+            return;
+        }
+        player.movePath = [];
+        player.rawMovePath = [];
+        player.targetX = player.x;
+        player.targetY = player.y;
+        player.pathDestinationX = player.x;
+        player.pathDestinationY = player.y;
+        player.autoAttackActive = false;
+        player.attackTargetId = null;
+        player.pendingSkillCast = null;
+        this.sendRaw(player.ws, { type: 'system_message', text: 'Modo AFK desativado.' });
+    }
+
+    private processAfkBehavior(player: PlayerRuntime, now: number) {
+        if (!player.afkActive) return;
+        if (now < Number(player.afkNextThinkAt || 0)) return;
+        player.afkNextThinkAt = now + AFK_THINK_MS;
+
+        const originMapKey = String(player.afkOriginMapKey || player.mapKey);
+        const originMapId = String(player.afkOriginMapId || player.mapId);
+        if (originMapKey !== player.mapKey || originMapId !== player.mapId) {
+            this.setAfkState(player, false);
+            return;
+        }
+
+        const currentTarget = player.attackTargetId
+            ? this.mobService.getMobs().find((m: any) =>
+                m.id === player.attackTargetId
+                && m.mapId === this.mapInstanceId(player.mapKey, player.mapId)
+                && Number(m.hp || 0) > 0
+            )
+            : null;
+        if (currentTarget) return;
+
+        const nearestMob = this.findNearestMobForAfk(player, AFK_VISION_RANGE);
+        if (nearestMob) {
+            player.pvpAutoAttackActive = false;
+            player.attackTargetPlayerId = null;
+            player.autoAttackActive = true;
+            player.attackTargetId = String(nearestMob.id);
+            return;
+        }
+
+        player.autoAttackActive = false;
+        player.attackTargetId = null;
+        const ox = Number.isFinite(Number(player.afkOriginX)) ? Number(player.afkOriginX) : Number(player.x);
+        const oy = Number.isFinite(Number(player.afkOriginY)) ? Number(player.afkOriginY) : Number(player.y);
+        if (distance(player, { x: ox, y: oy } as any) <= AFK_RETURN_EPSILON) return;
+        this.recalculatePathToward(player, ox, oy, now);
+    }
+
+    private findNearestMobForAfk(player: PlayerRuntime, maxDistance: number) {
+        const mapInstance = this.mapInstanceId(player.mapKey, player.mapId);
+        let nearest: any = null;
+        let nearestDistance = Number.POSITIVE_INFINITY;
+        for (const mob of this.mobService.getMobsByMap(mapInstance)) {
+            if (!mob || Number(mob.hp || 0) <= 0) continue;
+            const d = distance(player, mob);
+            if (d > maxDistance) continue;
+            if (d < nearestDistance) {
+                nearestDistance = d;
+                nearest = mob;
+            }
+        }
+        return nearest;
     }
 
     private processMobAggroAndCombat(deltaSeconds: number, now: number) {

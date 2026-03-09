@@ -60,6 +60,12 @@ export interface PlayerRuntime {
         issuedAt: number;
         nextAttemptAt?: number;
     } | null;
+    afkActive?: boolean;
+    afkOriginX?: number;
+    afkOriginY?: number;
+    afkOriginMapKey?: string;
+    afkOriginMapId?: string;
+    afkNextThinkAt?: number;
 }
 export interface Mob {
     id: string;
@@ -293,6 +299,9 @@ export interface SkillLearnMessage {
     type: 'skill.learn';
     skillId: string;
 }
+export interface PlayerToggleAfkMessage {
+    type: 'player.toggleAfk';
+}
 export interface HotbarSetMessage {
     type: 'hotbar.set';
     bindings: Record<string, any>;
@@ -301,5 +310,5 @@ export interface PingMessage {
     type: 'ping';
     nonce?: number;
 }
-export type WSMessage = AuthMessage | CharacterCreateMessage | CharacterEnterMessage | CharacterBackMessage | MoveMessage | TargetMobMessage | ChatMessage | PickupItemMessage | EquipItemMessage | EquipRequestMessage | InventoryMoveMessage | InventorySortMessage | InventoryDeleteMessage | InventoryUnequipToSlotMessage | ItemUseMessage | SwitchInstanceMessage | AdminCommandMessage | AdminSetMobPeacefulMessage | PartyCreateMessage | PartyInviteMessage | PartyAcceptInviteMessage | PartyDeclineInviteMessage | PartyLeaveMessage | PartyKickMessage | PartyPromoteMessage | PartyRequestAreaPartiesMessage | PartyRequestJoinMessage | PartyApproveJoinMessage | PartyWaypointPingMessage | FriendRequestMessage | FriendAcceptMessage | FriendDeclineMessage | FriendRemoveMessage | FriendListMessage | StatsAllocateMessage | PlayerSetPvpModeMessage | CombatAttackMessage | CombatTargetPlayerMessage | CombatClearTargetMessage | PlayerReviveMessage | SkillCastMessage | SkillLearnMessage | HotbarSetMessage | PingMessage;
+export type WSMessage = AuthMessage | CharacterCreateMessage | CharacterEnterMessage | CharacterBackMessage | MoveMessage | TargetMobMessage | ChatMessage | PickupItemMessage | EquipItemMessage | EquipRequestMessage | InventoryMoveMessage | InventorySortMessage | InventoryDeleteMessage | InventoryUnequipToSlotMessage | ItemUseMessage | SwitchInstanceMessage | AdminCommandMessage | AdminSetMobPeacefulMessage | PartyCreateMessage | PartyInviteMessage | PartyAcceptInviteMessage | PartyDeclineInviteMessage | PartyLeaveMessage | PartyKickMessage | PartyPromoteMessage | PartyRequestAreaPartiesMessage | PartyRequestJoinMessage | PartyApproveJoinMessage | PartyWaypointPingMessage | FriendRequestMessage | FriendAcceptMessage | FriendDeclineMessage | FriendRemoveMessage | FriendListMessage | StatsAllocateMessage | PlayerSetPvpModeMessage | CombatAttackMessage | CombatTargetPlayerMessage | CombatClearTargetMessage | PlayerReviveMessage | SkillCastMessage | SkillLearnMessage | PlayerToggleAfkMessage | HotbarSetMessage | PingMessage;
 //# sourceMappingURL=types.d.ts.map

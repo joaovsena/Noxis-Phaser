@@ -108,6 +108,11 @@ class SkillService {
                     issuedAt: Number(player.pendingSkillCast?.issuedAt || now),
                     nextAttemptAt: now + 150
                 };
+                // Skill em alvo mob deve manter pressao com ataque basico enquanto aproxima.
+                player.pvpAutoAttackActive = false;
+                player.attackTargetPlayerId = null;
+                player.autoAttackActive = true;
+                player.attackTargetId = targetMob.id;
                 this.assignPathTo(player, Number(targetMob.x), Number(targetMob.y));
                 return;
             }
@@ -212,6 +217,13 @@ class SkillService {
             y: targetMob.y,
             effectKey: skill.effectKey || skill.id
         });
+        // Apos usar habilidade em mob, continua no ciclo de ataque basico.
+        if (Number(targetMob.hp || 0) > 0) {
+            player.pvpAutoAttackActive = false;
+            player.attackTargetPlayerId = null;
+            player.autoAttackActive = true;
+            player.attackTargetId = String(targetMob.id);
+        }
         player.lastCombatAt = now;
         if (Number(player.hp || 0) !== hpBeforeCast)
             this.sendStatsUpdated(player);

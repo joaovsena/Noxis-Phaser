@@ -437,6 +437,21 @@ button:hover {
     backdrop-filter: blur(2px);
 }
 
+.hud-afk {
+    position: absolute;
+    z-index: 27;
+    top: calc(var(--hud-gap) + 2px);
+    left: calc(var(--hud-gap) + 168px);
+    padding: 2px 8px;
+    font-size: 11px;
+    letter-spacing: 0.2px;
+    color: #ffecb3;
+    background: rgba(58, 34, 7, 0.88);
+    border: 1px solid #8d6727;
+    border-radius: 6px;
+    backdrop-filter: blur(2px);
+}
+
 .hud-card {
     top: var(--hud-gap);
     left: var(--hud-gap);

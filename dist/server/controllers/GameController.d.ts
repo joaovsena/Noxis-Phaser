@@ -81,6 +81,7 @@ export declare class GameController {
     handlePlayerRevive(player: PlayerRuntime): void;
     handleSkillCast(player: PlayerRuntime, msg: any): void;
     handleSkillLearn(player: PlayerRuntime, msg: any): void;
+    handleToggleAfk(player: PlayerRuntime): void;
     handleStatsAllocate(player: PlayerRuntime, msg: any): void;
     tick(deltaSeconds: number, now: number): void;
     buildWorldSnapshot(mapId?: string, mapKey?: string): {
@@ -128,6 +129,9 @@ export declare class GameController {
     private sendSkillEffect;
     private broadcastMobHit;
     private processAutoAttackPlayer;
+    private setAfkState;
+    private processAfkBehavior;
+    private findNearestMobForAfk;
     private processMobAggroAndCombat;
     private tryPlayerAttack;
     private getPvpAttackPermission;

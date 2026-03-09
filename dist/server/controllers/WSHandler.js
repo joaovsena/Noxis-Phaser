@@ -156,6 +156,9 @@ class WSHandler {
             case 'skill.learn':
                 this.controller.handleSkillLearn(player, msg);
                 break;
+            case 'player.toggleAfk':
+                this.controller.handleToggleAfk(player);
+                break;
             case 'hotbar.set':
                 this.controller.handleHotbarSet(player, msg);
                 break;

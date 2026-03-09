@@ -54,6 +54,12 @@ export interface PlayerRuntime {
         issuedAt: number;
         nextAttemptAt?: number;
     } | null;
+    afkActive?: boolean;
+    afkOriginX?: number;
+    afkOriginY?: number;
+    afkOriginMapKey?: string;
+    afkOriginMapId?: string;
+    afkNextThinkAt?: number;
 }
 
 export interface Mob {
@@ -333,6 +339,10 @@ export interface SkillLearnMessage {
     skillId: string;
 }
 
+export interface PlayerToggleAfkMessage {
+    type: 'player.toggleAfk';
+}
+
 export interface HotbarSetMessage {
     type: 'hotbar.set';
     bindings: Record<string, any>;
@@ -386,5 +396,6 @@ export type WSMessage =
     | PlayerReviveMessage
     | SkillCastMessage
     | SkillLearnMessage
+    | PlayerToggleAfkMessage
     | HotbarSetMessage
     | PingMessage;
