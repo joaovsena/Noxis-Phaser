@@ -1,4 +1,14 @@
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: noxis-redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - noxis_redis_data:/data
+    restart: unless-stopped
+
   db:
     image: postgres:16
     container_name: noxis-db
@@ -24,15 +34,32 @@ services:
     image: noxis-app:local
     container_name: noxis-app
     depends_on:
+      redis:
+        condition: service_started
       db:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://postgres:1234@db:5432/noxis?schema=public
+      REDIS_URL: redis://redis:6379
       NODE_ENV: production
       PORT: 3000
     ports:
       - "3000:3000"
     restart: unless-stopped
 
+  engine-go:
+    profiles: ["poc"]
+    build:
+      context: ./engine-go
+      dockerfile: Dockerfile
+    image: noxis-engine-go:local
+    container_name: noxis-engine-go
+    environment:
+      ENGINE_PORT: 8088
+    ports:
+      - "8088:8088"
+    restart: unless-stopped
+
 volumes:
   noxis_postgres_data:
+  noxis_redis_data:

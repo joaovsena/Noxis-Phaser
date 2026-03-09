@@ -1,4 +1,13 @@
 import { PlayerRuntime } from '../models/types';
+type SavePlayerOptions = {
+    expectedVersion?: number;
+    useOptimisticLock?: boolean;
+};
+type SavePlayerResult = {
+    ok: boolean;
+    version: number;
+    conflict?: boolean;
+};
 export declare class PersistenceService {
     getUser(username: string): Promise<({
         players: {
@@ -26,6 +35,11 @@ export declare class PersistenceService {
             role: string;
             inventory: import("@prisma/client/runtime/client").JsonValue;
             equippedWeaponId: string | null;
+            currencyCopper: number;
+            currencySilver: number;
+            currencyGold: number;
+            currencyDiamond: number;
+            stateVersion: number;
             updatedAt: Date;
         }[];
     } & {
@@ -61,6 +75,11 @@ export declare class PersistenceService {
             role: string;
             inventory: import("@prisma/client/runtime/client").JsonValue;
             equippedWeaponId: string | null;
+            currencyCopper: number;
+            currencySilver: number;
+            currencyGold: number;
+            currencyDiamond: number;
+            stateVersion: number;
             updatedAt: Date;
         }[];
     } & {
@@ -95,6 +114,11 @@ export declare class PersistenceService {
         role: string;
         inventory: import("@prisma/client/runtime/client").JsonValue;
         equippedWeaponId: string | null;
+        currencyCopper: number;
+        currencySilver: number;
+        currencyGold: number;
+        currencyDiamond: number;
+        stateVersion: number;
         updatedAt: Date;
     } | null>;
     createUser(username: string, password: string, profile?: any): Promise<{
@@ -123,6 +147,11 @@ export declare class PersistenceService {
             role: string;
             inventory: import("@prisma/client/runtime/client").JsonValue;
             equippedWeaponId: string | null;
+            currencyCopper: number;
+            currencySilver: number;
+            currencyGold: number;
+            currencyDiamond: number;
+            stateVersion: number;
             updatedAt: Date;
         }[];
     } & {
@@ -157,9 +186,19 @@ export declare class PersistenceService {
         role: string;
         inventory: import("@prisma/client/runtime/client").JsonValue;
         equippedWeaponId: string | null;
+        currencyCopper: number;
+        currencySilver: number;
+        currencyGold: number;
+        currencyDiamond: number;
+        stateVersion: number;
         updatedAt: Date;
     }>;
-    savePlayer(player: PlayerRuntime): Promise<void>;
+    savePlayer(player: PlayerRuntime, options?: SavePlayerOptions): Promise<SavePlayerResult>;
+    enqueuePlayerSave(player: PlayerRuntime, reason: string, maxAttempts?: number): Promise<void>;
+    processPendingPlayerSaveJobs(limit?: number): Promise<{
+        processed: number;
+        fetched: number;
+    }>;
     getItems(): Promise<{
         id: string;
         slot: string;
@@ -219,42 +258,42 @@ export declare class PersistenceService {
     findPendingFriendRequestBetween(playerAId: number, playerBId: number): Promise<{
         id: number;
         createdAt: Date;
+        status: string;
         fromPlayerId: number;
         toPlayerId: number;
-        status: string;
         expiresAt: Date;
     } | null>;
     createFriendRequest(fromPlayerId: number, toPlayerId: number, expiresAt: Date): Promise<{
         id: number;
         createdAt: Date;
+        status: string;
         fromPlayerId: number;
         toPlayerId: number;
-        status: string;
         expiresAt: Date;
     }>;
     getPendingFriendRequestById(requestId: number): Promise<{
         id: number;
         createdAt: Date;
+        status: string;
         fromPlayerId: number;
         toPlayerId: number;
-        status: string;
         expiresAt: Date;
     } | null>;
     getPendingFriendRequestsForPlayer(playerId: number): Promise<{
         incoming: {
             id: number;
             createdAt: Date;
+            status: string;
             fromPlayerId: number;
             toPlayerId: number;
-            status: string;
             expiresAt: Date;
         }[];
         outgoing: {
             id: number;
             createdAt: Date;
+            status: string;
             fromPlayerId: number;
             toPlayerId: number;
-            status: string;
             expiresAt: Date;
         }[];
     }>;
@@ -265,5 +304,7 @@ export declare class PersistenceService {
         id: number;
         name: string;
     }[]>;
+    private savePlayerFromSnapshot;
 }
+export {};
 //# sourceMappingURL=PersistenceService.d.ts.map

@@ -2,37 +2,9 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.QuestService = void 0;
 const math_1 = require("../utils/math");
-const NPC_INTERACT_RANGE = 170;
-const NPCS = [
-    {
-        id: 'npc_guard_alden',
-        name: 'Guarda Alden',
-        mapKey: 'forest',
-        mapId: 'Z1',
-        x: 560,
-        y: 560,
-        role: 'quest_giver',
-        greeting: 'Patrulheiro, preciso de ajuda na area.',
-        hitbox: { w: 54, h: 80, offsetX: 0, offsetY: 0 },
-        anchor: { x: 0.5, y: 1 },
-        interactRange: 170,
-        spriteKey: null
-    },
-    {
-        id: 'npc_scout_lina',
-        name: 'Exploradora Lina',
-        mapKey: 'forest',
-        mapId: 'Z1',
-        x: 930,
-        y: 680,
-        role: 'quest_giver',
-        greeting: 'Estou observando os movimentos dos monstros.',
-        hitbox: { w: 54, h: 80, offsetX: 0, offsetY: 0 },
-        anchor: { x: 0.5, y: 1 },
-        interactRange: 170,
-        spriteKey: null
-    }
-];
+const config_1 = require("../config");
+const npcs_1 = require("../content/npcs");
+const dungeons_1 = require("../content/dungeons");
 const QUESTS = [
     {
         id: 'q_forest_hunt_01',
@@ -44,7 +16,8 @@ const QUESTS = [
             { id: 'kill_normal', type: 'kill', targetKinds: ['normal', 'elite'], required: 6, text: 'Derrote 6 monstros' }
         ],
         rewards: {
-            xp: 120
+            xp: 120,
+            currency: { copper: 70, silver: 2 }
         }
     },
     {
@@ -58,6 +31,7 @@ const QUESTS = [
         ],
         rewards: {
             xp: 150,
+            currency: { silver: 4 },
             items: [{ templateId: 'potion_hp', quantity: 2 }]
         }
     },
@@ -71,21 +45,23 @@ const QUESTS = [
             { id: 'talk_lina', type: 'talk', npcId: 'npc_scout_lina', required: 1, text: 'Converse com Lina' }
         ],
         rewards: {
-            xp: 180
+            xp: 180,
+            currency: { silver: 7, copper: 20 }
         }
     }
 ];
 const QUEST_BY_ID = Object.fromEntries(QUESTS.map((q) => [q.id, q]));
-const NPC_BY_ID = Object.fromEntries(NPCS.map((n) => [n.id, n]));
 class QuestService {
-    constructor(sendRaw, persistPlayer, grantXp, grantRewardItem) {
+    constructor(sendRaw, persistPlayer, persistPlayerCritical, grantXp, grantRewardItem, grantCurrency) {
         this.sendRaw = sendRaw;
         this.persistPlayer = persistPlayer;
+        this.persistPlayerCritical = persistPlayerCritical;
         this.grantXp = grantXp;
         this.grantRewardItem = grantRewardItem;
+        this.grantCurrency = grantCurrency;
     }
     getNpcsForMap(mapKey, mapId) {
-        return NPCS.filter((n) => n.mapKey === mapKey && n.mapId === mapId).map((n) => ({
+        return npcs_1.NPCS.filter((n) => n.mapKey === mapKey && n.mapId === mapId).map((n) => ({
             id: n.id,
             name: n.name,
             x: n.x,
@@ -94,8 +70,33 @@ class QuestService {
             spriteKey: n.spriteKey || null,
             hitbox: n.hitbox || { w: 54, h: 80, offsetX: 0, offsetY: 0 },
             anchor: n.anchor || { x: 0.5, y: 1 },
-            interactRange: Number(n.interactRange || NPC_INTERACT_RANGE)
+            interactRange: Number(n.interactRange || npcs_1.NPC_INTERACT_RANGE)
         }));
+    }
+    getNpcById(npcId) {
+        return npcs_1.NPC_BY_ID[String(npcId || '')] || null;
+    }
+    getShopOffers(npcId) {
+        const defs = config_1.NPC_SHOPS[String(npcId || '')] || [];
+        return defs
+            .map((entry) => {
+            const template = config_1.BUILTIN_ITEM_TEMPLATE_BY_ID[String(entry.templateId || '')];
+            if (!template)
+                return null;
+            return {
+                offerId: String(entry.offerId || ''),
+                npcId: String(npcId || ''),
+                templateId: String(template.id || template.type || ''),
+                name: String(template.name || 'Item'),
+                type: String(template.type || 'misc'),
+                slot: String(template.slot || 'misc'),
+                quantity: Math.max(1, Number(entry.quantity || 1)),
+                requiredClass: template.requiredClass ? String(template.requiredClass) : null,
+                price: template.price || {},
+                bonuses: template.bonuses || {}
+            };
+        })
+            .filter(Boolean);
     }
     sendQuestState(player) {
         this.sendRaw(player.ws, {
@@ -105,12 +106,12 @@ class QuestService {
     }
     handleNpcInteract(player, msg) {
         const npcId = String(msg?.npcId || '');
-        const npc = NPC_BY_ID[npcId];
+        const npc = npcs_1.NPC_BY_ID[npcId];
         if (!npc)
             return;
         if (npc.mapKey !== player.mapKey || npc.mapId !== player.mapId)
             return;
-        const interactRange = Number(npc.interactRange || NPC_INTERACT_RANGE);
+        const interactRange = Number(npc.interactRange || npcs_1.NPC_INTERACT_RANGE);
         if ((0, math_1.distance)(player, npc) > interactRange) {
             this.sendRaw(player.ws, { type: 'system_message', text: 'Voce esta longe demais do NPC.' });
             return;
@@ -129,8 +130,10 @@ class QuestService {
         this.sendRaw(player.ws, {
             type: 'npc.dialog',
             npc: { id: npc.id, name: npc.name, greeting: npc.greeting },
+            dungeonEntry: this.getDungeonEntryForNpc(npc.id),
             availableQuestIds,
             turnInQuestIds,
+            shopOffers: this.getShopOffers(npc.id),
             quests: QUESTS
                 .filter((q) => availableQuestIds.includes(q.id) || turnInQuestIds.includes(q.id))
                 .map((q) => ({
@@ -144,13 +147,24 @@ class QuestService {
         if (changedByTalk)
             this.sendQuestState(player);
     }
+    getDungeonEntryForNpc(npcId) {
+        const dungeon = dungeons_1.DUNGEON_BY_ENTRY_NPC[String(npcId || '')];
+        if (!dungeon)
+            return null;
+        return {
+            templateId: dungeon.id,
+            name: dungeon.name,
+            description: dungeon.description,
+            maxPlayers: dungeon.maxPlayers
+        };
+    }
     handleQuestAccept(player, msg) {
         const questId = String(msg?.questId || '');
         const quest = QUEST_BY_ID[questId];
         if (!quest)
             return;
-        const giver = NPC_BY_ID[quest.giverNpcId];
-        const giverRange = Number(giver?.interactRange || NPC_INTERACT_RANGE);
+        const giver = npcs_1.NPC_BY_ID[quest.giverNpcId];
+        const giverRange = Number(giver?.interactRange || npcs_1.NPC_INTERACT_RANGE);
         if (!giver || giver.mapKey !== player.mapKey || giver.mapId !== player.mapId || (0, math_1.distance)(player, giver) > giverRange) {
             this.sendRaw(player.ws, { type: 'system_message', text: 'Aproxime-se do NPC para aceitar a quest.' });
             return;
@@ -182,8 +196,8 @@ class QuestService {
         const quest = QUEST_BY_ID[questId];
         if (!quest)
             return;
-        const turnInNpc = NPC_BY_ID[quest.turnInNpcId];
-        const turnInRange = Number(turnInNpc?.interactRange || NPC_INTERACT_RANGE);
+        const turnInNpc = npcs_1.NPC_BY_ID[quest.turnInNpcId];
+        const turnInRange = Number(turnInNpc?.interactRange || npcs_1.NPC_INTERACT_RANGE);
         if (!turnInNpc || turnInNpc.mapKey !== player.mapKey || turnInNpc.mapId !== player.mapId || (0, math_1.distance)(player, turnInNpc) > turnInRange) {
             this.sendRaw(player.ws, { type: 'system_message', text: 'Aproxime-se do NPC correto para concluir.' });
             return;
@@ -202,6 +216,9 @@ class QuestService {
         this.setQuestState(player, state);
         this.persistPlayer(player);
         this.grantXp(player, Number(quest.rewards.xp || 0), { mapKey: player.mapKey, mapId: player.mapId });
+        if (quest.rewards.currency && typeof quest.rewards.currency === 'object') {
+            this.grantCurrency(player, quest.rewards.currency, `Quest: ${quest.title}`);
+        }
         if (Array.isArray(quest.rewards.items)) {
             for (const reward of quest.rewards.items) {
                 const left = this.grantRewardItem(player, String(reward.templateId), Math.max(1, Number(reward.quantity || 1)));
@@ -210,7 +227,7 @@ class QuestService {
                 }
             }
         }
-        this.persistPlayer(player);
+        this.persistPlayerCritical(player, 'quest_complete');
         this.sendRaw(player.ws, { type: 'system_message', text: `Quest concluida: ${quest.title}` });
         this.sendQuestState(player);
     }

@@ -10,7 +10,7 @@ export declare class MapService {
         x: number;
         y: number;
     };
-    processPortalCollision(player: PlayerRuntime, now: number, onPortal?: (player: PlayerRuntime) => void): void;
+    processPortalCollision(player: PlayerRuntime, now: number, onPortal?: (player: PlayerRuntime) => void, onDungeonPortal?: (player: PlayerRuntime, portalId: string, dungeonTemplateId: string) => void): void;
     private worldToPathCell;
     private pathCellToWorld;
     private isPathCellWalkable;

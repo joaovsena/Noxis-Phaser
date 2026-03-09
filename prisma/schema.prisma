@@ -40,6 +40,11 @@ model Player {
   role              String   @default("player")
   inventory         Json
   equippedWeaponId  String?
+  currencyCopper    Int      @default(0)
+  currencySilver    Int      @default(0)
+  currencyGold      Int      @default(0)
+  currencyDiamond   Int      @default(0)
+  stateVersion      Int      @default(0)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   sentFriendRequests     FriendRequest[] @relation("FriendRequestFrom")
@@ -48,6 +53,24 @@ model Player {
   friendshipsB           Friendship[]    @relation("FriendshipB")
 
   @@unique([userId, slot])
+}
+
+model PersistenceJob {
+  id           String   @id @default(cuid())
+  playerId     Int
+  kind         String   @default("player_save")
+  payload      Json
+  status       String   @default("pending")
+  attempts     Int      @default(0)
+  maxAttempts  Int      @default(8)
+  availableAt  DateTime @default(now())
+  lockedAt     DateTime?
+  lastError    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([status, availableAt])
+  @@index([playerId, status])
 }
 
 model Item {

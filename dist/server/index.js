@@ -14,6 +14,8 @@ const WSHandler_1 = require("./controllers/WSHandler");
 const logger_1 = require("./utils/logger");
 const config_1 = require("./config");
 const prisma_1 = __importDefault(require("./utils/prisma"));
+const redis_1 = require("./utils/redis");
+const DistributedLockService_1 = require("./services/DistributedLockService");
 const app = (0, express_1.default)();
 const PORT = Number(process.env.PORT || 3000);
 const parsedWorldStateMs = Number(process.env.WORLD_STATE_MS);
@@ -29,9 +31,11 @@ const wss = new ws_1.WebSocketServer({ server });
 async function initializeServer() {
     try {
         await prisma_1.default.$connect();
+        const redis = await (0, redis_1.createRedisClient)();
+        const lockService = new DistributedLockService_1.DistributedLockService(redis);
         const persistence = new PersistenceService_1.PersistenceService();
         const mobService = new MobService_1.MobService();
-        const gameController = new GameController_1.GameController(persistence, mobService);
+        const gameController = new GameController_1.GameController(persistence, mobService, lockService);
         const wsHandler = new WSHandler_1.WSHandler(gameController);
         const mobTemplates = await persistence.getMobTemplates();
         mobService.loadTemplateCache(mobTemplates);
@@ -68,7 +72,7 @@ async function initializeServer() {
         });
         let lastTickAt = Date.now();
         let lastWorldBroadcastAt = 0;
-        setInterval(() => {
+        const tickTimer = setInterval(() => {
             const now = Date.now();
             const elapsedMs = Math.max(1, now - lastTickAt);
             lastTickAt = now;
@@ -96,6 +100,53 @@ async function initializeServer() {
                 client.send(serialized);
             }
         }, config_1.TICK_MS);
+        const queueTimer = setInterval(() => {
+            void gameController.processPersistenceQueue(25).catch((error) => {
+                (0, logger_1.logEvent)('ERROR', 'persistence_queue_error', { error: String(error) });
+            });
+        }, 1000);
+        let shuttingDown = false;
+        const shutdown = async (signal) => {
+            if (shuttingDown)
+                return;
+            shuttingDown = true;
+            (0, logger_1.logEvent)('INFO', 'server_shutdown_start', { signal });
+            clearInterval(tickTimer);
+            clearInterval(queueTimer);
+            try {
+                await gameController.flushAllPlayers(`shutdown:${signal}`);
+            }
+            catch (error) {
+                (0, logger_1.logEvent)('ERROR', 'server_shutdown_flush_error', { signal, error: String(error) });
+            }
+            try {
+                await gameController.processPersistenceQueue(200);
+            }
+            catch (error) {
+                (0, logger_1.logEvent)('ERROR', 'server_shutdown_queue_error', { signal, error: String(error) });
+            }
+            try {
+                await prisma_1.default.$disconnect();
+            }
+            catch (error) {
+                (0, logger_1.logEvent)('ERROR', 'server_shutdown_disconnect_error', { signal, error: String(error) });
+            }
+            if (redis) {
+                try {
+                    await redis.quit();
+                }
+                catch (error) {
+                    (0, logger_1.logEvent)('ERROR', 'redis_shutdown_error', { signal, error: String(error) });
+                }
+            }
+            server.close(() => {
+                (0, logger_1.logEvent)('INFO', 'server_shutdown_done', { signal });
+                process.exit(0);
+            });
+            setTimeout(() => process.exit(1), 8000).unref();
+        };
+        process.on('SIGINT', () => { void shutdown('SIGINT'); });
+        process.on('SIGTERM', () => { void shutdown('SIGTERM'); });
         server.listen(PORT, () => {
             (0, logger_1.logEvent)('INFO', 'server_started', { port: PORT });
             console.log(`Server running on http://localhost:${PORT}`);

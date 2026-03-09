@@ -173,6 +173,18 @@ export class WSHandler {
             case 'npc.interact':
                 this.controller.handleNpcInteract(player, msg as any);
                 break;
+            case 'npc.buy':
+                this.controller.handleNpcBuy(player, msg as any);
+                break;
+            case 'dungeon.enter':
+                this.controller.handleDungeonEnter(player, msg as any);
+                break;
+            case 'dungeon.ready':
+                this.controller.handleDungeonReady(player, msg as any);
+                break;
+            case 'dungeon.leave':
+                this.controller.handleDungeonLeave(player);
+                break;
             case 'quest.accept':
                 this.controller.handleQuestAccept(player, msg as any);
                 break;

@@ -1,10 +1,16 @@
 import { PlayerRuntime } from '../models/types';
 import { distance } from '../utils/math';
+import { BUILTIN_ITEM_TEMPLATE_BY_ID, NPC_SHOPS } from '../config';
+import { Wallet } from '../utils/currency';
+import { NPCS, NPC_BY_ID, NPC_INTERACT_RANGE } from '../content/npcs';
+import { DUNGEON_BY_ENTRY_NPC } from '../content/dungeons';
 
 type SendRawFn = (ws: any, payload: any) => void;
 type PersistPlayerFn = (player: PlayerRuntime) => void;
+type PersistPlayerCriticalFn = (player: PlayerRuntime, reason?: string) => void;
 type GrantXpFn = (player: PlayerRuntime, amount: number, context?: { mapKey?: string; mapId?: string }) => void;
 type GrantItemFn = (player: PlayerRuntime, templateId: string, quantity: number) => number;
+type GrantCurrencyFn = (player: PlayerRuntime, reward: Partial<Wallet>, sourceLabel: string) => void;
 
 type QuestObjectiveDef =
     | { id: string; type: 'kill'; targetKinds?: string[]; required: number; text: string }
@@ -21,6 +27,7 @@ type QuestDef = {
     rewards: {
         xp: number;
         items?: Array<{ templateId: string; quantity: number }>;
+        currency?: Partial<Wallet>;
     };
 };
 
@@ -36,54 +43,6 @@ type QuestStateContainer = {
     completedIds: string[];
 };
 
-type NpcDef = {
-    id: string;
-    name: string;
-    mapKey: string;
-    mapId: string;
-    x: number;
-    y: number;
-    role: 'quest_giver';
-    greeting: string;
-    hitbox?: { w: number; h: number; offsetX?: number; offsetY?: number };
-    anchor?: { x: number; y: number };
-    interactRange?: number;
-    spriteKey?: string | null;
-};
-
-const NPC_INTERACT_RANGE = 170;
-
-const NPCS: NpcDef[] = [
-    {
-        id: 'npc_guard_alden',
-        name: 'Guarda Alden',
-        mapKey: 'forest',
-        mapId: 'Z1',
-        x: 560,
-        y: 560,
-        role: 'quest_giver',
-        greeting: 'Patrulheiro, preciso de ajuda na area.',
-        hitbox: { w: 54, h: 80, offsetX: 0, offsetY: 0 },
-        anchor: { x: 0.5, y: 1 },
-        interactRange: 170,
-        spriteKey: null
-    },
-    {
-        id: 'npc_scout_lina',
-        name: 'Exploradora Lina',
-        mapKey: 'forest',
-        mapId: 'Z1',
-        x: 930,
-        y: 680,
-        role: 'quest_giver',
-        greeting: 'Estou observando os movimentos dos monstros.',
-        hitbox: { w: 54, h: 80, offsetX: 0, offsetY: 0 },
-        anchor: { x: 0.5, y: 1 },
-        interactRange: 170,
-        spriteKey: null
-    }
-];
-
 const QUESTS: QuestDef[] = [
     {
         id: 'q_forest_hunt_01',
@@ -95,7 +54,8 @@ const QUESTS: QuestDef[] = [
             { id: 'kill_normal', type: 'kill', targetKinds: ['normal', 'elite'], required: 6, text: 'Derrote 6 monstros' }
         ],
         rewards: {
-            xp: 120
+            xp: 120,
+            currency: { copper: 70, silver: 2 }
         }
     },
     {
@@ -109,6 +69,7 @@ const QUESTS: QuestDef[] = [
         ],
         rewards: {
             xp: 150,
+            currency: { silver: 4 },
             items: [{ templateId: 'potion_hp', quantity: 2 }]
         }
     },
@@ -122,20 +83,22 @@ const QUESTS: QuestDef[] = [
             { id: 'talk_lina', type: 'talk', npcId: 'npc_scout_lina', required: 1, text: 'Converse com Lina' }
         ],
         rewards: {
-            xp: 180
+            xp: 180,
+            currency: { silver: 7, copper: 20 }
         }
     }
 ];
 
 const QUEST_BY_ID = Object.fromEntries(QUESTS.map((q) => [q.id, q])) as Record<string, QuestDef>;
-const NPC_BY_ID = Object.fromEntries(NPCS.map((n) => [n.id, n])) as Record<string, NpcDef>;
 
 export class QuestService {
     constructor(
         private readonly sendRaw: SendRawFn,
         private readonly persistPlayer: PersistPlayerFn,
+        private readonly persistPlayerCritical: PersistPlayerCriticalFn,
         private readonly grantXp: GrantXpFn,
-        private readonly grantRewardItem: GrantItemFn
+        private readonly grantRewardItem: GrantItemFn,
+        private readonly grantCurrency: GrantCurrencyFn
     ) {}
 
     getNpcsForMap(mapKey: string, mapId: string) {
@@ -150,6 +113,32 @@ export class QuestService {
             anchor: n.anchor || { x: 0.5, y: 1 },
             interactRange: Number(n.interactRange || NPC_INTERACT_RANGE)
         }));
+    }
+
+    getNpcById(npcId: string) {
+        return NPC_BY_ID[String(npcId || '')] || null;
+    }
+
+    getShopOffers(npcId: string) {
+        const defs = NPC_SHOPS[String(npcId || '')] || [];
+        return defs
+            .map((entry) => {
+                const template = BUILTIN_ITEM_TEMPLATE_BY_ID[String(entry.templateId || '')];
+                if (!template) return null;
+                return {
+                    offerId: String(entry.offerId || ''),
+                    npcId: String(npcId || ''),
+                    templateId: String(template.id || template.type || ''),
+                    name: String(template.name || 'Item'),
+                    type: String(template.type || 'misc'),
+                    slot: String(template.slot || 'misc'),
+                    quantity: Math.max(1, Number(entry.quantity || 1)),
+                    requiredClass: template.requiredClass ? String(template.requiredClass) : null,
+                    price: template.price || {},
+                    bonuses: template.bonuses || {}
+                };
+            })
+            .filter(Boolean);
     }
 
     sendQuestState(player: PlayerRuntime) {
@@ -185,8 +174,10 @@ export class QuestService {
         this.sendRaw(player.ws, {
             type: 'npc.dialog',
             npc: { id: npc.id, name: npc.name, greeting: npc.greeting },
+            dungeonEntry: this.getDungeonEntryForNpc(npc.id),
             availableQuestIds,
             turnInQuestIds,
+            shopOffers: this.getShopOffers(npc.id),
             quests: QUESTS
                 .filter((q) => availableQuestIds.includes(q.id) || turnInQuestIds.includes(q.id))
                 .map((q) => ({
@@ -199,6 +190,17 @@ export class QuestService {
         });
 
         if (changedByTalk) this.sendQuestState(player);
+    }
+
+    private getDungeonEntryForNpc(npcId: string) {
+        const dungeon = DUNGEON_BY_ENTRY_NPC[String(npcId || '')];
+        if (!dungeon) return null;
+        return {
+            templateId: dungeon.id,
+            name: dungeon.name,
+            description: dungeon.description,
+            maxPlayers: dungeon.maxPlayers
+        };
     }
 
     handleQuestAccept(player: PlayerRuntime, msg: any) {
@@ -259,6 +261,9 @@ export class QuestService {
         this.setQuestState(player, state);
         this.persistPlayer(player);
         this.grantXp(player, Number(quest.rewards.xp || 0), { mapKey: player.mapKey, mapId: player.mapId });
+        if (quest.rewards.currency && typeof quest.rewards.currency === 'object') {
+            this.grantCurrency(player, quest.rewards.currency, `Quest: ${quest.title}`);
+        }
         if (Array.isArray(quest.rewards.items)) {
             for (const reward of quest.rewards.items) {
                 const left = this.grantRewardItem(player, String(reward.templateId), Math.max(1, Number(reward.quantity || 1)));
@@ -267,7 +272,7 @@ export class QuestService {
                 }
             }
         }
-        this.persistPlayer(player);
+        this.persistPlayerCritical(player, 'quest_complete');
         this.sendRaw(player.ws, { type: 'system_message', text: `Quest concluida: ${quest.title}` });
         this.sendQuestState(player);
     }

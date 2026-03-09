@@ -73,18 +73,30 @@ export class MapService {
         return { x: px, y: py };
     }
 
-    processPortalCollision(player: PlayerRuntime, now: number, onPortal?: (player: PlayerRuntime) => void) {
+    processPortalCollision(
+        player: PlayerRuntime,
+        now: number,
+        onPortal?: (player: PlayerRuntime) => void,
+        onDungeonPortal?: (player: PlayerRuntime, portalId: string, dungeonTemplateId: string) => void
+    ) {
         if (now - (player.lastPortalAt || 0) < PORTAL_COOLDOWN_MS) return;
         const portals = PORTALS_BY_MAP_KEY[player.mapKey] || [];
         for (const portal of portals) {
             const insideX = player.x >= portal.x && player.x <= portal.x + portal.w;
             const insideY = player.y >= portal.y && player.y <= portal.y + portal.h;
             if (!insideX || !insideY) continue;
+            if (portal.dungeonTemplateId) {
+                if (!onDungeonPortal) continue;
+                player.lastPortalAt = now;
+                onDungeonPortal(player, String(portal.id || ''), String(portal.dungeonTemplateId || ''));
+                return;
+            }
+            if (!portal.toMapKey || !Number.isFinite(Number(portal.toX)) || !Number.isFinite(Number(portal.toY))) continue;
             player.mapKey = portal.toMapKey;
             const projected = this.projectToWalkable(
                 portal.toMapKey,
-                clamp(portal.toX, 0, WORLD.width),
-                clamp(portal.toY, 0, WORLD.height)
+                clamp(Number(portal.toX), 0, WORLD.width),
+                clamp(Number(portal.toY), 0, WORLD.height)
             );
             player.x = projected.x;
             player.y = projected.y;

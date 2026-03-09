@@ -86,6 +86,8 @@ export class Game {
         this.hudDebugResetBtn = document.getElementById('hud-debug-reset');
         this.mobPeacefulSetting = document.getElementById('mob-peaceful-setting');
         this.mobPeacefulToggle = document.getElementById('mob-peaceful-toggle');
+        this.dungeonDebugSetting = document.getElementById('dungeon-debug-setting');
+        this.dungeonDebugButton = document.getElementById('dungeon-debug-btn');
         this.pathDebugEnabled = false;
         this.mobPeacefulEnabled = false;
         if (this.mapCodeLabel) this.mapCodeLabel.textContent = `Mapa ${this.currentMapCode}`;
@@ -122,6 +124,8 @@ export class Game {
         this.partyNotificationsList = document.getElementById('party-notifications-list');
         this.friendsNotifications = document.getElementById('friends-notifications');
         this.friendsNotificationsList = document.getElementById('friends-notifications-list');
+        this.dungeonNotifications = document.getElementById('dungeon-notifications');
+        this.dungeonNotificationsList = document.getElementById('dungeon-notifications-list');
         this.friendsPanel = document.getElementById('friends-panel');
         this.friendsHeader = document.getElementById('friends-header');
         this.friendsTabList = document.getElementById('friends-tab-list');
@@ -187,6 +191,8 @@ export class Game {
         this.inventoryEquippedLabel = document.getElementById('inventory-equipped-label');
         this.inventory = [];
         this.equippedWeaponId = null;
+        this.equippedBySlot = {};
+        this.wallet = { copper: 0, silver: 0, gold: 0, diamond: 0 };
         this.inventoryDrag = null;
         this.pendingDeleteItemId = null;
         this.deleteConfirm = document.getElementById('delete-confirm');
@@ -234,11 +240,15 @@ export class Game {
         this.selectedAreaPartyId = null;
         this.pendingPartyInvites = [];
         this.pendingPartyJoinRequests = [];
+        this.pendingDungeonReadyChecks = [];
+        this.shopSelectedClassTab = 'knight';
+        this.shopNpcDialogNpcId = null;
         this.partyWaypoints = [];
         this.friendsState = { friends: [], incoming: [], outgoing: [] };
         this.partyAreaPollTimer = null;
         this.partyNotifyExpiryTimer = null;
         this.friendNotifyExpiryTimer = null;
+        this.dungeonNotifyExpiryTimer = null;
         this.partyPanelSignature = '';
         this.isDead = false;
         this.statAllocationPending = {
@@ -303,6 +313,7 @@ export class Game {
         this.renderPartyPanel();
         this.renderPartyFrames();
         this.renderPartyNotifications();
+        this.renderDungeonNotifications();
         this.setFriendsTab('list');
         this.renderFriendsPanel();
         this.renderFriendNotifications();
@@ -400,6 +411,7 @@ export class Game {
                 target.closest('#party-frames') ||
                 target.closest('#party-notifications') ||
                 target.closest('#friends-notifications') ||
+                target.closest('#dungeon-notifications') ||
                 target.closest('#target-player-card') ||
                 target.closest('#friends-panel') ||
                 target.closest('#admin-panel') ||
@@ -822,6 +834,12 @@ export class Game {
                 this.network.send({ type: 'admin.setMobPeaceful', enabled: this.mobPeacefulEnabled });
             });
         }
+        if (this.dungeonDebugButton) {
+            this.dungeonDebugButton.addEventListener('click', () => {
+                if (this.playerRole !== 'adm') return;
+                this.network.send({ type: 'admin_command', command: 'dungeon.debug' });
+            });
+        }
 
         this.reviveBtn.addEventListener('click', () => {
             this.network.send({ type: 'player.revive' });
@@ -1236,7 +1254,7 @@ export class Game {
             const lines = Object.entries(this.statusIds)
                 .map(([name, id]) => `${id}=${name}`)
                 .join(' | ');
-            this.adminStatusHelp.textContent = `setstatus {id} {quantia} {jogador} | ids: ${lines}`;
+            this.adminStatusHelp.textContent = `setstatus {id} {quantia} {jogador?} | dungeon.debug | ids: ${lines}`;
         }
         this.updateAdminMapSettings();
         this.resize();
@@ -1258,6 +1276,7 @@ export class Game {
         this.renderPartyPanel();
         this.renderPartyFrames();
         this.renderPartyNotifications();
+        this.renderDungeonNotifications();
         this.applyHotbarBindings(message.hotbarBindings);
         this.renderHotbar();
         this.renderSkillsPanel();
@@ -1295,11 +1314,18 @@ export class Game {
             clearTimeout(this.friendNotifyExpiryTimer);
             this.friendNotifyExpiryTimer = null;
         }
+        if (this.dungeonNotifyExpiryTimer) {
+            clearTimeout(this.dungeonNotifyExpiryTimer);
+            this.dungeonNotifyExpiryTimer = null;
+        }
         this.partyState = null;
         this.partyAreaParties = [];
         this.selectedAreaPartyId = null;
         this.pendingPartyInvites = [];
         this.pendingPartyJoinRequests = [];
+        this.pendingDungeonReadyChecks = [];
+        this.shopSelectedClassTab = 'knight';
+        this.shopNpcDialogNpcId = null;
         this.partyWaypoints = [];
         this.onPingUpdated(null);
         this.friendsState = { friends: [], incoming: [], outgoing: [] };
@@ -1316,6 +1342,7 @@ export class Game {
         this.renderPartyPanel();
         this.renderPartyFrames();
         this.renderPartyNotifications();
+        this.renderDungeonNotifications();
         this.renderFriendsPanel();
         this.renderFriendNotifications();
         this.localId = null;
@@ -1361,11 +1388,20 @@ export class Game {
         this.questEntries = [];
         this.pendingNpcDialog = null;
         this.pendingNpcInteract = null;
+        this.pendingDungeonReadyChecks = [];
+        if (this.dungeonNotifyExpiryTimer) {
+            clearTimeout(this.dungeonNotifyExpiryTimer);
+            this.dungeonNotifyExpiryTimer = null;
+        }
+        if (this.dungeonNotifications) this.dungeonNotifications.classList.add('hidden');
+        if (this.dungeonNotificationsList) this.dungeonNotificationsList.innerHTML = '';
         if (this.afkStatus) this.afkStatus.classList.add('hidden');
         this.localMoveIntent = null;
         this.queuedMoveCommand = null;
         this.inventory = [];
         this.equippedWeaponId = null;
+        this.equippedBySlot = {};
+        this.wallet = { copper: 0, silver: 0, gold: 0, diamond: 0 };
         this.selectedMobId = null;
         this.selectedPlayerId = null;
         this.pendingPickup = null;
@@ -1406,12 +1442,19 @@ export class Game {
         this.closeAllTooltips('inventory_state_commit');
         this.inventory = Array.isArray(message.inventory) ? message.inventory : [];
         this.equippedWeaponId = message.equippedWeaponId || null;
+        this.equippedBySlot = message.equippedBySlot && typeof message.equippedBySlot === 'object' ? message.equippedBySlot : {};
+        if (message.wallet && typeof message.wallet === 'object') {
+            this.wallet = this.normalizeWallet(message.wallet);
+        }
         this.syncLocalEquippedWeaponName();
         this.updateSkillInjections();
         this.pruneInvalidHotbarItems();
         this.renderHotbar();
         this.renderSkillsPanel();
         this.renderInventory();
+        if (this.pendingNpcDialog && this.npcDialogPanel && !this.npcDialogPanel.classList.contains('hidden')) {
+            this.renderNpcDialog();
+        }
         this.updatePanel();
     }
 
@@ -1429,6 +1472,40 @@ export class Game {
     onNpcDialog(message) {
         this.pendingNpcDialog = message || null;
         this.renderNpcDialog();
+    }
+
+    onDungeonReadyCheck(message) {
+        const requestId = String(message?.requestId || '');
+        if (!requestId) return;
+        const already = this.pendingDungeonReadyChecks.some((it) => it.requestId === requestId);
+        if (already) return;
+        const members = Array.isArray(message?.members) ? message.members : [];
+        const readyCount = members.filter((m) => Boolean(m?.ready)).length;
+        this.pendingDungeonReadyChecks.push({
+            requestId,
+            dungeonName: String(message?.dungeon?.name || 'Expedicao'),
+            expiresAt: Date.now() + Math.max(1000, Number(message?.timeoutMs || 15000)),
+            readyCount,
+            totalCount: Math.max(1, members.length),
+            respondedByMe: false
+        });
+        this.renderDungeonNotifications();
+    }
+
+    onDungeonReadyUpdate(message) {
+        const members = Array.isArray(message?.members) ? message.members : [];
+        if (!members.length) return;
+        const requestId = String(message?.requestId || '');
+        if (requestId) {
+            const entry = this.pendingDungeonReadyChecks.find((it) => it.requestId === requestId);
+            if (entry) {
+                entry.readyCount = members.filter((m) => Boolean(m?.ready)).length;
+                entry.totalCount = Math.max(1, members.length);
+                this.renderDungeonNotifications();
+            }
+        }
+        const summary = members.map((m) => `${String(m.name || `#${m.playerId}`)}:${m.ready ? 'ok' : '...'}`).join(' | ');
+        this.onSystemMessage({ text: `Ready Check: ${summary}` });
     }
 
     toggleQuestPanel() {
@@ -1486,6 +1563,190 @@ export class Game {
         greeting.className = 'quest-objective';
         greeting.textContent = String(payload.npc.greeting || '...');
         this.npcDialogBody.appendChild(greeting);
+
+        const dungeonEntry = payload.dungeonEntry && typeof payload.dungeonEntry === 'object'
+            ? payload.dungeonEntry
+            : null;
+        if (dungeonEntry && dungeonEntry.templateId) {
+            const dungeonCard = document.createElement('div');
+            dungeonCard.className = 'npc-dialog-quest';
+            const dungeonTitle = document.createElement('div');
+            dungeonTitle.className = 'quest-title';
+            dungeonTitle.textContent = `Dungeon: ${String(dungeonEntry.name || 'Instancia')}`;
+            dungeonCard.appendChild(dungeonTitle);
+            const dungeonDesc = document.createElement('div');
+            dungeonDesc.className = 'quest-objective';
+            dungeonDesc.textContent = `${String(dungeonEntry.description || 'Entre com seu grupo e derrote o boss.')} (Max: ${Math.max(1, Number(dungeonEntry.maxPlayers || 1))})`;
+            dungeonCard.appendChild(dungeonDesc);
+            const dungeonActions = document.createElement('div');
+            dungeonActions.className = 'npc-dialog-actions';
+            const partyMemberCount = Array.isArray(this.partyState?.members) ? this.partyState.members.length : 0;
+            const hasValidParty = Boolean(this.partyState && partyMemberCount >= 1);
+            const isLeader = Boolean(this.partyState && Number(this.partyState.leaderId) === Number(this.localId));
+            if (!hasValidParty) {
+                const partyHint = document.createElement('div');
+                partyHint.className = 'quest-objective';
+                partyHint.textContent = 'Entrada permitida apenas para quem estiver em grupo.';
+                dungeonCard.appendChild(partyHint);
+            } else if (isLeader && partyMemberCount > 1) {
+                const soloBtn = document.createElement('button');
+                soloBtn.textContent = 'Entrar sozinho';
+                soloBtn.addEventListener('click', () => {
+                    this.network.send({
+                        type: 'dungeon.enter',
+                        npcId: String(payload.npc.id || ''),
+                        mode: 'solo'
+                    });
+                });
+                const groupBtn = document.createElement('button');
+                groupBtn.textContent = 'Levar grupo comigo';
+                groupBtn.addEventListener('click', () => {
+                    this.network.send({
+                        type: 'dungeon.enter',
+                        npcId: String(payload.npc.id || ''),
+                        mode: 'group'
+                    });
+                });
+                dungeonActions.appendChild(soloBtn);
+                dungeonActions.appendChild(groupBtn);
+            } else {
+                const enterBtn = document.createElement('button');
+                enterBtn.textContent = 'Entrar na Dungeon';
+                enterBtn.addEventListener('click', () => {
+                    this.network.send({
+                        type: 'dungeon.enter',
+                        npcId: String(payload.npc.id || ''),
+                        mode: 'group'
+                    });
+                });
+                dungeonActions.appendChild(enterBtn);
+            }
+            dungeonCard.appendChild(dungeonActions);
+            this.npcDialogBody.appendChild(dungeonCard);
+        }
+
+        const shopOffers = Array.isArray(payload.shopOffers) ? payload.shopOffers : [];
+        if (shopOffers.length > 0) {
+            const shopTitle = document.createElement('div');
+            shopTitle.className = 'quest-title';
+            shopTitle.innerHTML = `Loja <span class="wallet-inline">${this.renderWalletTokens(this.wallet)}</span>`;
+            this.npcDialogBody.appendChild(shopTitle);
+
+            const classTabs = [
+                { id: 'knight', label: 'Cavaleiro' },
+                { id: 'archer', label: 'Arqueiro' },
+                { id: 'druid', label: 'Druida' },
+                { id: 'assassin', label: 'Assassino' }
+            ];
+            const hasClassOffers = shopOffers.some((offer) => String(offer?.requiredClass || '').length > 0);
+            const me = this.localId ? this.players[this.localId] : null;
+            const fallbackTab = hasClassOffers
+                ? String(me?.class || 'knight').toLowerCase()
+                : '';
+            if (String(this.shopNpcDialogNpcId || '') !== String(payload.npc.id || '')) {
+                this.shopNpcDialogNpcId = String(payload.npc.id || '');
+                this.shopSelectedClassTab = fallbackTab || 'knight';
+            }
+            if (!this.shopSelectedClassTab || !['knight', 'archer', 'druid', 'assassin'].includes(String(this.shopSelectedClassTab))) {
+                this.shopSelectedClassTab = fallbackTab || 'knight';
+            }
+
+            const filteredOffers = hasClassOffers
+                ? shopOffers.filter((offer) => String(offer.requiredClass || '').toLowerCase() === String(this.shopSelectedClassTab || '').toLowerCase())
+                : shopOffers;
+
+            if (hasClassOffers) {
+                const tabWrap = document.createElement('div');
+                tabWrap.className = 'shop-tabs';
+                for (const tab of classTabs) {
+                    const btn = document.createElement('button');
+                    btn.textContent = tab.label;
+                    btn.className = 'shop-tab-btn';
+                    if (String(this.shopSelectedClassTab) === tab.id) btn.classList.add('active');
+                    btn.addEventListener('click', () => {
+                        this.shopSelectedClassTab = tab.id;
+                        this.renderNpcDialog();
+                    });
+                    tabWrap.appendChild(btn);
+                }
+                this.npcDialogBody.appendChild(tabWrap);
+            }
+
+            const listWrap = document.createElement('div');
+            listWrap.className = 'shop-scroll-wrap';
+            const grid = document.createElement('div');
+            grid.className = 'shop-item-grid';
+
+            if (filteredOffers.length === 0) {
+                const info = document.createElement('div');
+                info.className = 'quest-objective';
+                info.textContent = 'Sem equipamentos para esta classe.';
+                listWrap.appendChild(info);
+            } else {
+                for (const offer of filteredOffers) {
+                    const card = document.createElement('div');
+                    card.className = 'shop-item-card';
+                    const header = document.createElement('div');
+                    header.className = 'shop-item-header';
+                    const icon = document.createElement('div');
+                    icon.className = `shop-item-icon item-type-${String(offer.type || 'generic')}`;
+                    icon.textContent = this.getShopIconLabel(offer);
+                    const tooltipItem = {
+                        id: `shop:${String(offer.offerId || offer.templateId || offer.name || Math.random())}`,
+                        name: String(offer.name || 'Item'),
+                        type: String(offer.type || 'equipment'),
+                        slot: String(offer.slot || ''),
+                        bonuses: offer.bonuses || {},
+                        requiredClass: offer.requiredClass || null,
+                        quantity: Math.max(1, Number(offer.quantity || 1))
+                    };
+                    icon.addEventListener('mousemove', (e) => {
+                        this.openItemTooltip(tooltipItem, e.clientX, e.clientY, 'hover');
+                    });
+                    icon.addEventListener('mouseleave', () => {
+                        this.scheduleTooltipClose();
+                    });
+                    const title = document.createElement('div');
+                    title.className = 'quest-title';
+                    title.textContent = String(offer.name || 'Item');
+                    header.appendChild(icon);
+                    header.appendChild(title);
+                    card.appendChild(header);
+
+                    const priceLine = document.createElement('div');
+                    priceLine.className = 'quest-objective';
+                    const priceWallet = this.normalizeWallet(offer.price || {});
+                    priceLine.innerHTML = `Custo: ${this.renderWalletTokens(priceWallet, { hideZero: true })}`;
+                    card.appendChild(priceLine);
+
+                    if (offer.requiredClass) {
+                        const classLine = document.createElement('div');
+                        classLine.className = 'quest-objective';
+                        classLine.textContent = `Classe: ${this.getClassLabel(offer.requiredClass)}`;
+                        card.appendChild(classLine);
+                    }
+
+                    const buyBtn = document.createElement('button');
+                    buyBtn.textContent = 'Comprar';
+                    buyBtn.addEventListener('click', () => {
+                        this.network.send({
+                            type: 'npc.buy',
+                            npcId: String(payload.npc.id || ''),
+                            offerId: String(offer.offerId || ''),
+                            quantity: 1
+                        });
+                    });
+                    const actions = document.createElement('div');
+                    actions.className = 'npc-dialog-actions';
+                    actions.appendChild(buyBtn);
+                    card.appendChild(actions);
+                    grid.appendChild(card);
+                }
+                listWrap.appendChild(grid);
+            }
+            this.npcDialogBody.appendChild(listWrap);
+        }
+
         const all = Array.isArray(payload.quests) ? payload.quests : [];
         for (const quest of all) {
             const card = document.createElement('div');
@@ -1532,6 +1793,16 @@ export class Game {
         const me = this.players[this.localId];
         const equipped = this.inventory.find((it) => String(it.id) === String(this.equippedWeaponId || ''));
         me.equippedWeaponName = equipped ? equipped.name : null;
+        const bySlot = {};
+        if (equipped) bySlot.weapon = equipped;
+        for (const item of this.inventory) {
+            if (!item || item.equipped !== true) continue;
+            const slot = String(item.equippedSlot || item.slot || '');
+            if (!slot) continue;
+            bySlot[slot] = item;
+        }
+        this.equippedBySlot = bySlot;
+        me.equippedBySlot = bySlot;
     }
 
     /**
@@ -1749,6 +2020,9 @@ export class Game {
         me.xpToNext = Number.isFinite(Number(message.xpToNext)) ? Number(message.xpToNext) : me.xpToNext;
         me.hp = Number.isFinite(Number(message.hp)) ? Number(message.hp) : me.hp;
         me.maxHp = Number.isFinite(Number(message.maxHp)) ? Number(message.maxHp) : me.maxHp;
+        if (message.wallet && typeof message.wallet === 'object') {
+            this.wallet = this.normalizeWallet(message.wallet);
+        }
         me.dead = me.hp <= 0;
         this.isDead = me.dead;
         this.reviveOverlay.classList.toggle('hidden', !this.isDead);
@@ -3148,6 +3422,77 @@ export class Game {
         };
     }
 
+    normalizeWallet(raw) {
+        const source = raw && typeof raw === 'object' ? raw : {};
+        const toInt = (value) => {
+            const parsed = Number(value);
+            if (!Number.isFinite(parsed)) return 0;
+            return Math.max(0, Math.floor(parsed));
+        };
+        const carryFromCopper = Math.floor(toInt(source.copper) / 100);
+        const copper = toInt(source.copper) % 100;
+        const silverRaw = toInt(source.silver) + carryFromCopper;
+        const carryFromSilver = Math.floor(silverRaw / 100);
+        const silver = silverRaw % 100;
+        const goldRaw = toInt(source.gold) + carryFromSilver;
+        const carryFromGold = Math.floor(goldRaw / 100);
+        const gold = goldRaw % 100;
+        const diamond = toInt(source.diamond) + carryFromGold;
+        return { copper, silver, gold, diamond };
+    }
+
+    formatWallet(wallet = this.wallet) {
+        const safe = this.normalizeWallet(wallet);
+        return `${String(safe.diamond).padStart(3, '0')}d ${String(safe.gold).padStart(3, '0')}o ${String(safe.silver).padStart(3, '0')}s ${String(safe.copper).padStart(3, '0')}c`;
+    }
+
+    renderWalletTokens(wallet = this.wallet, options = null) {
+        const safe = this.normalizeWallet(wallet);
+        const cfg = options && typeof options === 'object' ? options : {};
+        const hideZero = Boolean(cfg.hideZero);
+        let entries = [
+            { key: 'diamond', amount: safe.diamond, css: 'coin-diamond' },
+            { key: 'gold', amount: safe.gold, css: 'coin-gold' },
+            { key: 'silver', amount: safe.silver, css: 'coin-silver' },
+            { key: 'copper', amount: safe.copper, css: 'coin-copper' }
+        ];
+        if (hideZero) {
+            entries = entries.filter((entry) => Number(entry.amount) > 0);
+            if (!entries.length) entries = [{ key: 'copper', amount: 0, css: 'coin-copper' }];
+        }
+        return `<span class="wallet-chain">${entries.map((entry) => `
+            <span class="wallet-token">
+                <span class="coin-dot ${entry.css}"></span>
+                <span class="coin-amount">${String(entry.amount).padStart(3, '0')}</span>
+            </span>
+        `).join('')}</span>`;
+    }
+
+    getClassLabel(classId) {
+        const normalized = String(classId || '').toLowerCase();
+        if (normalized === 'knight') return 'Cavaleiro';
+        if (normalized === 'archer') return 'Arqueiro';
+        if (normalized === 'druid') return 'Druida';
+        if (normalized === 'assassin') return 'Assassino';
+        return String(classId || '');
+    }
+
+    getShopIconLabel(offer) {
+        const slot = String(offer?.slot || '').toLowerCase();
+        if (slot === 'helmet') return 'CP';
+        if (slot === 'chest') return 'PT';
+        if (slot === 'pants') return 'CL';
+        if (slot === 'gloves') return 'LV';
+        if (slot === 'boots') return 'BT';
+        if (slot === 'ring') return 'AN';
+        if (slot === 'necklace') return 'CO';
+        if (slot === 'weapon') return 'AR';
+        const type = String(offer?.type || '').toLowerCase();
+        if (type === 'potion_hp') return 'HP';
+        if (type === 'skill_reset_hourglass') return 'RS';
+        return 'IT';
+    }
+
     resetPendingStatAllocation() {
         this.statAllocationPending = {
             str: 0,
@@ -3196,6 +3541,8 @@ export class Game {
             skillPointsAvailable,
             unspentPoints,
             afkActive: Boolean(player.afkActive),
+            equippedBySlot: player.equippedBySlot && typeof player.equippedBySlot === 'object' ? player.equippedBySlot : {},
+            wallet: this.normalizeWallet(player.wallet || {}),
             x: player.x,
             y: player.y,
             targetX: player.x,
@@ -3278,10 +3625,28 @@ export class Game {
 
     isIsometricMap() {
         const layout = this.tiledMapLayouts?.A1;
+        if (this.currentMapCode === 'DNG') return true;
         return this.currentMapCode === 'A1' && String(layout?.orientation || '').toLowerCase() === 'isometric';
     }
 
     getIsoProjectionConfig() {
+        if (this.currentMapCode === 'DNG') {
+            const mapW = Math.max(24, Math.floor(this.mapWidth / this.tileSize));
+            const mapH = Math.max(24, Math.floor(this.mapHeight / this.tileSize));
+            const tileW = 128;
+            const tileH = 64;
+            const halfW = tileW / 2;
+            const halfH = tileH / 2;
+            const span = Math.max(1, mapW + mapH - 2);
+            const isoW = span * halfW;
+            const isoH = span * halfH;
+            const scale = Math.min(this.mapWidth / Math.max(1, isoW), this.mapHeight / Math.max(1, isoH));
+            const projectedW = isoW * scale;
+            const projectedH = isoH * scale;
+            const offsetX = (this.mapWidth - projectedW) * 0.5;
+            const offsetY = (this.mapHeight - projectedH) * 0.5;
+            return { mapW, mapH, tileW, tileH, halfW, halfH, scale, offsetX, offsetY };
+        }
         const layout = this.tiledMapLayouts?.A1;
         if (!layout || !this.isIsometricMap()) return null;
         const mapW = Math.max(1, Number(layout.width || 1));
@@ -3473,6 +3838,7 @@ export class Game {
             p.xp = incoming.xp;
             p.xpToNext = incoming.xpToNext;
             p.equippedWeaponName = incoming.equippedWeaponName || null;
+            p.equippedBySlot = incoming.equippedBySlot && typeof incoming.equippedBySlot === 'object' ? incoming.equippedBySlot : (p.equippedBySlot || {});
             p.stats = incoming.stats;
             p.skillLevels = incoming.skillLevels && typeof incoming.skillLevels === 'object' ? incoming.skillLevels : (p.skillLevels || {});
             p.skillPointsAvailable = Number.isFinite(Number(incoming.skillPointsAvailable)) ? Math.max(0, Number(incoming.skillPointsAvailable)) : Number(p.skillPointsAvailable || 0);
@@ -3493,6 +3859,9 @@ export class Game {
 
             if (isLocal) {
                 this.playerRole = p.role === 'adm' ? 'adm' : 'player';
+                if (incoming.wallet && typeof incoming.wallet === 'object') {
+                    this.wallet = this.normalizeWallet(incoming.wallet);
+                }
                 const nowDead = Boolean(p.dead || p.hp <= 0);
                 this.isDead = nowDead;
                 this.reviveOverlay.classList.toggle('hidden', !nowDead);
@@ -3555,9 +3924,10 @@ export class Game {
     renderInventory() {
         this.inventoryGrid.innerHTML = '';
         const equipped = this.inventory.find((it) => it.id === this.equippedWeaponId);
-        this.inventoryEquippedLabel.textContent = equipped ? `Arma equipada: ${equipped.name}` : 'Arma equipada: nenhuma';
+        const equippedText = equipped ? `Arma equipada: ${equipped.name}` : 'Arma equipada: nenhuma';
+        this.inventoryEquippedLabel.innerHTML = `${equippedText} <span class="wallet-inline">${this.renderWalletTokens(this.wallet)}</span>`;
 
-        const visibleItems = this.inventory.filter((it) => it.id !== this.equippedWeaponId);
+        const visibleItems = this.inventory.filter((it) => it.id !== this.equippedWeaponId && it.equipped !== true);
         const bySlot = new Map(visibleItems.map((it) => [it.slotIndex, it]));
         for (let slot = 0; slot < 36; slot++) {
             const slotEl = document.createElement('div');
@@ -3602,12 +3972,15 @@ export class Game {
                 } else if (String(item.type || '') === 'skill_reset_hourglass') {
                     itemEl.title = `${item.name}\nReseta todas as habilidades aprendidas e devolve os pontos.\nQtd: ${quantity}`;
                 } else {
+                    const classLine = item.requiredClass ? `\nClasse: ${this.getClassLabel(item.requiredClass)}` : '';
                     itemEl.title = `${item.name}\nPATK +${item.bonuses?.physicalAttack || 0}\nMATK +${item.bonuses?.magicAttack || 0}\nMS +${item.bonuses?.moveSpeed || 0}\nASPD +${item.bonuses?.attackSpeed || 0}%`;
+                    if (classLine) itemEl.title += classLine;
                 }
                 itemEl.addEventListener('dblclick', () => {
-                    if (String(item.type || '') === 'weapon') {
+                    const isEquippable = String(item.type || '') === 'weapon' || String(item.type || '') === 'equipment';
+                    if (isEquippable) {
                         this.closeAllTooltips('item_equipped');
-                        this.network.send({ type: 'equip_req', itemId: item.id === this.equippedWeaponId ? null : item.id });
+                        this.network.send({ type: 'equip_req', itemId: item.id });
                         return;
                     }
                     this.network.send({ type: 'item.use', itemId: item.id });
@@ -3675,12 +4048,33 @@ export class Game {
                 <div>Qtd: ${quantity}</div>
             `;
         } else {
+            const requiredClass = item.requiredClass ? this.getClassLabel(item.requiredClass) : null;
+            const bonusMap = item && item.bonuses && typeof item.bonuses === 'object' ? item.bonuses : {};
+            const bonusRows = [
+                ['physicalAttack', 'PATK'],
+                ['magicAttack', 'MATK'],
+                ['physicalDefense', 'PDEF'],
+                ['magicDefense', 'MDEF'],
+                ['accuracy', 'ACC'],
+                ['evasion', 'EVA'],
+                ['moveSpeed', 'MSPD'],
+                ['attackSpeed', 'ASPD'],
+                ['attackRange', 'RANGE'],
+                ['maxHp', 'HP MAX']
+            ]
+                .map(([key, label]) => {
+                    const raw = Number(bonusMap[key] || 0);
+                    if (!Number.isFinite(raw) || raw === 0) return null;
+                    const suffix = key === 'attackSpeed' ? '%' : '';
+                    const signal = raw > 0 ? '+' : '';
+                    return `<div>${label}: ${signal}${raw}${suffix}</div>`;
+                })
+                .filter(Boolean)
+                .join('');
             this.tooltip.innerHTML = `
                 <div><strong>${item.name}</strong></div>
-                <div>PATK: +${item.bonuses?.physicalAttack || 0}</div>
-                <div>MATK: +${item.bonuses?.magicAttack || 0}</div>
-                <div>MSPD: +${item.bonuses?.moveSpeed || 0}</div>
-                <div>ASPD: +${item.bonuses?.attackSpeed || 0}%</div>
+                ${bonusRows || '<div>Sem bonus de atributo</div>'}
+                ${requiredClass ? `<div>Classe: ${requiredClass}</div>` : ''}
             `;
         }
         this.positionTooltip(clientX, clientY, options);
@@ -3788,13 +4182,11 @@ export class Game {
     updatePanel() {
         if (!this.localId || !this.players[this.localId]) return;
         const p = this.players[this.localId];
-        const equippedFromInventory = this.inventory.find((it) => String(it.id) === String(this.equippedWeaponId || ''));
-        const equippedWeaponName = equippedFromInventory ? equippedFromInventory.name : null;
+        const equippedBySlot = this.equippedBySlot && typeof this.equippedBySlot === 'object' ? this.equippedBySlot : {};
 
         this.applyClassAvatar(this.panelClassChip, p.class);
         this.charPanelName.textContent = `${p.name} - ${p.class}`;
 
-        const weaponSlot = this.panel.querySelector('.equip-slot[data-slot="weapon"]');
         const allSlots = this.panel.querySelectorAll('.equip-slot');
         const slotLabels = {
             helmet: 'Capacete',
@@ -3807,51 +4199,57 @@ export class Game {
             necklace: 'Colar'
         };
         allSlots.forEach((slot) => {
+            const slotKey = String(slot.dataset.slot || '');
+            const equippedItem = equippedBySlot[slotKey] || null;
             slot.classList.remove('filled');
-            slot.textContent = slotLabels[slot.dataset.slot] || slot.dataset.slot;
-        });
-        if (equippedWeaponName && weaponSlot) {
-            weaponSlot.classList.add('filled');
-            weaponSlot.textContent = equippedWeaponName;
-            weaponSlot.draggable = true;
-            weaponSlot.ondblclick = () => {
-                this.network.send({ type: 'equip_req', itemId: null });
-            };
-            weaponSlot.ondragstart = (e) => {
-                const equipped = this.inventory.find((it) => it.id === this.equippedWeaponId);
-                if (!equipped) return;
-                this.draggingEquippedWeapon = equipped.id;
-                this.writeDragPayload(e.dataTransfer, { source: 'equipment', itemId: equipped.id });
-            };
-            weaponSlot.ondragend = () => {
-                this.draggingEquippedWeapon = null;
-            };
-        } else if (weaponSlot) {
-            weaponSlot.draggable = false;
-            weaponSlot.ondblclick = null;
-            weaponSlot.ondragstart = null;
-            weaponSlot.ondragend = null;
-        }
-        if (weaponSlot) {
-            weaponSlot.ondragover = (e) => {
+            slot.textContent = slotLabels[slotKey] || slotKey;
+            if (equippedItem) {
+                slot.classList.add('filled');
+                slot.textContent = String(equippedItem.name || slot.textContent);
+                slot.draggable = true;
+                slot.ondblclick = () => {
+                    this.network.send({ type: 'equip_req', itemId: equippedItem.id });
+                };
+                slot.ondragstart = (e) => {
+                    this.draggingEquippedWeapon = equippedItem.id;
+                    this.writeDragPayload(e.dataTransfer, { source: 'equipment', itemId: equippedItem.id });
+                };
+                slot.ondragend = () => {
+                    this.draggingEquippedWeapon = null;
+                };
+            } else {
+                slot.draggable = false;
+                slot.ondblclick = null;
+                slot.ondragstart = null;
+                slot.ondragend = null;
+            }
+
+            slot.ondragover = (e) => {
                 e.preventDefault();
-                weaponSlot.classList.add('hovered');
+                slot.classList.add('hovered');
             };
-            weaponSlot.ondragleave = () => {
-                weaponSlot.classList.remove('hovered');
+            slot.ondragleave = () => {
+                slot.classList.remove('hovered');
             };
-            weaponSlot.ondrop = (e) => {
+            slot.ondrop = (e) => {
                 e.preventDefault();
-                weaponSlot.classList.remove('hovered');
+                slot.classList.remove('hovered');
                 const payload = this.readDragPayload(e.dataTransfer);
                 const itemId = payload?.itemId ? String(payload.itemId) : '';
                 if (!itemId) return;
                 const item = this.inventory.find((it) => String(it.id) === itemId);
-                if (!item || String(item.type || '') !== 'weapon') return;
+                if (!item) return;
+                const targetSlot = String(slot.dataset.slot || '');
+                const itemSlot = String(item.slot || '');
+                const isWeapon = String(item.type || '') === 'weapon';
+                const isEquipment = String(item.type || '') === 'equipment';
+                if (isWeapon && targetSlot !== 'weapon') return;
+                if (isEquipment && itemSlot !== targetSlot) return;
+                if (!isWeapon && !isEquipment) return;
                 this.closeAllTooltips('item_equipped');
                 this.network.send({ type: 'equip_req', itemId });
             };
-        }
+        });
 
         if (this.panel) {
             this.panel.ondragover = (e) => {
@@ -3859,13 +4257,15 @@ export class Game {
             };
             this.panel.ondrop = (e) => {
                 const target = e.target;
-                if (target && target.closest && target.closest('.equip-slot[data-slot="weapon"]')) return;
+                if (target && target.closest && target.closest('.equip-slot')) return;
                 e.preventDefault();
                 const payload = this.readDragPayload(e.dataTransfer);
                 const itemId = payload?.itemId ? String(payload.itemId) : '';
                 if (!itemId) return;
                 const item = this.inventory.find((it) => String(it.id) === itemId);
-                if (!item || String(item.type || '') !== 'weapon') return;
+                if (!item) return;
+                const isEquippable = String(item.type || '') === 'weapon' || String(item.type || '') === 'equipment';
+                if (!isEquippable) return;
                 this.closeAllTooltips('item_equipped');
                 this.network.send({ type: 'equip_req', itemId });
             };
@@ -3886,6 +4286,10 @@ export class Game {
             summaryGrid.appendChild(div);
         }
         this.panelBody.appendChild(summaryGrid);
+        const walletLine = document.createElement('div');
+        walletLine.className = 'line wallet-line';
+        walletLine.innerHTML = `Moedas: ${this.renderWalletTokens(this.wallet)}`;
+        this.panelBody.appendChild(walletLine);
 
         const pendingCost = this.getPendingStatAllocationCost(p.allocatedStats);
         const remainingPoints = Math.max(0, Number(p.unspentPoints || 0) - pendingCost);
@@ -4286,6 +4690,71 @@ export class Game {
             const delay = Math.max(100, nextExpiry - Date.now() + 20);
             this.partyNotifyExpiryTimer = setTimeout(() => this.renderPartyNotifications(), delay);
         }
+    }
+
+    renderDungeonNotifications() {
+        if (this.dungeonNotifyExpiryTimer) {
+            clearTimeout(this.dungeonNotifyExpiryTimer);
+            this.dungeonNotifyExpiryTimer = null;
+        }
+        const now = Date.now();
+        this.pendingDungeonReadyChecks = this.pendingDungeonReadyChecks.filter((it) => Number(it.expiresAt || 0) > now);
+        const hasAny = this.pendingDungeonReadyChecks.length > 0;
+        if (this.dungeonNotifications) this.dungeonNotifications.classList.toggle('hidden', !hasAny);
+        if (!this.dungeonNotificationsList) return;
+        this.dungeonNotificationsList.innerHTML = '';
+        if (!hasAny) return;
+
+        for (const req of this.pendingDungeonReadyChecks) {
+            const row = document.createElement('div');
+            row.className = 'party-notify-row';
+            const readyCount = Math.max(0, Number(req.readyCount || 0));
+            const totalCount = Math.max(1, Number(req.totalCount || 1));
+            row.innerHTML = `<div>Ready Check: ${this.escapeHtml(String(req.dungeonName || 'Expedicao'))} (${readyCount}/${totalCount})</div>`;
+            const actions = document.createElement('div');
+            actions.className = 'party-notify-actions';
+            const acceptBtn = document.createElement('button');
+            acceptBtn.textContent = 'Aceitar';
+            acceptBtn.disabled = Boolean(req.respondedByMe);
+            acceptBtn.addEventListener('click', () => this.resolveDungeonReadyCheck(req, true));
+            const declineBtn = document.createElement('button');
+            declineBtn.textContent = 'Recusar';
+            declineBtn.disabled = Boolean(req.respondedByMe);
+            declineBtn.addEventListener('click', () => this.resolveDungeonReadyCheck(req, false));
+            actions.appendChild(acceptBtn);
+            actions.appendChild(declineBtn);
+            row.appendChild(actions);
+            if (req.respondedByMe) {
+                const waiting = document.createElement('div');
+                waiting.className = 'quest-objective';
+                waiting.textContent = 'Resposta enviada. Aguardando restantes...';
+                row.appendChild(waiting);
+            }
+            this.dungeonNotificationsList.appendChild(row);
+        }
+
+        let nextExpiry = null;
+        for (const req of this.pendingDungeonReadyChecks) {
+            const exp = Number(req.expiresAt || 0);
+            if (!nextExpiry || exp < nextExpiry) nextExpiry = exp;
+        }
+        if (nextExpiry) {
+            const delay = Math.max(100, nextExpiry - Date.now() + 20);
+            this.dungeonNotifyExpiryTimer = setTimeout(() => this.renderDungeonNotifications(), delay);
+        }
+    }
+
+    resolveDungeonReadyCheck(req, accept) {
+        req.respondedByMe = true;
+        this.renderDungeonNotifications();
+        this.network.send({
+            type: 'dungeon.ready',
+            requestId: String(req.requestId || ''),
+            accept: Boolean(accept)
+        });
+        this.onSystemMessage({
+            text: accept ? 'Ready Check confirmado.' : 'Ready Check recusado.'
+        });
     }
 
     renderFriendsPanel() {
@@ -5510,6 +5979,10 @@ export class Game {
                 return;
             }
         }
+        if (this.isIsometricMap()) {
+            this.drawIsometricProceduralMap();
+            return;
+        }
         const cols = Math.ceil(this.canvas.width / this.tileSize) + 1;
         const rows = Math.ceil(this.canvas.height / this.tileSize) + 1;
         const startCol = Math.floor(this.camera.x / this.tileSize);
@@ -5609,6 +6082,67 @@ export class Game {
             const radius = Math.max(8, Math.min(portal.w, portal.h) * 0.24);
             this.drawPixelPortal(this.ctx, sx, sy, radius, 3);
         }
+    }
+
+    drawIsometricProceduralMap() {
+        const cfg = this.getIsoProjectionConfig();
+        if (!cfg) return;
+        const halfW = cfg.halfW * cfg.scale;
+        const halfH = cfg.halfH * cfg.scale;
+        for (let row = 0; row < this.mapRows; row++) {
+            for (let col = 0; col < this.mapCols; col++) {
+                const index = row * this.mapCols + col;
+                const tile = this.mapTiles[index];
+                const cxWorld = (col + 0.5) * this.tileSize;
+                const cyWorld = (row + 0.5) * this.tileSize;
+                const projected = this.worldToRenderCoords(cxWorld, cyWorld);
+                const sx = projected.x - this.camera.x;
+                const sy = projected.y - this.camera.y;
+                if (sx < -halfW - 6 || sx > this.canvas.width + halfW + 6 || sy < -halfH - 6 || sy > this.canvas.height + halfH + 6) continue;
+                this.drawIsoTerrainCell(sx, sy, halfW, halfH, tile);
+            }
+        }
+        const worldRect = {
+            x: this.camera.x,
+            y: this.camera.y,
+            w: this.canvas.width,
+            h: this.canvas.height
+        };
+        this.drawMapFeatures(this.ctx, worldRect, 1, 1, false);
+        for (const portal of this.mapPortals) {
+            const projected = this.worldToRenderCoords(portal.x + portal.w * 0.5, portal.y + portal.h * 0.5);
+            const sx = projected.x - this.camera.x;
+            const sy = projected.y - this.camera.y;
+            const radius = Math.max(8, Math.min(portal.w, portal.h) * 0.24);
+            this.drawPixelPortal(this.ctx, sx, sy, radius, 3);
+        }
+    }
+
+    drawIsoTerrainCell(screenX, screenY, halfW, halfH, tile) {
+        const t = Number(tile);
+        let fill = '#788e5b';
+        let stroke = '#4c5f36';
+        if (t === 1) {
+            fill = this.currentMapTheme === 'undead' ? '#62615a' : this.currentMapTheme === 'lava' ? '#7f6650' : '#8a7656';
+            stroke = this.currentMapTheme === 'undead' ? '#47453f' : this.currentMapTheme === 'lava' ? '#5c4333' : '#5f4e37';
+        } else if (t === 2) {
+            fill = this.currentMapTheme === 'undead' ? '#555f52' : '#6f8157';
+            stroke = this.currentMapTheme === 'undead' ? '#3b4439' : '#4e5f3c';
+        } else if (t === 3) {
+            fill = this.currentMapTheme === 'lava' ? '#6a5a4f' : '#6f7769';
+            stroke = this.currentMapTheme === 'lava' ? '#40352f' : '#49503f';
+        }
+        this.ctx.beginPath();
+        this.ctx.moveTo(screenX, screenY - halfH);
+        this.ctx.lineTo(screenX + halfW, screenY);
+        this.ctx.lineTo(screenX, screenY + halfH);
+        this.ctx.lineTo(screenX - halfW, screenY);
+        this.ctx.closePath();
+        this.ctx.fillStyle = fill;
+        this.ctx.fill();
+        this.ctx.strokeStyle = stroke;
+        this.ctx.lineWidth = 1;
+        this.ctx.stroke();
     }
 
     /**
@@ -6322,6 +6856,7 @@ export class Game {
         if (this.pathDebugSetting) this.pathDebugSetting.classList.toggle('hidden', !isAdmin);
         if (this.hudDebugSetting) this.hudDebugSetting.classList.toggle('hidden', !isAdmin);
         if (this.mobPeacefulSetting) this.mobPeacefulSetting.classList.toggle('hidden', !isAdmin);
+        if (this.dungeonDebugSetting) this.dungeonDebugSetting.classList.toggle('hidden', !isAdmin);
         if (!isAdmin) {
             this.pathDebugEnabled = false;
             if (this.pathDebugToggle) this.pathDebugToggle.checked = false;

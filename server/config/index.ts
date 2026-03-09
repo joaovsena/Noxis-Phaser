@@ -103,6 +103,7 @@ export const MAP_KEY_BY_CODE: Record<string, string> = {
 };
 
 export function mapCodeFromKey(mapKey: string) {
+    if (String(mapKey || '').startsWith('dng_')) return 'DNG';
     return MAP_CODE_BY_KEY[mapKey] || 'A1';
 }
 
@@ -112,13 +113,16 @@ export const PORTALS_BY_MAP_KEY: Record<string, Array<{
     y: number;
     w: number;
     h: number;
-    toMapKey: string;
-    toX: number;
-    toY: number;
+    toMapKey?: string;
+    toX?: number;
+    toY?: number;
+    dungeonTemplateId?: string;
 }>> = {
     forest: [
         // Portal na ponta da estrada leste (ativacao pontual).
-        { id: 'forest_to_lava_01', x: 3053, y: 1821, w: 130, h: 130, toMapKey: 'lava', toX: 210, toY: 2286 }
+        { id: 'forest_to_lava_01', x: 3053, y: 1821, w: 130, h: 130, toMapKey: 'lava', toX: 210, toY: 2286 },
+        // Entrada de dungeon instanciada (MVP).
+        { id: 'forest_dungeon_ruins_01', x: 740, y: 470, w: 120, h: 120, dungeonTemplateId: 'dng_forest_ruins_mvp' }
     ],
     lava: [
         // Corredor entre A1, A2 e A3 em pontos finais de estrada.
@@ -158,6 +162,7 @@ export const WEAPON_TEMPLATE = {
     type: 'weapon',
     name: 'Arma Teste',
     slot: 'weapon',
+    price: { silver: 12 },
     bonuses: {
         physicalAttack: 10,
         magicAttack: 10,
@@ -170,6 +175,7 @@ export const WEAPON_TEMPLATE_RUBI = {
     type: 'weapon',
     name: 'Arma de Rubi',
     slot: 'weapon',
+    price: { gold: 2, silver: 50 },
     bonuses: {
         physicalAttack: 16,
         magicAttack: 6,
@@ -183,6 +189,7 @@ export const HP_POTION_TEMPLATE = {
     type: 'potion_hp',
     name: 'Pocao de HP',
     slot: 'consumable',
+    price: { copper: 45 },
     healPercent: 0.5,
     stackable: true,
     maxStack: 64
@@ -192,20 +199,100 @@ export const SKILL_RESET_HOURGLASS_TEMPLATE = {
     type: 'skill_reset_hourglass',
     name: 'Ampulheta de Habilidades',
     slot: 'consumable',
+    price: { silver: 30 },
     stackable: true,
     maxStack: 64
 };
+const CLASS_EQUIPMENT_BASE: Record<'knight' | 'archer' | 'druid' | 'assassin', { name: string; stat: 'physicalDefense' | 'magicDefense' | 'evasion' }> = {
+    knight: { name: 'do Cavaleiro', stat: 'physicalDefense' },
+    archer: { name: 'do Arqueiro', stat: 'evasion' },
+    druid: { name: 'do Druida', stat: 'magicDefense' },
+    assassin: { name: 'do Assassino', stat: 'evasion' }
+};
+const EQUIPMENT_SLOT_DEFS: Array<{ slot: 'helmet' | 'chest' | 'pants' | 'gloves' | 'boots' | 'ring' | 'necklace'; name: string; power: number; price: any }> = [
+    { slot: 'helmet', name: 'Capacete', power: 4, price: { silver: 8 } },
+    { slot: 'chest', name: 'Peitoral', power: 8, price: { silver: 13 } },
+    { slot: 'pants', name: 'Calca', power: 6, price: { silver: 10 } },
+    { slot: 'gloves', name: 'Luva', power: 3, price: { silver: 6 } },
+    { slot: 'boots', name: 'Bota', power: 3, price: { silver: 6 } },
+    { slot: 'ring', name: 'Anel', power: 5, price: { silver: 9 } },
+    { slot: 'necklace', name: 'Colar', power: 5, price: { silver: 9 } }
+];
+export const CLASS_EQUIPMENT_TEMPLATES = (Object.keys(CLASS_EQUIPMENT_BASE) as Array<'knight' | 'archer' | 'druid' | 'assassin'>)
+    .flatMap((classId) => {
+        const classDef = CLASS_EQUIPMENT_BASE[classId];
+        return EQUIPMENT_SLOT_DEFS.map((slotDef) => {
+            const bonuses: Record<string, number> = {};
+            bonuses[classDef.stat] = slotDef.power;
+            if (slotDef.slot === 'boots') bonuses.moveSpeed = 8;
+            if (slotDef.slot === 'gloves') bonuses.attackSpeed = 5;
+            if (slotDef.slot === 'ring') bonuses.physicalAttack = classId === 'druid' ? 0 : 3;
+            if (slotDef.slot === 'ring') bonuses.magicAttack = classId === 'druid' ? 3 : 0;
+            if (slotDef.slot === 'necklace') bonuses.maxHp = 35;
+            return {
+                id: `equip_${classId}_${slotDef.slot}`,
+                type: 'equipment',
+                name: `${slotDef.name} ${classDef.name}`,
+                slot: slotDef.slot,
+                requiredClass: classId,
+                price: slotDef.price,
+                bonuses
+            };
+        });
+    });
 export const BUILTIN_ITEM_TEMPLATES = [
     WEAPON_TEMPLATE,
     WEAPON_TEMPLATE_RUBI,
     HP_POTION_TEMPLATE,
-    SKILL_RESET_HOURGLASS_TEMPLATE
+    SKILL_RESET_HOURGLASS_TEMPLATE,
+    ...CLASS_EQUIPMENT_TEMPLATES
 ];
 export const BUILTIN_ITEM_TEMPLATE_BY_ID = BUILTIN_ITEM_TEMPLATES.reduce((acc: Record<string, any>, template: any) => {
     if (template?.id) acc[String(template.id)] = template;
     if (template?.type) acc[String(template.type)] = template;
     return acc;
 }, {});
+export const NPC_SHOPS: Record<string, Array<{ offerId: string; templateId: string; quantity?: number }>> = {
+    npc_ferreiro_borin: [
+        { offerId: 'blacksmith_weapon_teste', templateId: 'weapon_teste', quantity: 1 },
+        { offerId: 'blacksmith_weapon_rubi', templateId: 'weapon_rubi', quantity: 1 },
+        { offerId: 'blacksmith_armor_knight_helmet', templateId: 'equip_knight_helmet', quantity: 1 },
+        { offerId: 'blacksmith_armor_knight_chest', templateId: 'equip_knight_chest', quantity: 1 },
+        { offerId: 'blacksmith_armor_knight_pants', templateId: 'equip_knight_pants', quantity: 1 },
+        { offerId: 'blacksmith_armor_knight_gloves', templateId: 'equip_knight_gloves', quantity: 1 },
+        { offerId: 'blacksmith_armor_knight_boots', templateId: 'equip_knight_boots', quantity: 1 },
+        { offerId: 'blacksmith_armor_knight_ring', templateId: 'equip_knight_ring', quantity: 1 },
+        { offerId: 'blacksmith_armor_knight_necklace', templateId: 'equip_knight_necklace', quantity: 1 },
+        { offerId: 'blacksmith_armor_archer_helmet', templateId: 'equip_archer_helmet', quantity: 1 },
+        { offerId: 'blacksmith_armor_archer_chest', templateId: 'equip_archer_chest', quantity: 1 },
+        { offerId: 'blacksmith_armor_archer_pants', templateId: 'equip_archer_pants', quantity: 1 },
+        { offerId: 'blacksmith_armor_archer_gloves', templateId: 'equip_archer_gloves', quantity: 1 },
+        { offerId: 'blacksmith_armor_archer_boots', templateId: 'equip_archer_boots', quantity: 1 },
+        { offerId: 'blacksmith_armor_archer_ring', templateId: 'equip_archer_ring', quantity: 1 },
+        { offerId: 'blacksmith_armor_archer_necklace', templateId: 'equip_archer_necklace', quantity: 1 },
+        { offerId: 'blacksmith_armor_druid_helmet', templateId: 'equip_druid_helmet', quantity: 1 },
+        { offerId: 'blacksmith_armor_druid_chest', templateId: 'equip_druid_chest', quantity: 1 },
+        { offerId: 'blacksmith_armor_druid_pants', templateId: 'equip_druid_pants', quantity: 1 },
+        { offerId: 'blacksmith_armor_druid_gloves', templateId: 'equip_druid_gloves', quantity: 1 },
+        { offerId: 'blacksmith_armor_druid_boots', templateId: 'equip_druid_boots', quantity: 1 },
+        { offerId: 'blacksmith_armor_druid_ring', templateId: 'equip_druid_ring', quantity: 1 },
+        { offerId: 'blacksmith_armor_druid_necklace', templateId: 'equip_druid_necklace', quantity: 1 },
+        { offerId: 'blacksmith_armor_assassin_helmet', templateId: 'equip_assassin_helmet', quantity: 1 },
+        { offerId: 'blacksmith_armor_assassin_chest', templateId: 'equip_assassin_chest', quantity: 1 },
+        { offerId: 'blacksmith_armor_assassin_pants', templateId: 'equip_assassin_pants', quantity: 1 },
+        { offerId: 'blacksmith_armor_assassin_gloves', templateId: 'equip_assassin_gloves', quantity: 1 },
+        { offerId: 'blacksmith_armor_assassin_boots', templateId: 'equip_assassin_boots', quantity: 1 },
+        { offerId: 'blacksmith_armor_assassin_ring', templateId: 'equip_assassin_ring', quantity: 1 },
+        { offerId: 'blacksmith_armor_assassin_necklace', templateId: 'equip_assassin_necklace', quantity: 1 }
+    ],
+    npc_guard_alden: [
+        { offerId: 'guard_potion_hp', templateId: 'potion_hp', quantity: 1 },
+        { offerId: 'guard_hourglass', templateId: 'skill_reset_hourglass', quantity: 1 }
+    ],
+    npc_scout_lina: [
+        { offerId: 'scout_potion_hp', templateId: 'potion_hp', quantity: 1 }
+    ]
+};
 export const SKILL_RESET_HOURGLASS_DROP_CHANCE = 0.5;
 export const STATUS_IDS = {
     physicalAttack: 1,

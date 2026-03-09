@@ -194,6 +194,9 @@
                 <input id="mob-peaceful-toggle" type="checkbox">
                 <span>Mobs pacificos</span>
             </label>
+            <label id="dungeon-debug-setting" class="map-settings-line hidden">
+                <button id="dungeon-debug-btn" type="button">Debug Dungeon</button>
+            </label>
         </div>
     </div>
 
@@ -313,6 +316,11 @@
         <div id="friends-notifications-list"></div>
     </div>
 
+    <div id="dungeon-notifications" class="hud-dungeon-notify hidden">
+        <div class="party-notify-title">Dungeon</div>
+        <div id="dungeon-notifications-list"></div>
+    </div>
+
     <div id="friends-panel" class="panel hidden">
         <div id="friends-header">Amigos (O)</div>
         <div class="party-tabs">
@@ -388,13 +396,15 @@
                 <div id="admin-help-popover">
                     <div class="admin-help-title">Comandos</div>
                     <ul id="admin-help-list">
-                        <li id="admin-status-help">setstatus {id} {quantia} {jogador}</li>
-                        <li>setrolelevel {nivel} {jogador}</li>
-                        <li>gotomap {A1|A2|A3} {jogador}</li>
-                        <li>teleport {jogador}</li>
-                        <li>summonplayer {jogador}</li>
-                        <li>additem {id} {quantia} {jogador}</li>
-                        <li>settag {player|adm} {jogador}</li>
+                        <li id="admin-status-help">setstatus {id} {quantia} {jogador?}</li>
+                        <li>setrolelevel {nivel} {jogador?}</li>
+                        <li>gotomap {A1|A2|A3} {jogador?}</li>
+                        <li>teleport {jogador?}</li>
+                        <li>summonplayer {jogador?}</li>
+                        <li>additem {id} {quantia} {jogador?}</li>
+                        <li>addgold {quantia} {moeda} {jogador?}</li>
+                        <li>settag {player|adm} {jogador?}</li>
+                        <li>dungeon.debug</li>
                     </ul>
                 </div>
             </span>
@@ -405,6 +415,6 @@
     </div>
 
     <canvas id="gameCanvas" style="display:none;"></canvas>
-    <script type="module" src="js/main.js?v=gameplay-20260308a"></script>
+    <script type="module" src="js/main.js?v=gameplay-20260309c"></script>
 </body>
 </html>

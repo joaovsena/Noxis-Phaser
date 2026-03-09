@@ -62,7 +62,18 @@ npm run docker:up
 npm run docker:logs
 npm run docker:down
 npm run docker:reset
+npm run docker:poc:up
+npm run bench:engine:poc
+npm run docker:poc:down
 ```
+
+## POC Go Engine (opcional)
+
+Ha um POC de engine em Go para calculos CPU-heavy (combate/pathfinding):
+
+- codigo: `engine-go/`
+- benchmark: `scripts/bench_engine_poc.js`
+- guia: `docs/poc-go-engine.md`
 
 ## Rodar sem Docker (opcional)
 1. `npm install`

@@ -8,6 +8,8 @@
     "start": "node dist/server/index.js",
     "dev": "ts-node server/index.ts",
     "docker:up": "docker compose up --build -d",
+    "docker:poc:up": "docker compose --profile poc up --build -d engine-go",
+    "docker:poc:down": "docker compose --profile poc down",
     "docker:down": "docker compose down",
     "docker:reset": "docker compose down -v --remove-orphans",
     "docker:logs": "docker compose logs -f app db",
@@ -15,7 +17,8 @@
     "db:push": "prisma db push",
     "db:reset": "prisma db push --force-reset",
     "dev:setup": "npm run db:reset && npm run db:generate",
-    "test": "jest"
+    "test": "jest",
+    "bench:engine:poc": "node scripts/bench_engine_poc.js"
   },
   "keywords": [],
   "author": "",
@@ -26,6 +29,7 @@
     "@prisma/client": "^7.4.2",
     "express": "^5.2.1",
     "pg": "^8.20.0",
+    "redis": "^4.7.1",
     "ws": "^8.19.0"
   },
   "devDependencies": {

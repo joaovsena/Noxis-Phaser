@@ -1,0 +1,720 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.DungeonService = void 0;
+const crypto_1 = require("crypto");
+const dungeons_1 = require("../content/dungeons");
+const math_1 = require("../utils/math");
+const config_1 = require("../config");
+const DungeonMap_1 = require("./DungeonMap");
+const ProceduralDungeonGenerator_1 = require("./ProceduralDungeonGenerator");
+const DUNGEON_EMPTY_TIMEOUT_MS = 20000;
+const DUNGEON_CLEANUP_AFTER_COMPLETE_MS = 5 * 60000;
+const DUNGEON_ENTRY_RANGE = 190;
+const READY_CHECK_TIMEOUT_MS = 15000;
+class DungeonService {
+    constructor(players, mobService, sendRaw, sendStatsUpdated, persistPlayer, persistPlayerCritical, grantCurrency, projectToWalkable, removeGroundItemsByMapInstance, dropTemplateAt) {
+        this.players = players;
+        this.mobService = mobService;
+        this.sendRaw = sendRaw;
+        this.sendStatsUpdated = sendStatsUpdated;
+        this.persistPlayer = persistPlayer;
+        this.persistPlayerCritical = persistPlayerCritical;
+        this.grantCurrency = grantCurrency;
+        this.projectToWalkable = projectToWalkable;
+        this.removeGroundItemsByMapInstance = removeGroundItemsByMapInstance;
+        this.dropTemplateAt = dropTemplateAt;
+        this.instances = new Map();
+        this.playerToInstanceId = new Map();
+        this.partyToOpenInstanceId = new Map();
+        this.emptySince = new Map();
+        this.readyCheckToInstanceId = new Map();
+    }
+    getDungeonEntryForNpc(npcId) {
+        const template = dungeons_1.DUNGEON_BY_ENTRY_NPC[String(npcId || '')];
+        if (!template)
+            return null;
+        return {
+            templateId: template.id,
+            name: template.name,
+            description: template.description,
+            maxPlayers: template.maxPlayers
+        };
+    }
+    getDebugSnapshot() {
+        return [...this.instances.values()].map((instance) => {
+            const members = instance.getMemberIds().map((playerId) => {
+                const player = this.players.get(playerId);
+                const state = instance.players.get(playerId);
+                return {
+                    playerId,
+                    name: player?.name || `#${playerId}`,
+                    connected: Boolean(state?.connected),
+                    ready: Boolean(state?.ready),
+                    onlineInside: Boolean(player
+                        && player.mapKey === instance.mapKey
+                        && player.mapId === instance.mapId),
+                    dead: Boolean(player?.dead),
+                    hp: Number(player?.hp || 0)
+                };
+            });
+            const bossId = String(instance.bossRuntimeId || '');
+            const boss = bossId ? this.mobService.getMobById(bossId) : null;
+            return {
+                id: instance.id,
+                templateId: instance.template.id,
+                mapKey: instance.mapKey,
+                mapId: instance.mapId,
+                state: instance.state,
+                locked: instance.locked,
+                doorLocked: instance.doorLocked,
+                readyCheckId: instance.readyCheckId,
+                readyDeadlineAt: instance.readyDeadlineAt,
+                cleanupAt: instance.cleanupAt,
+                mobCount: instance.mobs.size,
+                boss: boss
+                    ? {
+                        runtimeId: bossId,
+                        hp: Number(boss.hp || 0),
+                        maxHp: Number(boss.maxHp || 0)
+                    }
+                    : null,
+                members
+            };
+        });
+    }
+    tryEnterByNpc(player, npc, modeRaw) {
+        const entry = this.getDungeonEntryForNpc(String(npc?.id || ''));
+        if (!entry)
+            return { ok: false, message: 'NPC sem dungeon configurada.' };
+        if ((0, math_1.distance)(player, npc) > Math.max(DUNGEON_ENTRY_RANGE, Number(npc?.interactRange || 170))) {
+            return { ok: false, message: 'Aproxime-se do NPC para iniciar a expedicao.' };
+        }
+        const partyId = String(player.partyId || '');
+        if (!partyId)
+            return { ok: false, message: 'Entrada permitida apenas para jogadores em grupo.' };
+        const opened = this.getOpenInstanceForParty(partyId);
+        const mode = String(modeRaw || '').toLowerCase() === 'group' ? 'group' : String(modeRaw || '').toLowerCase() === 'solo' ? 'solo' : 'self';
+        if (!opened) {
+            return this.startReadyCheck(player, entry.templateId);
+        }
+        if (mode === 'group' && this.canUseGroupTeleport(player)) {
+            return this.startTeleportReadyCheck(player, opened);
+        }
+        this.teleportPlayerIntoInstance(player, opened);
+        this.sendRaw(player.ws, { type: 'system_message', text: `Voce entrou na dungeon ${opened.template.name}.` });
+        return { ok: true, message: 'Teleporte realizado.' };
+    }
+    handleReadyResponse(player, requestId, accept) {
+        const instanceId = this.readyCheckToInstanceId.get(String(requestId || ''));
+        if (!instanceId)
+            return;
+        const instance = this.instances.get(instanceId);
+        if (!instance || instance.state !== 'ready_check')
+            return;
+        if (!instance.readyMemberIds.includes(player.id))
+            return;
+        instance.markReady(player.id, Boolean(accept));
+        this.broadcastReadyState(instance, instance.readyMemberIds);
+    }
+    leaveDungeon(player, reason = 'Saida voluntaria') {
+        const instanceId = this.playerToInstanceId.get(player.id);
+        if (!instanceId)
+            return false;
+        const instance = this.instances.get(instanceId);
+        if (!instance) {
+            this.playerToInstanceId.delete(player.id);
+            return false;
+        }
+        this.teleportPlayerToOrigin(player, instance);
+        this.sendRaw(player.ws, { type: 'system_message', text: reason });
+        this.onPlayerExitedInstance(instance, player.id);
+        return true;
+    }
+    onMobKilled(_killer, mob) {
+        const instanceId = String(mob?.eventId || '');
+        if (!instanceId)
+            return;
+        const instance = this.instances.get(instanceId);
+        if (!instance || instance.state !== 'active')
+            return;
+        instance.mobs.delete(String(mob.id || ''));
+        if (String(mob.id || '') === String(instance.bossRuntimeId || '')) {
+            this.completeInstance(instance);
+        }
+    }
+    onPlayerDisconnected(playerId) {
+        const instanceId = this.playerToInstanceId.get(playerId);
+        if (!instanceId)
+            return;
+        const instance = this.instances.get(instanceId);
+        if (!instance) {
+            this.playerToInstanceId.delete(playerId);
+            return;
+        }
+        instance.setConnected(playerId, false);
+        this.onPlayerExitedInstance(instance, playerId, true);
+    }
+    tick(now) {
+        for (const instance of this.instances.values()) {
+            if (instance.state === 'ready_check') {
+                this.tickReadyCheck(instance, now);
+                continue;
+            }
+            if (instance.state === 'active') {
+                this.tickBossAndWipe(instance, now);
+                this.checkEmptyInstance(instance, now);
+                continue;
+            }
+            if (instance.cleanupAt && now >= instance.cleanupAt) {
+                this.cleanupInstance(instance, 'completed_cleanup');
+            }
+        }
+    }
+    startReadyCheck(leader, templateId) {
+        const template = dungeons_1.DUNGEON_BY_ID[String(templateId || '')];
+        if (!template)
+            return { ok: false, message: 'Dungeon nao encontrada.' };
+        if (leader.dead || leader.hp <= 0)
+            return { ok: false, message: 'Voce esta morto e nao pode entrar.' };
+        if (this.playerToInstanceId.has(leader.id))
+            return { ok: false, message: 'Voce ja esta em uma expedicao.' };
+        if (!leader.partyId)
+            return { ok: false, message: 'Entrada permitida apenas para jogadores em grupo.' };
+        if (this.getOpenInstanceForParty(String(leader.partyId || ''))) {
+            return { ok: false, message: 'Ja existe uma dungeon aberta para o seu grupo.' };
+        }
+        const group = this.resolveEntryGroup(leader, template.maxPlayers);
+        if (group.length <= 0)
+            return { ok: false, message: 'Nenhum membro elegivel para o ready check.' };
+        const alreadyIn = group.find((p) => this.playerToInstanceId.has(p.id));
+        if (alreadyIn)
+            return { ok: false, message: `${alreadyIn.name} ja esta em uma expedicao.` };
+        const instance = this.createInstance(template, group);
+        instance.state = 'ready_check';
+        instance.readyPurpose = 'open';
+        instance.ownerPartyId = String(leader.partyId || '');
+        instance.readyCheckId = `RDY-${(0, crypto_1.randomUUID)().slice(0, 8)}`;
+        instance.readyDeadlineAt = Date.now() + READY_CHECK_TIMEOUT_MS;
+        instance.readyMemberIds = group.map((m) => m.id);
+        this.readyCheckToInstanceId.set(String(instance.readyCheckId), instance.id);
+        for (const memberId of instance.readyMemberIds) {
+            const member = this.players.get(memberId);
+            if (!member)
+                continue;
+            this.sendRaw(member.ws, {
+                type: 'dungeon.readyCheck',
+                requestId: instance.readyCheckId,
+                dungeon: {
+                    templateId: template.id,
+                    name: template.name,
+                    maxPlayers: template.maxPlayers
+                },
+                timeoutMs: READY_CHECK_TIMEOUT_MS,
+                members: instance.readyMemberIds.map((id) => ({
+                    playerId: id,
+                    name: this.players.get(id)?.name || `#${id}`,
+                    ready: Boolean(instance.players.get(id)?.ready),
+                    responded: Boolean(instance.players.get(id)?.responded)
+                }))
+            });
+        }
+        return { ok: true, message: 'Ready Check de abertura iniciado.', requestId: instance.readyCheckId };
+    }
+    createInstance(template, members) {
+        const instanceId = `DNG-${Date.now().toString(36)}-${(0, crypto_1.randomUUID)().slice(0, 6)}`;
+        const mapId = instanceId;
+        const layout = (0, ProceduralDungeonGenerator_1.generateDungeonLayout)(instanceId, template);
+        const mapKey = layout.mapKey;
+        const mapInstanceId = (0, config_1.composeMapInstanceId)(mapKey, mapId);
+        const instance = new DungeonMap_1.DungeonMap(instanceId, template, mapKey, mapId, mapInstanceId, Date.now());
+        instance.generatedFeatures = layout.features;
+        instance.doorFeature = layout.doorFeature;
+        instance.entrySpawn = { x: Number(layout.entrySpawn.x), y: Number(layout.entrySpawn.y) };
+        instance.bossAggroRange = Math.max(80, Number(layout.bossAggroRange || 260));
+        config_1.MAP_FEATURES_BY_KEY[instance.mapKey] = [...layout.features];
+        for (const member of members) {
+            instance.addPlayer(member.id, {
+                mapKey: String(member.mapKey || 'forest'),
+                mapId: String(member.mapId || 'Z1'),
+                x: Number(member.x || 0),
+                y: Number(member.y || 0)
+            });
+        }
+        this.instances.set(instance.id, instance);
+        return instance;
+    }
+    resolveEntryGroup(leader, maxPlayers) {
+        if (!leader.partyId)
+            return [];
+        const samePlace = [...this.players.values()].filter((p) => String(p.partyId || '') === String(leader.partyId || '')
+            && p.mapKey === leader.mapKey
+            && p.mapId === leader.mapId
+            && !p.dead
+            && p.hp > 0);
+        samePlace.sort((a, b) => (Number(a.id) === Number(leader.id) ? -1 : Number(b.id) === Number(leader.id) ? 1 : 0));
+        return samePlace.slice(0, maxPlayers);
+    }
+    resolvePartyOnlineMembers(partyId, maxPlayers) {
+        return [...this.players.values()]
+            .filter((p) => String(p.partyId || '') === String(partyId || '')
+            && !p.dead
+            && p.hp > 0)
+            .slice(0, maxPlayers);
+    }
+    startTeleportReadyCheck(leader, instance) {
+        if (!leader.partyId)
+            return { ok: false, message: 'Entrada permitida apenas para jogadores em grupo.' };
+        const members = this.resolvePartyOnlineMembers(String(leader.partyId || ''), instance.template.maxPlayers);
+        if (!members.length)
+            return { ok: false, message: 'Nenhum membro elegivel para teleporte.' };
+        for (const member of members) {
+            const hasState = instance.players.has(member.id);
+            if (!hasState) {
+                instance.addPlayer(member.id, {
+                    mapKey: String(member.mapKey || 'forest'),
+                    mapId: String(member.mapId || 'Z1'),
+                    x: Number(member.x || 0),
+                    y: Number(member.y || 0)
+                });
+            }
+            const state = instance.players.get(member.id);
+            if (!state)
+                continue;
+            state.responded = false;
+            state.ready = false;
+            state.connected = true;
+        }
+        instance.state = 'ready_check';
+        instance.readyPurpose = 'teleport';
+        instance.readyCheckId = `RDY-${(0, crypto_1.randomUUID)().slice(0, 8)}`;
+        instance.readyDeadlineAt = Date.now() + READY_CHECK_TIMEOUT_MS;
+        instance.readyMemberIds = members.map((m) => m.id);
+        this.readyCheckToInstanceId.set(String(instance.readyCheckId), instance.id);
+        this.broadcastReadyState(instance, instance.readyMemberIds);
+        return { ok: true, message: 'Ready Check de teleporte iniciado.', requestId: instance.readyCheckId };
+    }
+    canUseGroupTeleport(player) {
+        const partyId = String(player.partyId || '');
+        if (!partyId)
+            return false;
+        const partyMembers = [...this.players.values()].filter((p) => String(p.partyId || '') === partyId);
+        return partyMembers.length > 1;
+    }
+    getOpenInstanceForParty(partyId) {
+        const instanceId = this.partyToOpenInstanceId.get(String(partyId || ''));
+        if (!instanceId)
+            return null;
+        const instance = this.instances.get(instanceId) || null;
+        if (!instance) {
+            this.partyToOpenInstanceId.delete(String(partyId || ''));
+            return null;
+        }
+        return instance;
+    }
+    areReadyMembersResolved(instance) {
+        if (!instance.readyMemberIds.length)
+            return false;
+        for (const memberId of instance.readyMemberIds) {
+            if (!instance.players.get(memberId)?.responded)
+                return false;
+        }
+        return true;
+    }
+    tickReadyCheck(instance, now) {
+        if (!instance.readyDeadlineAt || !instance.readyCheckId)
+            return;
+        if (this.areReadyMembersResolved(instance)) {
+            this.finalizeReadyCheck(instance);
+            return;
+        }
+        if (now < instance.readyDeadlineAt)
+            return;
+        this.finalizeReadyCheck(instance);
+    }
+    finalizeReadyCheck(instance) {
+        const acceptedIds = instance.readyMemberIds.filter((id) => Boolean(instance.players.get(id)?.ready));
+        if (acceptedIds.length <= 0) {
+            const missing = instance.readyMemberIds
+                .filter((id) => !instance.players.get(id)?.responded)
+                .map((id) => this.players.get(id)?.name || `#${id}`);
+            for (const memberId of instance.readyMemberIds) {
+                const member = this.players.get(memberId);
+                if (!member)
+                    continue;
+                const suffix = missing.length ? ` Ausentes: ${missing.join(', ')}` : '';
+                this.sendRaw(member.ws, {
+                    type: 'system_message',
+                    text: `Ready Check encerrado sem confirmacoes.${suffix}`
+                });
+            }
+            this.destroyReadyCheck(instance);
+            this.instances.delete(instance.id);
+            return;
+        }
+        if (instance.readyPurpose === 'open') {
+            const total = instance.readyMemberIds.length;
+            if (acceptedIds.length < total) {
+                for (const memberId of instance.readyMemberIds) {
+                    const member = this.players.get(memberId);
+                    if (!member)
+                        continue;
+                    this.sendRaw(member.ws, {
+                        type: 'system_message',
+                        text: 'Abertura cancelada: todos os membros precisam confirmar.'
+                    });
+                }
+                this.destroyReadyCheck(instance);
+                this.instances.delete(instance.id);
+                return;
+            }
+            this.destroyReadyCheck(instance);
+            instance.state = 'open';
+            if (instance.ownerPartyId)
+                this.partyToOpenInstanceId.set(instance.ownerPartyId, instance.id);
+            for (const memberId of instance.readyMemberIds) {
+                const member = this.players.get(memberId);
+                if (!member)
+                    continue;
+                this.sendRaw(member.ws, {
+                    type: 'system_message',
+                    text: `Dungeon aberta: ${instance.template.name}. Use o NPC para teleportar.`
+                });
+            }
+            return;
+        }
+        const acceptedSet = new Set(acceptedIds);
+        for (const memberId of instance.readyMemberIds) {
+            if (acceptedSet.has(memberId))
+                continue;
+            const member = this.players.get(memberId);
+            if (!member)
+                continue;
+            this.sendRaw(member.ws, {
+                type: 'system_message',
+                text: 'Ready Check finalizado: voce nao foi teleportado.'
+            });
+        }
+        this.ensureInstanceActive(instance);
+        for (const memberId of acceptedIds) {
+            const member = this.players.get(memberId);
+            if (!member)
+                continue;
+            this.teleportPlayerIntoInstance(member, instance);
+        }
+        this.destroyReadyCheck(instance);
+    }
+    broadcastReadyState(instance, targetMemberIds) {
+        if (!instance.readyCheckId)
+            return;
+        const memberIds = Array.isArray(targetMemberIds) && targetMemberIds.length
+            ? targetMemberIds
+            : instance.getMemberIds();
+        const payload = {
+            type: 'dungeon.readyUpdate',
+            requestId: instance.readyCheckId,
+            members: memberIds.map((id) => ({
+                playerId: id,
+                name: this.players.get(id)?.name || `#${id}`,
+                ready: Boolean(instance.players.get(id)?.ready),
+                responded: Boolean(instance.players.get(id)?.responded)
+            }))
+        };
+        for (const memberId of memberIds) {
+            const member = this.players.get(memberId);
+            if (!member)
+                continue;
+            this.sendRaw(member.ws, payload);
+        }
+    }
+    ensureInstanceActive(instance) {
+        instance.state = 'active';
+        instance.locked = false;
+        instance.cleanupAt = null;
+        instance.addsSummoned = false;
+        instance.nextShockwaveAt = Date.now() + Math.max(1000, Number(instance.template.bossMechanics.shockwaveIntervalMs || 7000));
+        if (instance.mobsSpawned)
+            return;
+        instance.mobsSpawned = true;
+        const layout = (0, ProceduralDungeonGenerator_1.generateDungeonLayout)(instance.id, instance.template);
+        this.spawnTemplateMobs(instance, layout.mobSpawns);
+    }
+    teleportPlayerIntoInstance(player, instance) {
+        this.ensureInstanceActive(instance);
+        this.playerToInstanceId.set(player.id, instance.id);
+        this.movePlayerToInstance(player, instance);
+        this.sendRaw(player.ws, {
+            type: 'system_message',
+            text: `Expedicao iniciada: ${instance.template.name}.`
+        });
+    }
+    movePlayerToInstance(player, instance) {
+        const spawnBase = instance.entrySpawn || instance.template.entrySpawn;
+        const spawn = this.projectToWalkable(instance.mapKey, (0, math_1.clamp)(Number(spawnBase.x || 0) + (Math.random() * 40 - 20), 0, config_1.WORLD.width), (0, math_1.clamp)(Number(spawnBase.y || 0) + (Math.random() * 40 - 20), 0, config_1.WORLD.height));
+        player.mapKey = instance.mapKey;
+        player.mapId = instance.mapId;
+        player.x = spawn.x;
+        player.y = spawn.y;
+        player.targetX = spawn.x;
+        player.targetY = spawn.y;
+        // Limpa vetores e estado de movimento/combate para evitar desync de transicao.
+        player.movePath = [];
+        player.rawMovePath = [];
+        player.pathDestinationX = spawn.x;
+        player.pathDestinationY = spawn.y;
+        player.autoAttackActive = false;
+        player.attackTargetId = null;
+        player.pvpAutoAttackActive = false;
+        player.attackTargetPlayerId = null;
+        this.persistPlayer(player);
+    }
+    spawnTemplateMobs(instance, spawns) {
+        for (const def of spawns) {
+            const spawned = this.mobService.createMobWithOverrides(String(def.kind || 'normal'), instance.mapInstanceId, {
+                x: Number(def.x || 0),
+                y: Number(def.y || 0),
+                homeX: Number(def.x || 0),
+                homeY: Number(def.y || 0),
+                spawnX: Number(def.x || 0),
+                spawnY: Number(def.y || 0),
+                noRespawn: true,
+                eventId: instance.id,
+                eventName: instance.template.id,
+                level: Number.isFinite(Number(def.level)) ? Number(def.level) : 1
+            }, { skipQuota: true });
+            if (!spawned)
+                continue;
+            if (Number.isFinite(Number(def.hpMultiplier)) && Number(def.hpMultiplier) > 0) {
+                const mult = Number(def.hpMultiplier);
+                spawned.maxHp = Math.max(1, Math.floor(Number(spawned.maxHp || 1) * mult));
+                spawned.hp = spawned.maxHp;
+            }
+            instance.mobs.set(String(spawned.id), { ...def, runtimeId: String(spawned.id) });
+            if (String(def.kind) === 'boss') {
+                instance.bossRuntimeId = String(spawned.id);
+                instance.bossMaxHp = Number(spawned.maxHp || 1);
+            }
+        }
+    }
+    tickBossAndWipe(instance, now) {
+        const bossId = String(instance.bossRuntimeId || '');
+        if (!bossId)
+            return;
+        const boss = this.mobService.getMobById(bossId);
+        if (!boss || Number(boss.hp || 0) <= 0)
+            return;
+        const hasAggro = Number(boss.targetPlayerId || 0) > 0
+            || this.getOnlineInstanceMembers(instance).some((p) => (0, math_1.distance)(p, boss) <= instance.bossAggroRange);
+        if (!instance.locked && hasAggro) {
+            instance.locked = true;
+            this.setBossDoorLocked(instance, true);
+            this.sendToInstance(instance, { type: 'system_message', text: 'Lockdown ativado: sala do boss selada.' });
+        }
+        if (instance.locked) {
+            const aliveOrConnected = this.getOnlineInstanceMembers(instance).some((p) => !p.dead && Number(p.hp || 0) > 0);
+            if (!aliveOrConnected) {
+                this.resetBossEncounter(instance, boss);
+                return;
+            }
+        }
+        if (now >= instance.nextShockwaveAt) {
+            instance.nextShockwaveAt = now + Math.max(1000, Number(instance.template.bossMechanics.shockwaveIntervalMs || 7000));
+            this.applyShockwave(instance, boss);
+        }
+        const hpPct = Number(boss.hp || 0) / Math.max(1, Number(boss.maxHp || 1));
+        const threshold = Math.max(0.1, Math.min(0.95, Number(instance.template.bossMechanics.addSummonHpThresholdPct || 0.6)));
+        if (!instance.addsSummoned && hpPct <= threshold) {
+            instance.addsSummoned = true;
+            this.spawnTemplateMobs(instance, instance.template.bossMechanics.addSpawns || []);
+            const addRuntimeIds = [...instance.mobs.values()]
+                .filter((m) => (instance.template.bossMechanics.addSpawns || []).some((s) => s.id === m.id))
+                .map((m) => String(m.runtimeId || ''))
+                .filter(Boolean);
+            for (const addId of addRuntimeIds)
+                instance.addMobRuntimeIds.add(addId);
+            this.sendToInstance(instance, { type: 'system_message', text: 'Mecanica do boss: reforcos invocados!' });
+        }
+    }
+    resetBossEncounter(instance, boss) {
+        boss.hp = Math.max(1, Number(instance.bossMaxHp || boss.maxHp || 1));
+        boss.maxHp = Math.max(1, Number(instance.bossMaxHp || boss.maxHp || 1));
+        boss.targetPlayerId = null;
+        boss.hateTable = {};
+        instance.locked = false;
+        this.setBossDoorLocked(instance, false);
+        instance.addsSummoned = false;
+        for (const addId of instance.addMobRuntimeIds.values()) {
+            this.mobService.removeMob(addId, { skipRespawn: true });
+            instance.mobs.delete(addId);
+        }
+        instance.addMobRuntimeIds.clear();
+        this.sendToInstance(instance, { type: 'system_message', text: 'Wipe detectado. Boss resetado e sala reaberta.' });
+    }
+    applyShockwave(instance, boss) {
+        if (!instance.locked)
+            return;
+        const damagePct = Math.max(0.01, Math.min(0.4, Number(instance.template.bossMechanics.shockwaveDamagePctMaxHp || 0.08)));
+        this.sendToInstance(instance, { type: 'system_message', text: 'Mecanica do boss: Onda de choque!' });
+        for (const member of this.getOnlineInstanceMembers(instance)) {
+            if (member.dead || member.hp <= 0)
+                continue;
+            const damage = Math.max(12, Math.floor(Number(member.maxHp || 100) * damagePct));
+            member.hp = Math.max(1, Number(member.hp || 0) - damage);
+            member.lastCombatAt = Date.now();
+            this.sendStatsUpdated(member);
+            this.sendRaw(member.ws, {
+                type: 'combat.mobHitPlayer',
+                mobId: String(boss.id || 'boss'),
+                mobX: Number(boss.x || 0),
+                mobY: Number(boss.y || 0),
+                targetId: member.id,
+                targetX: Number(member.x || 0),
+                targetY: Number(member.y || 0),
+                damage,
+                targetHp: member.hp,
+                targetMaxHp: member.maxHp
+            });
+            this.persistPlayer(member);
+        }
+    }
+    completeInstance(instance) {
+        if (instance.state !== 'active')
+            return;
+        instance.state = 'completed';
+        instance.cleanupAt = Date.now() + DUNGEON_CLEANUP_AFTER_COMPLETE_MS;
+        instance.locked = false;
+        this.setBossDoorLocked(instance, false);
+        // Recompensa por moeda imediata + itens no chao por dono (owner_id + party reserve 60s).
+        for (const member of this.getOnlineInstanceMembers(instance)) {
+            if (instance.template.rewards.currency) {
+                this.grantCurrency(member, instance.template.rewards.currency, `Dungeon: ${instance.template.name}`);
+            }
+            if (Array.isArray(instance.template.rewards.items)) {
+                let idx = 0;
+                for (const item of instance.template.rewards.items) {
+                    const qty = Math.max(1, Number(item.quantity || 1));
+                    for (let i = 0; i < qty; i++) {
+                        const angle = (Math.PI * 2 * idx) / Math.max(1, qty);
+                        const rx = member.x + Math.cos(angle) * 24;
+                        const ry = member.y + Math.sin(angle) * 24;
+                        this.dropTemplateAt(rx, ry, instance.mapInstanceId, String(item.templateId), member.id, String(member.partyId || '') || null, 60000);
+                        idx += 1;
+                    }
+                }
+            }
+            this.persistPlayerCritical(member, 'dungeon_complete');
+            this.sendRaw(member.ws, {
+                type: 'system_message',
+                text: `Boss derrotado. A instancia fecha em ${Math.floor(DUNGEON_CLEANUP_AFTER_COMPLETE_MS / 60000)} min.`
+            });
+        }
+    }
+    checkEmptyInstance(instance, now) {
+        const onlineInside = this.getOnlineInstanceMembers(instance).length;
+        if (onlineInside > 0) {
+            this.emptySince.delete(instance.id);
+            return;
+        }
+        const emptyAt = this.emptySince.get(instance.id) || now;
+        this.emptySince.set(instance.id, emptyAt);
+        if (now - emptyAt >= DUNGEON_EMPTY_TIMEOUT_MS) {
+            this.cleanupInstance(instance, 'empty_timeout');
+        }
+    }
+    cleanupInstance(instance, reason) {
+        for (const mobRuntime of instance.mobs.values()) {
+            if (!mobRuntime.runtimeId)
+                continue;
+            this.mobService.removeMob(String(mobRuntime.runtimeId), { skipRespawn: true });
+        }
+        this.removeGroundItemsByMapInstance(instance.mapInstanceId);
+        delete config_1.MAP_FEATURES_BY_KEY[instance.mapKey];
+        for (const memberState of instance.players.values()) {
+            const member = this.players.get(memberState.playerId);
+            if (!member)
+                continue;
+            this.teleportPlayerToOrigin(member, instance);
+            this.sendRaw(member.ws, {
+                type: 'system_message',
+                text: reason === 'completed_cleanup'
+                    ? 'Expedicao encerrada. Retornando ao mundo aberto.'
+                    : 'Instancia encerrada por inatividade.'
+            });
+            this.persistPlayerCritical(member, 'dungeon_cleanup');
+        }
+        for (const memberId of instance.getMemberIds()) {
+            this.playerToInstanceId.delete(memberId);
+        }
+        if (instance.ownerPartyId)
+            this.partyToOpenInstanceId.delete(instance.ownerPartyId);
+        this.emptySince.delete(instance.id);
+        this.instances.delete(instance.id);
+    }
+    teleportPlayerToOrigin(player, instance) {
+        const state = instance.players.get(player.id);
+        const fallback = {
+            mapKey: 'forest',
+            mapId: 'Z1',
+            x: 500,
+            y: 500
+        };
+        const origin = state?.origin || fallback;
+        const projected = this.projectToWalkable(origin.mapKey, (0, math_1.clamp)(Number(origin.x || 0), 0, config_1.WORLD.width), (0, math_1.clamp)(Number(origin.y || 0), 0, config_1.WORLD.height));
+        player.mapKey = origin.mapKey;
+        player.mapId = origin.mapId;
+        player.x = projected.x;
+        player.y = projected.y;
+        player.targetX = projected.x;
+        player.targetY = projected.y;
+        player.movePath = [];
+        player.rawMovePath = [];
+        player.pathDestinationX = projected.x;
+        player.pathDestinationY = projected.y;
+        player.autoAttackActive = false;
+        player.attackTargetId = null;
+        player.pvpAutoAttackActive = false;
+        player.attackTargetPlayerId = null;
+    }
+    onPlayerExitedInstance(instance, playerId, disconnected = false) {
+        if (disconnected) {
+            instance.setConnected(playerId, false);
+            return;
+        }
+        instance.removePlayer(playerId);
+        this.playerToInstanceId.delete(playerId);
+        if (instance.players.size <= 0) {
+            this.cleanupInstance(instance, 'all_left');
+        }
+    }
+    getOnlineInstanceMembers(instance) {
+        return [...this.players.values()].filter((p) => instance.players.has(p.id)
+            && p.mapKey === instance.mapKey
+            && p.mapId === instance.mapId);
+    }
+    sendToInstance(instance, payload) {
+        for (const member of this.getOnlineInstanceMembers(instance)) {
+            this.sendRaw(member.ws, payload);
+        }
+    }
+    destroyReadyCheck(instance) {
+        const readyId = String(instance.readyCheckId || '');
+        if (readyId)
+            this.readyCheckToInstanceId.delete(readyId);
+        instance.readyCheckId = null;
+        instance.readyDeadlineAt = null;
+        instance.readyMemberIds = [];
+    }
+    setBossDoorLocked(instance, locked) {
+        if (!instance.doorFeature)
+            return;
+        if (instance.doorLocked === locked)
+            return;
+        instance.doorLocked = locked;
+        const current = Array.isArray(config_1.MAP_FEATURES_BY_KEY[instance.mapKey]) ? config_1.MAP_FEATURES_BY_KEY[instance.mapKey] : [];
+        const withoutDoor = current.filter((f) => String(f?.id || '') !== String(instance.doorFeature?.id || ''));
+        config_1.MAP_FEATURES_BY_KEY[instance.mapKey] = locked
+            ? [...withoutDoor, instance.doorFeature]
+            : withoutDoor;
+    }
+}
+exports.DungeonService = DungeonService;
+//# sourceMappingURL=DungeonService.js.map

@@ -13,6 +13,9 @@ type FirstFreeInventorySlotFn = (items: any[], ignoreItemIds?: Set<string>) => n
 type GetSpentSkillPointsFn = (player: PlayerRuntime) => number;
 type SendRawFn = (ws: any, payload: any) => void;
 type ItemCollectedFn = (player: PlayerRuntime, templateId: string, quantity: number) => void;
+type NormalizeClassIdFn = (rawClass: any) => string;
+
+const EQUIPMENT_SLOTS = new Set(['helmet', 'chest', 'pants', 'gloves', 'boots', 'ring', 'necklace']);
 
 export class InventoryService {
     constructor(
@@ -27,6 +30,7 @@ export class InventoryService {
         private readonly firstFreeInventorySlot: FirstFreeInventorySlotFn,
         private readonly getSpentSkillPoints: GetSpentSkillPointsFn,
         private readonly sendRaw: SendRawFn,
+        private readonly normalizeClassId: NormalizeClassIdFn,
         private readonly onItemCollected?: ItemCollectedFn
     ) {}
 
@@ -40,6 +44,18 @@ export class InventoryService {
             items.splice(index, 1);
             this.setGroundItems(items);
             return;
+        }
+        const now = Date.now();
+        const reservedUntil = Number(item.reservedUntil || 0);
+        if (reservedUntil > now) {
+            const ownerId = Number(item.ownerId || 0);
+            const ownerPartyId = String(item.ownerPartyId || '');
+            const sameOwner = ownerId > 0 && ownerId === Number(player.id);
+            const sameParty = ownerPartyId && String(player.partyId || '') === ownerPartyId;
+            if (!sameOwner && !sameParty) {
+                this.sendRaw(player.ws, { type: 'system_message', text: 'Item temporariamente reservado para outro jogador/grupo.' });
+                return;
+            }
         }
         if (distance(player, item) > ITEM_PICKUP_RANGE) return;
         const requestedQty = Math.max(1, Math.floor(Number(item.quantity || 1)));
@@ -85,8 +101,70 @@ export class InventoryService {
             return;
         }
 
-        const found = player.inventory.find((it: any) => it.id === itemId && it.type === 'weapon');
+        const found = player.inventory.find((it: any) => it.id === itemId);
         if (!found) return;
+        const itemType = String(found.type || '');
+        if (itemType !== 'weapon' && !this.isEquippableArmorOrAccessory(found)) return;
+
+        if (itemType !== 'weapon') {
+            const requiredClass = String(found.requiredClass || '').trim();
+            if (requiredClass) {
+                const playerClass = this.normalizeClassId(player.class);
+                if (this.normalizeClassId(requiredClass) !== playerClass) {
+                    this.sendRaw(player.ws, {
+                        type: 'system_message',
+                        text: `Classe invalida para esse item. Classe: ${requiredClass}.`
+                    });
+                    return;
+                }
+            }
+        }
+
+        if (itemType !== 'weapon') {
+            const equipSlot = String(found.slot || '');
+            if (!EQUIPMENT_SLOTS.has(equipSlot)) return;
+
+            if (found.equipped === true && String(found.equippedSlot || '') === equipSlot) {
+                found.equipped = false;
+                found.equippedSlot = null;
+                found.slotIndex = this.firstFreeInventorySlot(player.inventory, new Set([String(found.id)]));
+                player.inventory = this.normalizeInventorySlots(player.inventory, player.equippedWeaponId);
+                this.recomputePlayerStats(player);
+                this.persistPlayer(player);
+                this.sendInventoryState(player);
+                return;
+            }
+
+            const equippedOnSameSlot = player.inventory.find((it: any) =>
+                it.id !== found.id
+                && it.equipped === true
+                && String(it.equippedSlot || '') === equipSlot
+            );
+            if (equippedOnSameSlot) {
+                equippedOnSameSlot.equipped = false;
+                equippedOnSameSlot.equippedSlot = null;
+                equippedOnSameSlot.slotIndex = this.firstFreeInventorySlot(player.inventory, new Set([String(equippedOnSameSlot.id), String(found.id)]));
+            }
+            found.equipped = true;
+            found.equippedSlot = equipSlot;
+            found.slotIndex = -1;
+            player.inventory = this.normalizeInventorySlots(player.inventory, player.equippedWeaponId);
+            this.recomputePlayerStats(player);
+            this.persistPlayer(player);
+            this.sendInventoryState(player);
+            return;
+        }
+
+        if (player.equippedWeaponId === found.id) {
+            found.slotIndex = this.firstFreeInventorySlot(player.inventory, new Set([String(found.id)]));
+            player.equippedWeaponId = null;
+            player.inventory = this.normalizeInventorySlots(player.inventory, null);
+            this.recomputePlayerStats(player);
+            this.persistPlayer(player);
+            this.sendInventoryState(player);
+            return;
+        }
+
         const previousEquippedId = player.equippedWeaponId && player.equippedWeaponId !== found.id ? player.equippedWeaponId : null;
         if (previousEquippedId) {
             const oldEquipped = player.inventory.find((it: any) => it.id === previousEquippedId && it.type === 'weapon');
@@ -113,6 +191,7 @@ export class InventoryService {
 
         const item = player.inventory.find((it: any) => it.id === itemId);
         if (!item) return;
+        if (item.equipped === true) return;
 
         const occupant = player.inventory.find((it: any) => it.slotIndex === toSlot);
         const fromSlot = item.slotIndex;
@@ -157,8 +236,13 @@ export class InventoryService {
 
     handleInventorySort(player: PlayerRuntime) {
         const equippedId = player.equippedWeaponId || null;
+        const equippedArmorIds = new Set(
+            (Array.isArray(player.inventory) ? player.inventory : [])
+                .filter((it: any) => it?.equipped === true)
+                .map((it: any) => String(it.id || ''))
+        );
         const sorted = [...player.inventory]
-            .filter((it: any) => it.id !== equippedId)
+            .filter((it: any) => it.id !== equippedId && !equippedArmorIds.has(String(it.id || '')))
             .sort((a: any, b: any) => {
                 const byName = String(a.name || '').localeCompare(String(b.name || ''));
                 if (byName !== 0) return byName;
@@ -169,6 +253,10 @@ export class InventoryService {
         }
         if (equippedId) {
             const equipped = player.inventory.find((it: any) => it.id === equippedId);
+            if (equipped) sorted.push({ ...equipped, slotIndex: -1 });
+        }
+        for (const eqId of equippedArmorIds) {
+            const equipped = player.inventory.find((it: any) => String(it.id || '') === eqId);
             if (equipped) sorted.push({ ...equipped, slotIndex: -1 });
         }
         player.inventory = this.normalizeInventorySlots(sorted, player.equippedWeaponId);
@@ -184,6 +272,9 @@ export class InventoryService {
             player.equippedWeaponId = null;
             this.recomputePlayerStats(player);
         }
+        if (player.inventory[index].equipped === true) {
+            this.recomputePlayerStats(player);
+        }
         player.inventory.splice(index, 1);
         player.inventory = this.normalizeInventorySlots(player.inventory, player.equippedWeaponId);
         this.persistPlayer(player);
@@ -194,15 +285,21 @@ export class InventoryService {
         const itemId = String(msg.itemId || '');
         const toSlot = Number(msg.toSlot);
         if (!Number.isInteger(toSlot) || toSlot < 0 || toSlot >= INVENTORY_SIZE) return;
-        if (player.equippedWeaponId !== itemId) return;
-
         const item = player.inventory.find((it: any) => it.id === itemId);
         if (!item) return;
+        const isEquippedWeapon = player.equippedWeaponId === itemId;
+        const isEquippedAccessory = item.equipped === true;
+        if (!isEquippedWeapon && !isEquippedAccessory) return;
         const occupant = player.inventory.find((it: any) => it.slotIndex === toSlot && it.id !== itemId);
         const fromSlot = item.slotIndex;
         item.slotIndex = toSlot;
         if (occupant) occupant.slotIndex = fromSlot;
-        player.equippedWeaponId = null;
+        if (isEquippedWeapon) {
+            player.equippedWeaponId = null;
+        } else {
+            item.equipped = false;
+            item.equippedSlot = null;
+        }
 
         this.recomputePlayerStats(player);
         player.inventory = this.normalizeInventorySlots(player.inventory, player.equippedWeaponId);
@@ -260,9 +357,21 @@ export class InventoryService {
             const clone = { ...item };
             if (clone.id === equippedWeaponId) {
                 clone.slotIndex = -1;
+                clone.equipped = true;
+                clone.equippedSlot = 'weapon';
                 out.push(clone);
                 continue;
             }
+            const armorEquipped = clone.equipped === true && EQUIPMENT_SLOTS.has(String(clone.equippedSlot || clone.slot || ''));
+            if (armorEquipped) {
+                clone.slotIndex = -1;
+                clone.equipped = true;
+                clone.equippedSlot = String(clone.equippedSlot || clone.slot || '');
+                out.push(clone);
+                continue;
+            }
+            clone.equipped = false;
+            clone.equippedSlot = null;
             if (!Number.isInteger(clone.slotIndex) || clone.slotIndex < 0 || clone.slotIndex >= INVENTORY_SIZE || used.has(clone.slotIndex)) {
                 clone.slotIndex = this.firstFreeInventorySlot(out.filter((it: any) => it.id !== equippedWeaponId));
             }
@@ -332,5 +441,12 @@ export class InventoryService {
         const at = String(a.templateId || a.type || '');
         const bt = String(b.templateId || b.type || '');
         return at.length > 0 && at === bt;
+    }
+
+    private isEquippableArmorOrAccessory(item: any) {
+        if (!item || typeof item !== 'object') return false;
+        const slot = String(item.slot || '');
+        if (!EQUIPMENT_SLOTS.has(slot)) return false;
+        return String(item.type || '') === 'equipment';
     }
 }

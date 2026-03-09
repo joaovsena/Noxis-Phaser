@@ -504,10 +504,15 @@ button:hover {
 }
 
 #npc-dialog-panel {
-    right: calc(var(--hud-gap) + 220px);
-    top: calc(var(--hud-gap) + 110px);
-    width: clamp(280px, calc(340px * var(--hud-scale)), 420px);
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    right: auto;
+    width: min(860px, calc(100vw - 24px));
+    max-height: min(78vh, 700px);
     z-index: 42;
+    border-color: #6a7d97;
+    background: rgba(13, 18, 26, 0.98);
 }
 
 #npc-dialog-header {
@@ -520,6 +525,8 @@ button:hover {
     flex-direction: column;
     gap: 8px;
     margin-bottom: 8px;
+    max-height: calc(min(78vh, 700px) - 120px);
+    overflow: hidden;
 }
 
 .npc-dialog-quest {
@@ -533,6 +540,92 @@ button:hover {
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
+}
+
+.shop-tabs {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.shop-tab-btn {
+    padding: 8px 6px;
+    font-size: 12px;
+}
+
+.shop-tab-btn.active {
+    border-color: #74a2d9;
+    background: #223246;
+}
+
+.shop-scroll-wrap {
+    border: 1px solid #3f4a59;
+    border-radius: 8px;
+    background: rgba(10, 15, 24, 0.75);
+    padding: 8px;
+    max-height: 330px;
+    overflow-y: auto;
+}
+
+.shop-item-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.shop-item-card {
+    border: 1px solid #445269;
+    border-radius: 8px;
+    background: rgba(16, 24, 36, 0.82);
+    padding: 8px;
+}
+
+.shop-item-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.shop-item-header .quest-title {
+    margin: 0;
+}
+
+.shop-item-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.4px;
+    color: #f4f8ff;
+    border: 1px solid #6f7f94;
+    background: linear-gradient(180deg, rgba(130, 153, 180, 0.35), rgba(40, 53, 68, 0.8));
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+    cursor: help;
+}
+
+.shop-item-icon.item-type-equipment {
+    border-color: #8aa4c5;
+    background: linear-gradient(180deg, rgba(132, 179, 240, 0.35), rgba(45, 70, 104, 0.82));
+}
+
+.shop-item-icon.item-type-weapon {
+    border-color: #bc9c63;
+    background: linear-gradient(180deg, rgba(206, 165, 96, 0.35), rgba(98, 68, 34, 0.82));
+}
+
+.shop-item-icon.item-type-potion_hp {
+    border-color: #65b88b;
+    background: linear-gradient(180deg, rgba(104, 209, 154, 0.35), rgba(30, 92, 64, 0.84));
+}
+
+.shop-item-icon.item-type-skill_reset_hourglass {
+    border-color: #b788d6;
+    background: linear-gradient(180deg, rgba(188, 128, 232, 0.35), rgba(74, 44, 106, 0.84));
 }
 
 #player-avatar {
@@ -1305,7 +1398,68 @@ body.hud-ultra-compact .menu-btn {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 10px;
     margin-bottom: 8px;
+}
+
+#inventory-equipped-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.wallet-line {
+    margin-bottom: 6px;
+}
+
+.wallet-inline {
+    display: inline-flex;
+    align-items: center;
+}
+
+.wallet-chain {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.wallet-token {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.coin-dot {
+    width: 15px;
+    height: 15px;
+    border-radius: 999px;
+    display: inline-block;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25) inset, 0 0 6px rgba(0, 0, 0, 0.35);
+}
+
+.coin-diamond {
+    background: radial-gradient(circle at 30% 28%, #b9ecff, #4aaeff 56%, #2366be);
+}
+
+.coin-gold {
+    background: radial-gradient(circle at 30% 28%, #ffe8ab, #e0b33a 58%, #936b13);
+}
+
+.coin-silver {
+    background: radial-gradient(circle at 30% 28%, #f2f6ff, #b8c2d4 58%, #6a768c);
+}
+
+.coin-copper {
+    background: radial-gradient(circle at 30% 28%, #f2c4a6, #bf6f3c 58%, #7f4221);
+}
+
+.coin-amount {
+    min-width: 28px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    font-variant-numeric: tabular-nums;
+    text-align: left;
 }
 
 #inventory-grid {
@@ -1741,6 +1895,18 @@ body.hud-ultra-compact .menu-btn {
     position: absolute;
     right: 18px;
     bottom: 292px;
+    width: 360px;
+    z-index: 85;
+    background: rgba(11, 17, 25, 0.95);
+    border: 1px solid #4a596b;
+    border-radius: 8px;
+    padding: 8px;
+}
+
+.hud-dungeon-notify {
+    position: absolute;
+    right: 18px;
+    bottom: 492px;
     width: 360px;
     z-index: 85;
     background: rgba(11, 17, 25, 0.95);

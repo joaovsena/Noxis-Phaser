@@ -9,6 +9,7 @@ type FirstFreeInventorySlotFn = (items: any[], ignoreItemIds?: Set<string>) => n
 type GetSpentSkillPointsFn = (player: PlayerRuntime) => number;
 type SendRawFn = (ws: any, payload: any) => void;
 type ItemCollectedFn = (player: PlayerRuntime, templateId: string, quantity: number) => void;
+type NormalizeClassIdFn = (rawClass: any) => string;
 export declare class InventoryService {
     private readonly getGroundItems;
     private readonly setGroundItems;
@@ -21,8 +22,9 @@ export declare class InventoryService {
     private readonly firstFreeInventorySlot;
     private readonly getSpentSkillPoints;
     private readonly sendRaw;
+    private readonly normalizeClassId;
     private readonly onItemCollected?;
-    constructor(getGroundItems: () => GroundItem[], setGroundItems: (items: GroundItem[]) => void, mapInstanceId: MapInstanceIdFn, persistPlayer: PersistPlayerFn, recomputePlayerStats: RecomputePlayerStatsFn, sendInventoryState: SendInventoryStateFn, sendStatsUpdated: SendStatsUpdatedFn, normalizeHotbarBindings: NormalizeHotbarBindingsFn, firstFreeInventorySlot: FirstFreeInventorySlotFn, getSpentSkillPoints: GetSpentSkillPointsFn, sendRaw: SendRawFn, onItemCollected?: ItemCollectedFn | undefined);
+    constructor(getGroundItems: () => GroundItem[], setGroundItems: (items: GroundItem[]) => void, mapInstanceId: MapInstanceIdFn, persistPlayer: PersistPlayerFn, recomputePlayerStats: RecomputePlayerStatsFn, sendInventoryState: SendInventoryStateFn, sendStatsUpdated: SendStatsUpdatedFn, normalizeHotbarBindings: NormalizeHotbarBindingsFn, firstFreeInventorySlot: FirstFreeInventorySlotFn, getSpentSkillPoints: GetSpentSkillPointsFn, sendRaw: SendRawFn, normalizeClassId: NormalizeClassIdFn, onItemCollected?: ItemCollectedFn | undefined);
     handlePickupItem(player: PlayerRuntime, msg: any): void;
     handleHotbarSet(player: PlayerRuntime, msg: any): void;
     handleEquipItem(player: PlayerRuntime, msg: any): void;
@@ -36,6 +38,7 @@ export declare class InventoryService {
     private isStackableItem;
     private getItemMaxStack;
     private canItemsStack;
+    private isEquippableArmorOrAccessory;
 }
 export {};
 //# sourceMappingURL=InventoryService.d.ts.map

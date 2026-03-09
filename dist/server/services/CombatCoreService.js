@@ -4,7 +4,7 @@ exports.CombatCoreService = void 0;
 const config_1 = require("../config");
 const math_1 = require("../utils/math");
 class CombatCoreService {
-    constructor(players, mobService, getPvpAttackPermission, sendRaw, getActiveSkillEffectAggregate, computeHitChance, shouldLuckyStrike, computeDamageAfterMitigation, applyOnHitSkillEffects, sendStatsUpdated, persistPlayer, syncAllPartyStates, grantXp, mapInstanceId, computeLootDropPosition, pickRandomWeaponTemplate, dropWeaponAt, dropHpPotionAt, dropSkillResetHourglassAt) {
+    constructor(players, mobService, getPvpAttackPermission, sendRaw, getActiveSkillEffectAggregate, computeHitChance, shouldLuckyStrike, computeDamageAfterMitigation, applyOnHitSkillEffects, sendStatsUpdated, persistPlayer, syncAllPartyStates, grantXp, grantMobCurrency, mapInstanceId, computeLootDropPosition, pickRandomWeaponTemplate, dropWeaponAt, dropHpPotionAt, dropSkillResetHourglassAt) {
         this.players = players;
         this.mobService = mobService;
         this.getPvpAttackPermission = getPvpAttackPermission;
@@ -18,6 +18,7 @@ class CombatCoreService {
         this.persistPlayer = persistPlayer;
         this.syncAllPartyStates = syncAllPartyStates;
         this.grantXp = grantXp;
+        this.grantMobCurrency = grantMobCurrency;
         this.mapInstanceId = mapInstanceId;
         this.computeLootDropPosition = computeLootDropPosition;
         this.pickRandomWeaponTemplate = pickRandomWeaponTemplate;
@@ -51,6 +52,7 @@ class CombatCoreService {
         if (mob.hp > 0)
             return true;
         this.grantXp(player, mob.xpReward, { mapKey: player.mapKey, mapId: player.mapId });
+        this.grantMobCurrency(player, mob);
         const mapInstanceId = this.mapInstanceId(player.mapKey, player.mapId);
         const dropDefs = [];
         if (Math.random() < 0.5)
@@ -69,12 +71,15 @@ class CombatCoreService {
         }
         dropDefs.forEach((dropType, index) => {
             const dropPos = this.computeLootDropPosition(mob.x, mob.y, index, dropDefs.length, player.mapKey);
+            const ownerId = Number(player.id);
+            const ownerPartyId = String(player.partyId || '') || null;
+            const reserveMs = (mob?.kind === 'elite' || mob?.kind === 'subboss' || mob?.kind === 'boss') ? 60000 : 0;
             if (dropType === 'weapon')
-                this.dropWeaponAt(dropPos.x, dropPos.y, mapInstanceId, this.pickRandomWeaponTemplate());
+                this.dropWeaponAt(dropPos.x, dropPos.y, mapInstanceId, this.pickRandomWeaponTemplate(), ownerId, ownerPartyId, reserveMs);
             else if (dropType === 'potion_hp')
-                this.dropHpPotionAt(dropPos.x, dropPos.y, mapInstanceId);
+                this.dropHpPotionAt(dropPos.x, dropPos.y, mapInstanceId, ownerId, ownerPartyId, reserveMs);
             else
-                this.dropSkillResetHourglassAt(dropPos.x, dropPos.y, mapInstanceId);
+                this.dropSkillResetHourglassAt(dropPos.x, dropPos.y, mapInstanceId, ownerId, ownerPartyId, reserveMs);
         });
         this.mobService.removeMob(mob.id);
         return true;

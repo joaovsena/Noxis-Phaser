@@ -15,8 +15,10 @@ const CombatRuntimeService_1 = require("../services/CombatRuntimeService");
 const CombatCoreService_1 = require("../services/CombatCoreService");
 const QuestService_1 = require("../services/QuestService");
 const EventService_1 = require("../services/EventService");
+const DungeonService_1 = require("../services/DungeonService");
 const hash_1 = require("../utils/hash");
 const math_1 = require("../utils/math");
+const currency_1 = require("../utils/currency");
 const config_1 = require("../config");
 const logger_1 = require("../utils/logger");
 const PRIMARY_STATS = ['str', 'int', 'dex', 'vit'];
@@ -33,6 +35,18 @@ const LUCKY_STRIKE_CHANCE = 0.15;
 const AFK_THINK_MS = 260;
 const AFK_VISION_RANGE = 900;
 const AFK_RETURN_EPSILON = 10;
+const parsedAutosaveMs = Number(process.env.AUTOSAVE_MS);
+const AUTOSAVE_MS = Number.isFinite(parsedAutosaveMs)
+    ? Math.max(10000, Math.min(300000, Math.floor(parsedAutosaveMs)))
+    : 60000;
+const parsedPersistMaxRetries = Number(process.env.PERSIST_MAX_RETRIES);
+const PERSIST_MAX_RETRIES = Number.isFinite(parsedPersistMaxRetries)
+    ? Math.max(0, Math.min(8, Math.floor(parsedPersistMaxRetries)))
+    : 3;
+const parsedPersistRetryBaseMs = Number(process.env.PERSIST_RETRY_BASE_MS);
+const PERSIST_RETRY_BASE_MS = Number.isFinite(parsedPersistRetryBaseMs)
+    ? Math.max(25, Math.min(5000, Math.floor(parsedPersistRetryBaseMs)))
+    : 120;
 const ATTRIBUTE_DRIVEN_OVERRIDE_KEYS = [
     'physicalAttack',
     'magicAttack',
@@ -99,27 +113,42 @@ const SKILL_CHAINS = {
     ass_letal: ['ass_letal_expor_fraqueza', 'ass_letal_ocultar', 'ass_letal_emboscada', 'ass_letal_bomba_fumaca', 'ass_letal_sentenca']
 };
 class GameController {
-    constructor(persistence, mobService) {
+    constructor(persistence, mobService, lockService) {
         this.players = new Map();
         this.usernameToPlayerId = new Map();
         this.groundItems = [];
         this.lastPartySyncAt = 0;
+        this.lastAutosaveAt = 0;
         this.mobsPeacefulMode = false;
+        this.dirtyPlayerIds = new Set();
+        this.persistInFlightByPlayerId = new Set();
+        this.persistRevisionByPlayerId = new Map();
+        this.lastPersistSignatureByPlayerId = new Map();
+        this.autosaveInFlight = false;
+        this.persistStats = {
+            enqueued: 0,
+            saved: 0,
+            skipped: 0,
+            failed: 0,
+            retried: 0
+        };
         this.persistence = persistence;
         this.mobService = mobService;
+        this.lockService = lockService;
         this.mapService = new MapService_1.MapService();
         this.chatService = new ChatService_1.ChatService(this.players, this.sendRaw.bind(this), this.broadcastRaw.bind(this));
         this.partyService = new PartyService_1.PartyService(this.players, this.sendRaw.bind(this), this.broadcastRaw.bind(this), this.persistPlayer.bind(this), this.getAreaIdForPlayer.bind(this));
         this.friendService = new FriendService_1.FriendService(this.players, this.persistence, this.sendRaw.bind(this));
         this.movementService = new MovementService_1.MovementService(this.mapService, this.getActiveSkillEffectAggregate.bind(this));
         this.combatService = new CombatService_1.CombatService(this.players, this.mapInstanceId.bind(this), this.sendRaw.bind(this), this.partyService.hasParty.bind(this.partyService), this.partyService.arePlayersInSameParty.bind(this.partyService), this.tryPlayerAttack.bind(this));
-        this.inventoryService = new InventoryService_1.InventoryService(() => this.groundItems, (items) => { this.groundItems = items; }, this.mapInstanceId.bind(this), this.persistPlayer.bind(this), this.recomputePlayerStats.bind(this), this.sendInventoryState.bind(this), this.sendStatsUpdated.bind(this), this.normalizeHotbarBindings.bind(this), this.firstFreeInventorySlot.bind(this), this.getSpentSkillPoints.bind(this), this.sendRaw.bind(this), this.onItemCollected.bind(this));
-        this.questService = new QuestService_1.QuestService(this.sendRaw.bind(this), this.persistPlayer.bind(this), this.grantXp.bind(this), this.grantRewardItem.bind(this));
+        this.inventoryService = new InventoryService_1.InventoryService(() => this.groundItems, (items) => { this.groundItems = items; }, this.mapInstanceId.bind(this), this.persistPlayer.bind(this), this.recomputePlayerStats.bind(this), this.sendInventoryState.bind(this), this.sendStatsUpdated.bind(this), this.normalizeHotbarBindings.bind(this), this.firstFreeInventorySlot.bind(this), this.getSpentSkillPoints.bind(this), this.sendRaw.bind(this), this.normalizeClassId.bind(this), this.onItemCollected.bind(this));
+        this.questService = new QuestService_1.QuestService(this.sendRaw.bind(this), this.persistPlayer.bind(this), this.persistPlayerCritical.bind(this), this.grantXp.bind(this), this.grantRewardItem.bind(this), this.grantCurrency.bind(this));
         this.eventService = new EventService_1.EventService(this.mobService, this.broadcastMapInstance.bind(this), this.projectToWalkable.bind(this));
+        this.dungeonService = new DungeonService_1.DungeonService(this.players, this.mobService, this.sendRaw.bind(this), this.sendStatsUpdated.bind(this), this.persistPlayer.bind(this), this.persistPlayerCritical.bind(this), this.grantCurrency.bind(this), this.projectToWalkable.bind(this), this.removeGroundItemsByMapInstance.bind(this), this.dropTemplateAt.bind(this));
         this.skillEffectsService = new SkillEffectsService_1.SkillEffectsService(this.players, this.sendRaw.bind(this));
         this.skillService = new SkillService_1.SkillService(SKILL_DEFS, this.sendRaw.bind(this), this.normalizeClassId.bind(this), this.getSkillLevel.bind(this), this.pruneExpiredSkillEffects.bind(this), this.applyTimedSkillEffect.bind(this), this.sendSkillEffect.bind(this), this.computeMobDamage.bind(this), this.applyDamageToMobAndHandleDeath.bind(this), this.broadcastMobHit.bind(this), this.applyOnHitSkillEffects.bind(this), this.hasActiveSkillEffect.bind(this), this.removeSkillEffectById.bind(this), this.getSkillPowerWithLevel.bind(this), this.sendStatsUpdated.bind(this), this.mapInstanceId.bind(this), () => this.mobService.getMobs(), (mapId) => this.mobService.getMobsByMap(mapId), this.assignPathTo.bind(this), this.getSkillPrerequisite.bind(this), this.normalizeSkillLevels.bind(this), this.getAvailableSkillPoints.bind(this), this.recomputePlayerStats.bind(this), this.persistPlayer.bind(this));
         this.combatRuntimeService = new CombatRuntimeService_1.CombatRuntimeService(this.players, this.mobService, () => this.mobsPeacefulMode, this.mapInstanceId.bind(this), this.projectToWalkable.bind(this), this.recalculatePathToward.bind(this), this.getActiveSkillEffectAggregate.bind(this), this.computeHitChance.bind(this), this.getMobEvasion.bind(this), this.computeMobDamage.bind(this), this.applyDamageToMobAndHandleDeath.bind(this), this.applyOnHitSkillEffects.bind(this), this.sendStatsUpdated.bind(this), this.broadcastMobHit.bind(this), this.sendRaw.bind(this), this.persistPlayer.bind(this), this.syncAllPartyStates.bind(this), this.tryPlayerAttack.bind(this), this.getPvpAttackPermission.bind(this), this.isBlockedAt.bind(this), this.computeDamageAfterMitigation.bind(this));
-        this.combatCoreService = new CombatCoreService_1.CombatCoreService(this.players, this.mobService, this.getPvpAttackPermission.bind(this), this.sendRaw.bind(this), this.getActiveSkillEffectAggregate.bind(this), this.computeHitChance.bind(this), this.shouldLuckyStrike.bind(this), this.computeDamageAfterMitigation.bind(this), this.applyOnHitSkillEffects.bind(this), this.sendStatsUpdated.bind(this), this.persistPlayer.bind(this), this.syncAllPartyStates.bind(this), this.grantXp.bind(this), this.mapInstanceId.bind(this), this.computeLootDropPosition.bind(this), this.pickRandomWeaponTemplate.bind(this), this.dropWeaponAt.bind(this), this.dropHpPotionAt.bind(this), this.dropSkillResetHourglassAt.bind(this));
+        this.combatCoreService = new CombatCoreService_1.CombatCoreService(this.players, this.mobService, this.getPvpAttackPermission.bind(this), this.sendRaw.bind(this), this.getActiveSkillEffectAggregate.bind(this), this.computeHitChance.bind(this), this.shouldLuckyStrike.bind(this), this.computeDamageAfterMitigation.bind(this), this.applyOnHitSkillEffects.bind(this), this.sendStatsUpdated.bind(this), this.persistPlayer.bind(this), this.syncAllPartyStates.bind(this), this.grantXp.bind(this), this.grantMobCurrency.bind(this), this.mapInstanceId.bind(this), this.computeLootDropPosition.bind(this), this.pickRandomWeaponTemplate.bind(this), this.dropWeaponAt.bind(this), this.dropHpPotionAt.bind(this), this.dropSkillResetHourglassAt.bind(this));
     }
     async handleAuth(ws, msg) {
         if (msg.type === 'auth_register') {
@@ -315,11 +344,7 @@ class GameController {
                 type: 'hotbar.state',
                 bindings: this.getPlayerHotbarBindings(player)
             }));
-            ws.send(JSON.stringify({
-                type: 'inventory_state',
-                inventory: player.inventory,
-                equippedWeaponId: player.equippedWeaponId
-            }));
+            this.sendInventoryState(player);
             this.questService.sendQuestState(player);
             ws.send(JSON.stringify(this.buildWorldSnapshot(player.mapId, player.mapKey)));
             this.sendPartyStateToPlayer(player, null);
@@ -394,6 +419,10 @@ class GameController {
             unspentPoints: 0,
             inventory: [],
             equippedWeaponId: null,
+            currencyCopper: 0,
+            currencySilver: 0,
+            currencyGold: 0,
+            currencyDiamond: 0,
             mapKey: config_1.DEFAULT_MAP_KEY,
             mapId: config_1.DEFAULT_MAP_ID,
             posX: 500,
@@ -427,6 +456,13 @@ class GameController {
             allocatedStats,
             unspentPoints,
             inventory: this.normalizeInventorySlots(Array.isArray(profile.inventory) ? profile.inventory : [], profile?.equippedWeaponId ? String(profile.equippedWeaponId) : null),
+            wallet: (0, currency_1.normalizeWallet)({
+                copper: Number(profile?.wallet?.copper ?? profile?.currencyCopper ?? 0),
+                silver: Number(profile?.wallet?.silver ?? profile?.currencySilver ?? 0),
+                gold: Number(profile?.wallet?.gold ?? profile?.currencyGold ?? 0),
+                diamond: Number(profile?.wallet?.diamond ?? profile?.currencyDiamond ?? 0)
+            }),
+            persistenceVersion: Number.isFinite(Number(profile?.stateVersion)) ? Number(profile.stateVersion) : 0,
             mapKey,
             mapId,
             x: spawn.x,
@@ -498,6 +534,10 @@ class GameController {
     handleSwitchInstance(player, msg) {
         if (player.dead || player.hp <= 0)
             return;
+        if (!config_1.MAP_IDS.includes(player.mapId)) {
+            this.sendRaw(player.ws, { type: 'system_message', text: 'Voce esta em uma dungeon. Aguarde o retorno automatico.' });
+            return;
+        }
         const target = config_1.MAP_IDS.includes(msg.mapId) ? msg.mapId : null;
         if (!target || target === player.mapId)
             return;
@@ -555,14 +595,14 @@ class GameController {
             return;
         }
         if (command === 'setstatus') {
-            if (parts.length < 4) {
-                this.sendRaw(player.ws, { type: 'admin_result', ok: false, message: 'Uso: setstatus {id} {quantia} {jogador}' });
+            if (parts.length < 3) {
+                this.sendRaw(player.ws, { type: 'admin_result', ok: false, message: 'Uso: setstatus {id} {quantia} {jogador?}' });
                 return;
             }
             const statusId = String(parts[1]);
             const key = config_1.STATUS_BY_ID[statusId];
             const value = Number(parts[2]);
-            const target = this.findOnlinePlayerByName(parts[3]);
+            const target = this.resolveAdminTarget(player, parts[3]);
             if (!key || !Number.isFinite(value) || !target) {
                 this.sendRaw(player.ws, { type: 'admin_result', ok: false, message: 'Comando invalido.' });
                 return;
@@ -588,12 +628,12 @@ class GameController {
             return;
         }
         if (command === 'setrolelevel') {
-            if (parts.length < 3) {
-                this.sendRaw(player.ws, { type: 'admin_result', ok: false, message: 'Uso: setrolelevel {nivel} {jogador}' });
+            if (parts.length < 2) {
+                this.sendRaw(player.ws, { type: 'admin_result', ok: false, message: 'Uso: setrolelevel {nivel} {jogador?}' });
                 return;
             }
             const level = Number(parts[1]);
-            const target = this.findOnlinePlayerByName(parts[2]);
+            const target = this.resolveAdminTarget(player, parts[2]);
             if (!target || !Number.isInteger(level) || level < 1) {
                 this.sendRaw(player.ws, { type: 'admin_result', ok: false, message: 'Nivel/jogador invalido.' });
                 return;
@@ -611,13 +651,13 @@ class GameController {
             return;
         }
         if (command === 'gotomap') {
-            if (parts.length < 3) {
-                this.sendRaw(player.ws, { type: 'admin_result', ok: false, message: 'Uso: gotomap {codigodomapa} {jogador}' });
+            if (parts.length < 2) {
+                this.sendRaw(player.ws, { type: 'admin_result', ok: false, message: 'Uso: gotomap {codigodomapa} {jogador?}' });
                 return;
             }
             const targetMapCode = String(parts[1] || '').toUpperCase();
             const mapKey = config_1.MAP_KEY_BY_CODE[targetMapCode] || null;
-            const target = this.findOnlinePlayerByName(parts[2]);
+            const target = this.resolveAdminTarget(player, parts[2]);
             if (!target || !mapKey) {
                 this.sendRaw(player.ws, { type: 'admin_result', ok: false, message: 'Mapa/jogador invalido. Use A1, A2 ou A3.' });
                 return;
@@ -643,11 +683,7 @@ class GameController {
             return;
         }
         if (command === 'teleport') {
-            if (parts.length < 2) {
-                this.sendRaw(player.ws, { type: 'admin_result', ok: false, message: 'Uso: teleport {jogador}' });
-                return;
-            }
-            const target = this.findOnlinePlayerByName(parts[1]);
+            const target = this.resolveAdminTarget(player, parts[1]);
             if (!target) {
                 this.sendRaw(player.ws, { type: 'admin_result', ok: false, message: 'Jogador nao encontrado.' });
                 return;
@@ -673,11 +709,7 @@ class GameController {
             return;
         }
         if (command === 'summonplayer') {
-            if (parts.length < 2) {
-                this.sendRaw(player.ws, { type: 'admin_result', ok: false, message: 'Uso: summonplayer {jogador}' });
-                return;
-            }
-            const target = this.findOnlinePlayerByName(parts[1]);
+            const target = this.resolveAdminTarget(player, parts[1]);
             if (!target) {
                 this.sendRaw(player.ws, { type: 'admin_result', ok: false, message: 'Jogador nao encontrado.' });
                 return;
@@ -704,13 +736,13 @@ class GameController {
             return;
         }
         if (command === 'additem') {
-            if (parts.length < 4) {
-                this.sendRaw(player.ws, { type: 'admin_result', ok: false, message: 'Uso: additem {iddoitem} {quantia} {jogador}' });
+            if (parts.length < 3) {
+                this.sendRaw(player.ws, { type: 'admin_result', ok: false, message: 'Uso: additem {iddoitem} {quantia} {jogador?}' });
                 return;
             }
             const itemId = String(parts[1]);
             const quantity = Number(parts[2]);
-            const target = this.findOnlinePlayerByName(parts[3]);
+            const target = this.resolveAdminTarget(player, parts[3]);
             if (!target || !Number.isInteger(quantity) || quantity <= 0) {
                 this.sendRaw(player.ws, { type: 'admin_result', ok: false, message: 'Item/quantia/jogador invalido.' });
                 return;
@@ -741,7 +773,7 @@ class GameController {
                 added += 1;
             }
             target.inventory = this.normalizeInventorySlots(target.inventory, target.equippedWeaponId || null);
-            this.persistPlayer(target);
+            this.persistPlayerCritical(target, 'admin_additem');
             this.sendInventoryState(target);
             this.sendRaw(player.ws, {
                 type: 'admin_result',
@@ -751,13 +783,13 @@ class GameController {
             return;
         }
         if (command === 'settag') {
-            if (parts.length < 3) {
-                this.sendRaw(player.ws, { type: 'admin_result', ok: false, message: 'Uso: settag {player|adm} {jogador}' });
+            if (parts.length < 2) {
+                this.sendRaw(player.ws, { type: 'admin_result', ok: false, message: 'Uso: settag {player|adm} {jogador?}' });
                 return;
             }
             const rawTag = String(parts[1] || '').toLowerCase();
             const tag = rawTag === 'players' ? 'player' : rawTag;
-            const target = this.findOnlinePlayerByName(parts[2]);
+            const target = this.resolveAdminTarget(player, parts[2]);
             if (!target || (tag !== 'player' && tag !== 'adm')) {
                 this.sendRaw(player.ws, { type: 'admin_result', ok: false, message: 'Tag/jogador invalido. Use player ou adm.' });
                 return;
@@ -768,10 +800,58 @@ class GameController {
             this.sendRaw(player.ws, { type: 'admin_result', ok: true, message: `${target.name} agora possui tag ${tag}.` });
             return;
         }
+        if (command === 'addgold') {
+            if (parts.length < 3) {
+                this.sendRaw(player.ws, { type: 'admin_result', ok: false, message: 'Uso: addgold {quantia} {moeda} {jogador?}' });
+                return;
+            }
+            const amount = Number(parts[1]);
+            const currency = (0, currency_1.parseCurrencyName)(parts[2]);
+            const target = this.resolveAdminTarget(player, parts[3]);
+            if (!target || !Number.isInteger(amount) || amount <= 0 || !currency) {
+                this.sendRaw(player.ws, { type: 'admin_result', ok: false, message: 'Comando invalido. Moeda: cobre, prata, ouro ou diamante.' });
+                return;
+            }
+            const addCopper = (0, currency_1.toCopperByCurrency)(amount, currency);
+            this.addWalletCopper(target, addCopper, 'comando addgold');
+            this.persistPlayerCritical(target, 'admin_addgold');
+            this.sendInventoryState(target);
+            this.sendStatsUpdated(target);
+            this.sendRaw(player.ws, {
+                type: 'admin_result',
+                ok: true,
+                message: `${amount} ${currency_1.CURRENCY_LABELS[currency]} adicionado(s) para ${target.name}. Saldo: ${(0, currency_1.formatWallet)(target.wallet)}.`
+            });
+            return;
+        }
+        if (command === 'dungeon.debug') {
+            const snapshot = this.dungeonService.getDebugSnapshot();
+            if (!snapshot.length) {
+                this.sendRaw(player.ws, { type: 'admin_result', ok: true, message: 'Dungeon Debug: nenhuma instancia ativa.' });
+                this.sendRaw(player.ws, { type: 'system_message', text: 'Dungeon Debug: nenhuma instancia ativa.' });
+                return;
+            }
+            const lines = [];
+            for (const instance of snapshot) {
+                const bossText = instance.boss
+                    ? `boss=${instance.boss.hp}/${instance.boss.maxHp}`
+                    : 'boss=none';
+                const membersText = instance.members
+                    .map((m) => `${m.name}[${m.connected ? 'on' : 'off'}|${m.onlineInside ? 'in' : 'out'}|${m.dead ? 'dead' : `hp:${m.hp}`}|${m.ready ? 'ready' : 'wait'}]`)
+                    .join(', ');
+                lines.push(`${instance.id} ${instance.templateId} state=${instance.state} lock=${instance.locked ? 'on' : 'off'} `
+                    + `door=${instance.doorLocked ? 'on' : 'off'} mobs=${instance.mobCount} ${bossText} `
+                    + `map=${instance.mapKey}/${instance.mapId} members={${membersText}}`);
+            }
+            const message = `Dungeon Debug (${snapshot.length}): ${lines.join(' || ')}`;
+            this.sendRaw(player.ws, { type: 'admin_result', ok: true, message });
+            this.sendRaw(player.ws, { type: 'system_message', text: message });
+            return;
+        }
         this.sendRaw(player.ws, {
             type: 'admin_result',
             ok: false,
-            message: 'Comando invalido. Use: setstatus, setrolelevel, gotomap, teleport, summonplayer, additem, settag.'
+            message: 'Comando invalido. Use: setstatus, setrolelevel, gotomap, teleport, summonplayer, additem, addgold, settag, dungeon.debug.'
         });
     }
     handlePartyCreate(player) {
@@ -906,11 +986,117 @@ class GameController {
     handleNpcInteract(player, msg) {
         this.questService.handleNpcInteract(player, msg);
     }
+    handleNpcBuy(player, msg) {
+        const npcId = String(msg?.npcId || '');
+        const offerId = String(msg?.offerId || '');
+        const quantity = Math.max(1, Math.floor(Number(msg?.quantity || 1)));
+        if (!npcId || !offerId || quantity <= 0)
+            return;
+        const npc = this.questService.getNpcById(npcId);
+        if (!npc) {
+            this.sendRaw(player.ws, { type: 'system_message', text: 'NPC nao encontrado.' });
+            return;
+        }
+        if (String(npc.mapKey || '') !== String(player.mapKey || '') || String(npc.mapId || '') !== String(player.mapId || '')) {
+            this.sendRaw(player.ws, { type: 'system_message', text: 'Esse NPC nao esta neste mapa.' });
+            return;
+        }
+        const range = Math.max(80, Number(npc.interactRange || 170));
+        if ((0, math_1.distance)(player, npc) > range) {
+            this.sendRaw(player.ws, { type: 'system_message', text: 'Aproxime-se do NPC para comprar.' });
+            return;
+        }
+        const offer = this.questService.getShopOffers(npcId).find((entry) => String(entry.offerId || '') === offerId);
+        if (!offer) {
+            this.sendRaw(player.ws, { type: 'system_message', text: 'Oferta nao encontrada.' });
+            return;
+        }
+        const template = config_1.BUILTIN_ITEM_TEMPLATE_BY_ID[String(offer.templateId || '')];
+        if (!template) {
+            this.sendRaw(player.ws, { type: 'system_message', text: 'Item da oferta nao encontrado.' });
+            return;
+        }
+        const itemQuantity = Math.max(1, Number(offer.quantity || 1));
+        const totalToGrant = itemQuantity * quantity;
+        const priceCopper = this.computeTemplatePriceCopper(template) * quantity;
+        if (priceCopper <= 0) {
+            this.sendRaw(player.ws, { type: 'system_message', text: 'Oferta com preco invalido.' });
+            return;
+        }
+        if (!this.trySpendCopper(player, priceCopper)) {
+            this.sendRaw(player.ws, { type: 'system_message', text: `Moedas insuficientes. Saldo: ${(0, currency_1.formatWallet)(player.wallet)}.` });
+            return;
+        }
+        const baseItem = {
+            ...template,
+            id: (0, crypto_1.randomUUID)()
+        };
+        const remaining = this.addItemToInventory(player, baseItem, totalToGrant);
+        const granted = Math.max(0, totalToGrant - remaining);
+        if (granted <= 0) {
+            this.addWalletCopper(player, priceCopper, 'estorno');
+            this.sendRaw(player.ws, { type: 'system_message', text: 'Inventario cheio. Compra cancelada.' });
+            return;
+        }
+        if (remaining > 0) {
+            const unitCopper = Math.max(1, Math.floor(priceCopper / totalToGrant));
+            const refundCopper = unitCopper * remaining;
+            this.addWalletCopper(player, refundCopper, 'estorno');
+            this.sendRaw(player.ws, {
+                type: 'system_message',
+                text: `Inventario cheio: recebido ${granted}/${totalToGrant}. ${refundCopper} cobre devolvido.`
+            });
+        }
+        else {
+            this.sendRaw(player.ws, {
+                type: 'system_message',
+                text: `Compra concluida: ${granted}x ${template.name}.`
+            });
+        }
+        this.persistPlayerCritical(player, 'npc_buy');
+        this.sendInventoryState(player);
+        this.sendStatsUpdated(player);
+    }
     handleQuestAccept(player, msg) {
         this.questService.handleQuestAccept(player, msg);
     }
     handleQuestComplete(player, msg) {
         this.questService.handleQuestComplete(player, msg);
+    }
+    handleDungeonEnter(player, msg) {
+        const npcId = String(msg?.npcId || '');
+        const mode = String(msg?.mode || '').toLowerCase();
+        if (!npcId) {
+            this.sendRaw(player.ws, { type: 'system_message', text: 'NPC de entrada invalido.' });
+            return;
+        }
+        const npc = this.questService.getNpcById(npcId);
+        if (!npc) {
+            this.sendRaw(player.ws, { type: 'system_message', text: 'NPC nao encontrado.' });
+            return;
+        }
+        const result = this.dungeonService.tryEnterByNpc(player, npc, mode);
+        if (!result.ok) {
+            this.sendRaw(player.ws, { type: 'system_message', text: String(result.message || 'Nao foi possivel entrar na dungeon.') });
+            return;
+        }
+        this.sendPartyAreaList(player);
+        this.sendRaw(player.ws, { type: 'system_message', text: 'Entrada na dungeon confirmada.' });
+    }
+    handleDungeonReady(player, msg) {
+        const requestId = String(msg?.requestId || '');
+        const accept = Boolean(msg?.accept);
+        if (!requestId)
+            return;
+        this.dungeonService.handleReadyResponse(player, requestId, accept);
+    }
+    handleDungeonLeave(player) {
+        const ok = this.dungeonService.leaveDungeon(player, 'Voce deixou a dungeon.');
+        if (!ok) {
+            this.sendRaw(player.ws, { type: 'system_message', text: 'Voce nao esta em uma dungeon instanciada.' });
+            return;
+        }
+        this.sendPartyAreaList(player);
     }
     handleToggleAfk(player) {
         if (player.dead || player.hp <= 0)
@@ -994,6 +1180,7 @@ class GameController {
     }
     tick(deltaSeconds, now) {
         this.eventService.tick(now);
+        this.dungeonService.tick(now);
         this.pruneExpiredGroundItems(now);
         this.pruneExpiredPartyInvites(now);
         this.pruneExpiredPartyJoinRequests(now);
@@ -1014,10 +1201,15 @@ class GameController {
             this.lastPartySyncAt = now;
             this.syncAllPartyStates();
         }
+        if (now - this.lastAutosaveAt >= AUTOSAVE_MS) {
+            this.lastAutosaveAt = now;
+            void this.flushAutosavePlayers();
+        }
     }
     buildWorldSnapshot(mapId = config_1.DEFAULT_MAP_ID, mapKey = config_1.DEFAULT_MAP_KEY) {
         const mapInstanceId = this.mapInstanceId(mapKey, mapId);
         const hasTiledCollision = Boolean(this.getMapTiledCollisionSampler(mapKey));
+        const isDungeonMap = String(mapKey || '').startsWith('dng_');
         const publicPlayers = {};
         for (const [id, player] of this.players.entries()) {
             if (player.mapId !== mapId || player.mapKey !== mapKey)
@@ -1031,7 +1223,7 @@ class GameController {
             groundItems: this.groundItems.filter((it) => it.mapId === mapInstanceId),
             mapCode: (0, config_1.mapCodeFromKey)(mapKey),
             mapKey,
-            mapTheme: config_1.MAP_THEMES[mapKey] || 'forest',
+            mapTheme: isDungeonMap ? 'undead' : (config_1.MAP_THEMES[mapKey] || 'forest'),
             mapFeatures: hasTiledCollision ? [] : (config_1.MAP_FEATURES_BY_KEY[mapKey] || []),
             npcs: this.questService.getNpcsForMap(mapKey, mapId),
             activeEvents: this.eventService.getActiveEventsForMap(mapKey, mapId),
@@ -1047,13 +1239,14 @@ class GameController {
         const player = this.players.get(playerId);
         if (!player)
             return;
+        this.dungeonService.onPlayerDisconnected(player.id);
         this.removePlayerFromParty(player);
-        if (!player.statusOverrides || typeof player.statusOverrides !== 'object')
-            player.statusOverrides = {};
-        player.statusOverrides.__skillLevels = this.normalizeSkillLevels(player.skillLevels || {});
-        await this.persistence.savePlayer(player);
+        await this.persistPlayerNow(player, 'disconnect');
         this.usernameToPlayerId.delete(player.username);
         this.players.delete(playerId);
+        this.dirtyPlayerIds.delete(playerId);
+        this.persistRevisionByPlayerId.delete(playerId);
+        this.lastPersistSignatureByPlayerId.delete(playerId);
         this.clearPendingInvitesForPlayer(player.id);
         this.clearJoinRequestsForPlayer(player.id);
         this.clearFriendRequestsForPlayer(player.id);
@@ -1071,6 +1264,7 @@ class GameController {
     }
     sanitizePublicPlayer(player) {
         const weapon = Array.isArray(player.inventory) ? player.inventory.find((it) => it.id === player.equippedWeaponId) : null;
+        const equippedBySlot = this.getEquippedItemsBySlot(player);
         return {
             id: player.id,
             username: player.username,
@@ -1089,6 +1283,8 @@ class GameController {
             maxHp: player.maxHp,
             afkActive: Boolean(player.afkActive),
             equippedWeaponName: weapon ? weapon.name : null,
+            equippedBySlot,
+            wallet: (0, currency_1.normalizeWallet)(player.wallet),
             pathNodes: Array.isArray(player.movePath) ? player.movePath.slice(0, 40).map((pt) => ({ x: Number(pt.x), y: Number(pt.y) })) : [],
             xp: player.xp,
             xpToNext: (0, math_1.xpRequired)(player.level),
@@ -1163,6 +1359,7 @@ class GameController {
         const ok = this.combatCoreService.applyDamageToMobAndHandleDeath(player, mob, damage, now);
         if (ok && wasAlive && mob && Number(mob.hp || 0) <= 0) {
             this.questService.onMobKilled(player, mob);
+            this.dungeonService.onMobKilled(player, mob);
         }
         return ok;
     }
@@ -1331,7 +1528,12 @@ class GameController {
                 });
             }
             this.recomputePlayerStats(target);
-            this.persistPlayer(target);
+            if (levelsGained > 0) {
+                this.persistPlayerCritical(target, 'level_up');
+            }
+            else {
+                this.persistPlayer(target);
+            }
             this.sendStatsUpdated(target);
         });
     }
@@ -1342,6 +1544,24 @@ class GameController {
         if (!player.equippedWeaponId)
             return null;
         return Array.isArray(player.inventory) ? player.inventory.find((item) => item.id === player.equippedWeaponId) || null : null;
+    }
+    getEquippedItemsBySlot(player) {
+        const equipped = {};
+        if (!Array.isArray(player.inventory))
+            return equipped;
+        for (const item of player.inventory) {
+            if (!item || typeof item !== 'object')
+                continue;
+            const isWeapon = String(item.id || '') === String(player.equippedWeaponId || '');
+            const isAccessory = item.equipped === true && String(item.equippedSlot || '').length > 0;
+            if (!isWeapon && !isAccessory)
+                continue;
+            const slot = isWeapon ? 'weapon' : String(item.equippedSlot || item.slot || '');
+            if (!slot)
+                continue;
+            equipped[slot] = item;
+        }
+        return equipped;
     }
     recomputePlayerStats(player) {
         const allocated = this.normalizeAllocatedStats(player.allocatedStats);
@@ -1358,28 +1578,112 @@ class GameController {
         const spent = this.getAllocatedCost(boundedAllocated);
         const maxUnspent = Math.max(0, maxSpend - spent);
         player.unspentPoints = maxUnspent;
-        const weapon = this.getEquippedWeapon(player);
-        if (weapon && weapon.bonuses) {
+        const equippedItems = Array.isArray(player.inventory)
+            ? player.inventory.filter((item) => (item?.id && String(item.id) === String(player.equippedWeaponId || ''))
+                || item?.equipped === true)
+            : [];
+        if (equippedItems.length > 0) {
+            const bonusSum = equippedItems.reduce((acc, item) => {
+                const bonuses = item?.bonuses && typeof item.bonuses === 'object' ? item.bonuses : {};
+                for (const [key, value] of Object.entries(bonuses)) {
+                    const current = Number(acc[key] || 0);
+                    const add = Number.isFinite(Number(value)) ? Number(value) : 0;
+                    acc[key] = current + add;
+                }
+                return acc;
+            }, {});
             player.stats = {
                 ...leveled,
-                physicalAttack: Number(leveled.physicalAttack || 0) + Number(weapon.bonuses.physicalAttack || 0),
-                magicAttack: Number(leveled.magicAttack || 0) + Number(weapon.bonuses.magicAttack || 0),
-                moveSpeed: Number(leveled.moveSpeed || 0) + Number(weapon.bonuses.moveSpeed || 0),
-                attackSpeed: Number(leveled.attackSpeed || 0) + Number(weapon.bonuses.attackSpeed || 0)
+                physicalAttack: Number(leveled.physicalAttack || 0) + Number(bonusSum.physicalAttack || 0),
+                magicAttack: Number(leveled.magicAttack || 0) + Number(bonusSum.magicAttack || 0),
+                moveSpeed: Number(leveled.moveSpeed || 0) + Number(bonusSum.moveSpeed || 0),
+                attackSpeed: Number(leveled.attackSpeed || 0) + Number(bonusSum.attackSpeed || 0),
+                physicalDefense: Number(leveled.physicalDefense || 0) + Number(bonusSum.physicalDefense || 0),
+                magicDefense: Number(leveled.magicDefense || 0) + Number(bonusSum.magicDefense || 0),
+                evasion: Number(leveled.evasion || 0) + Number(bonusSum.evasion || 0),
+                accuracy: Number(leveled.accuracy || 0) + Number(bonusSum.accuracy || 0),
+                attackRange: Number(leveled.attackRange || 0) + Number(bonusSum.attackRange || 0),
+                maxHp: Number(leveled.maxHp || 0) + Number(bonusSum.maxHp || 0)
             };
         }
         else {
-            player.stats = leveled;
+            player.stats = { ...leveled };
         }
-        player.maxHp = Number(leveled.maxHp || player.maxHp || 100);
+        player.maxHp = Number(player.stats.maxHp || leveled.maxHp || player.maxHp || 100);
         player.hp = (0, math_1.clamp)(Number(player.hp || player.maxHp), 0, player.maxHp);
     }
     sendInventoryState(player) {
+        const equippedBySlot = this.getEquippedItemsBySlot(player);
         this.sendRaw(player.ws, {
             type: 'inventory_state',
             inventory: [...player.inventory].sort((a, b) => Number(a.slotIndex) - Number(b.slotIndex)),
-            equippedWeaponId: player.equippedWeaponId
+            equippedWeaponId: player.equippedWeaponId,
+            equippedBySlot,
+            wallet: (0, currency_1.normalizeWallet)(player.wallet)
         });
+    }
+    ensureWallet(player) {
+        player.wallet = (0, currency_1.normalizeWallet)(player.wallet);
+    }
+    addWalletCopper(player, amountCopper, sourceLabel) {
+        const amount = Math.max(0, Math.floor(Number(amountCopper || 0)));
+        if (amount <= 0)
+            return;
+        this.ensureWallet(player);
+        const total = (0, currency_1.walletToCopper)(player.wallet) + amount;
+        player.wallet = (0, currency_1.walletFromCopper)(total);
+        if (sourceLabel) {
+            this.sendRaw(player.ws, {
+                type: 'system_message',
+                text: `${sourceLabel}: +${(0, currency_1.formatWallet)((0, currency_1.walletFromCopper)(amount))}. Saldo: ${(0, currency_1.formatWallet)(player.wallet)}.`
+            });
+        }
+    }
+    trySpendCopper(player, amountCopper) {
+        const amount = Math.max(0, Math.floor(Number(amountCopper || 0)));
+        if (amount <= 0)
+            return true;
+        this.ensureWallet(player);
+        const current = (0, currency_1.walletToCopper)(player.wallet);
+        if (current < amount)
+            return false;
+        player.wallet = (0, currency_1.walletFromCopper)(current - amount);
+        return true;
+    }
+    computeTemplatePriceCopper(template) {
+        const price = template?.price && typeof template.price === 'object' ? template.price : {};
+        const asWallet = (0, currency_1.normalizeWallet)({
+            copper: Number(price.copper || 0),
+            silver: Number(price.silver || 0),
+            gold: Number(price.gold || 0),
+            diamond: Number(price.diamond || 0)
+        });
+        return (0, currency_1.walletToCopper)(asWallet);
+    }
+    grantCurrency(player, reward, sourceLabel) {
+        const safe = (0, currency_1.normalizeWallet)({
+            copper: Number(reward?.copper || 0),
+            silver: Number(reward?.silver || 0),
+            gold: Number(reward?.gold || 0),
+            diamond: Number(reward?.diamond || 0)
+        });
+        const copperTotal = (0, currency_1.walletToCopper)(safe);
+        if (copperTotal <= 0)
+            return;
+        this.addWalletCopper(player, copperTotal, sourceLabel);
+        this.persistPlayer(player);
+        this.sendInventoryState(player);
+    }
+    grantMobCurrency(player, mob) {
+        const kind = String(mob?.kind || 'normal');
+        const rewardByKind = {
+            normal: { copper: 25 },
+            elite: { silver: 1, copper: 40 },
+            subboss: { silver: 4, copper: 80 },
+            boss: { gold: 1, silver: 30 }
+        };
+        const reward = rewardByKind[kind] || { copper: 20 };
+        this.grantCurrency(player, reward, 'Recompensa de mob');
     }
     computeLootDropPosition(originX, originY, dropIndex, dropTotal, mapKey) {
         const center = this.projectToWalkable(mapKey, (0, math_1.clamp)(Number(originX || 0), 0, config_1.WORLD.width), (0, math_1.clamp)(Number(originY || 0), 0, config_1.WORLD.height));
@@ -1400,7 +1704,8 @@ class GameController {
         const index = Math.floor(Math.random() * config_1.WEAPON_TEMPLATES.length);
         return config_1.WEAPON_TEMPLATES[index] || config_1.WEAPON_TEMPLATE;
     }
-    dropWeaponAt(x, y, mapId, template = config_1.WEAPON_TEMPLATE) {
+    dropWeaponAt(x, y, mapId, template = config_1.WEAPON_TEMPLATE, ownerId = null, ownerPartyId = null, reservedMs = 0) {
+        const now = Date.now();
         this.groundItems.push({
             id: (0, crypto_1.randomUUID)(),
             templateId: String(template.id || template.type || 'weapon_teste'),
@@ -1411,10 +1716,14 @@ class GameController {
             x,
             y,
             mapId,
-            expiresAt: Date.now() + config_1.GROUND_ITEM_TTL_MS
+            ownerId: Number.isFinite(Number(ownerId)) && Number(ownerId) > 0 ? Number(ownerId) : null,
+            ownerPartyId: ownerPartyId ? String(ownerPartyId) : null,
+            reservedUntil: reservedMs > 0 ? now + Math.max(1000, Math.floor(reservedMs)) : undefined,
+            expiresAt: now + config_1.GROUND_ITEM_TTL_MS
         });
     }
-    dropHpPotionAt(x, y, mapId) {
+    dropHpPotionAt(x, y, mapId, ownerId = null, ownerPartyId = null, reservedMs = 0) {
+        const now = Date.now();
         this.groundItems.push({
             id: (0, crypto_1.randomUUID)(),
             templateId: String(config_1.HP_POTION_TEMPLATE.id || config_1.HP_POTION_TEMPLATE.type || 'potion_hp'),
@@ -1429,10 +1738,14 @@ class GameController {
             x,
             y,
             mapId,
-            expiresAt: Date.now() + config_1.GROUND_ITEM_TTL_MS
+            ownerId: Number.isFinite(Number(ownerId)) && Number(ownerId) > 0 ? Number(ownerId) : null,
+            ownerPartyId: ownerPartyId ? String(ownerPartyId) : null,
+            reservedUntil: reservedMs > 0 ? now + Math.max(1000, Math.floor(reservedMs)) : undefined,
+            expiresAt: now + config_1.GROUND_ITEM_TTL_MS
         });
     }
-    dropSkillResetHourglassAt(x, y, mapId) {
+    dropSkillResetHourglassAt(x, y, mapId, ownerId = null, ownerPartyId = null, reservedMs = 0) {
+        const now = Date.now();
         this.groundItems.push({
             id: (0, crypto_1.randomUUID)(),
             templateId: String(config_1.SKILL_RESET_HOURGLASS_TEMPLATE.id || config_1.SKILL_RESET_HOURGLASS_TEMPLATE.type || 'skill_reset_hourglass'),
@@ -1446,11 +1759,33 @@ class GameController {
             x,
             y,
             mapId,
-            expiresAt: Date.now() + config_1.GROUND_ITEM_TTL_MS
+            ownerId: Number.isFinite(Number(ownerId)) && Number(ownerId) > 0 ? Number(ownerId) : null,
+            ownerPartyId: ownerPartyId ? String(ownerPartyId) : null,
+            reservedUntil: reservedMs > 0 ? now + Math.max(1000, Math.floor(reservedMs)) : undefined,
+            expiresAt: now + config_1.GROUND_ITEM_TTL_MS
         });
     }
     addItemToInventory(player, item, quantity) {
         return this.inventoryService.addItemToInventory(player, item, quantity);
+    }
+    dropTemplateAt(x, y, mapId, templateId, ownerId = null, ownerPartyId = null, reservedMs = 0) {
+        const template = config_1.BUILTIN_ITEM_TEMPLATE_BY_ID[String(templateId || '')];
+        if (!template)
+            return;
+        const type = String(template.type || '');
+        if (type === 'weapon' || type === 'equipment') {
+            this.dropWeaponAt(x, y, mapId, template, ownerId, ownerPartyId, reservedMs);
+            return;
+        }
+        if (type === 'potion_hp') {
+            this.dropHpPotionAt(x, y, mapId, ownerId, ownerPartyId, reservedMs);
+            return;
+        }
+        if (type === 'skill_reset_hourglass') {
+            this.dropSkillResetHourglassAt(x, y, mapId, ownerId, ownerPartyId, reservedMs);
+            return;
+        }
+        this.dropWeaponAt(x, y, mapId, template, ownerId, ownerPartyId, reservedMs);
     }
     grantRewardItem(player, templateId, quantity) {
         const qty = Math.max(0, Math.floor(Number(quantity || 0)));
@@ -1481,6 +1816,9 @@ class GameController {
                 return true;
             return item.expiresAt > now;
         });
+    }
+    removeGroundItemsByMapInstance(mapInstanceId) {
+        this.groundItems = this.groundItems.filter((item) => String(item.mapId || '') !== String(mapInstanceId || ''));
     }
     getAreaIdForPlayer(player) {
         return this.mapService.getAreaIdForPlayer(player);
@@ -1526,6 +1864,12 @@ class GameController {
             const byUsername = String(candidate.username || '').toLowerCase() === needle;
             return byName || byUsername;
         }) || null;
+    }
+    resolveAdminTarget(actor, rawName) {
+        const hasName = String(rawName || '').trim().length > 0;
+        if (!hasName)
+            return actor;
+        return this.findOnlinePlayerByName(String(rawName || ''));
     }
     sendFriendState(player) {
         this.friendService.sendFriendState(player);
@@ -1707,12 +2051,186 @@ class GameController {
         return mob?.kind === 'boss' ? 16 : mob?.kind === 'subboss' ? 11 : mob?.kind === 'elite' ? 8 : 5;
     }
     persistPlayer(player) {
+        this.preparePlayerForSave(player);
+        this.markPlayerDirty(player.id);
+    }
+    persistPlayerCritical(player, reason = 'critical') {
+        this.preparePlayerForSave(player);
+        this.markPlayerDirty(player.id);
+        void this.persistPlayerNow(player, reason);
+    }
+    async flushAllPlayers(reason = 'shutdown') {
+        for (const playerId of this.players.keys()) {
+            this.markPlayerDirty(playerId);
+        }
+        await this.flushDirtyPlayers(reason, true);
+    }
+    async processPersistenceQueue(limit = 20) {
+        return await this.persistence.processPendingPlayerSaveJobs(limit);
+    }
+    async flushAutosavePlayers() {
+        for (const playerId of this.players.keys()) {
+            this.markPlayerDirty(playerId);
+        }
+        await this.flushDirtyPlayers('autosave', false);
+    }
+    async flushDirtyPlayers(reason, force = false) {
+        if (this.autosaveInFlight && !force)
+            return;
+        this.autosaveInFlight = true;
+        try {
+            const dirtyIds = [...this.dirtyPlayerIds.values()];
+            for (const playerId of dirtyIds) {
+                const player = this.players.get(playerId);
+                if (!player) {
+                    this.dirtyPlayerIds.delete(playerId);
+                    continue;
+                }
+                await this.persistPlayerNow(player, reason, force);
+            }
+            if (reason === 'autosave') {
+                (0, logger_1.logEvent)('INFO', 'autosave_cycle', {
+                    online: this.players.size,
+                    dirty: dirtyIds.length,
+                    enqueued: this.persistStats.enqueued,
+                    saved: this.persistStats.saved,
+                    skipped: this.persistStats.skipped,
+                    failed: this.persistStats.failed,
+                    retried: this.persistStats.retried
+                });
+            }
+        }
+        finally {
+            this.autosaveInFlight = false;
+        }
+    }
+    async persistPlayerNow(player, reason, forceSave = false) {
+        const playerId = Number(player.id);
+        if (!Number.isFinite(playerId) || playerId <= 0)
+            return;
+        if (this.persistInFlightByPlayerId.has(playerId))
+            return;
+        const lockKey = `lock:player:save:${playerId}`;
+        const lockToken = await this.lockService.acquire(lockKey, 5000);
+        if (!lockToken) {
+            this.dirtyPlayerIds.add(playerId);
+            return;
+        }
+        this.persistInFlightByPlayerId.add(playerId);
+        this.preparePlayerForSave(player);
+        const saveRevision = Number(this.persistRevisionByPlayerId.get(playerId) || 0);
+        let saveOk = false;
+        let shouldEnqueueFallback = false;
+        this.persistStats.enqueued += 1;
+        try {
+            const signature = this.computePersistenceSignature(player);
+            const previousSignature = this.lastPersistSignatureByPlayerId.get(playerId);
+            if (!forceSave && previousSignature === signature) {
+                this.persistStats.skipped += 1;
+                this.dirtyPlayerIds.delete(playerId);
+                return;
+            }
+            let attempt = 0;
+            while (true) {
+                try {
+                    const result = await this.persistence.savePlayer(player, {
+                        expectedVersion: Number(player.persistenceVersion || 0),
+                        useOptimisticLock: true
+                    });
+                    if (!result.ok && result.conflict) {
+                        player.persistenceVersion = Number(result.version || player.persistenceVersion || 0);
+                        throw new Error('player_version_conflict');
+                    }
+                    player.persistenceVersion = Number(result.version || player.persistenceVersion || 0);
+                    this.lastPersistSignatureByPlayerId.set(playerId, signature);
+                    break;
+                }
+                catch (error) {
+                    if (attempt >= PERSIST_MAX_RETRIES)
+                        throw error;
+                    attempt += 1;
+                    this.persistStats.retried += 1;
+                    const backoffMs = PERSIST_RETRY_BASE_MS * (2 ** (attempt - 1));
+                    await this.sleep(backoffMs);
+                }
+            }
+            saveOk = true;
+            this.persistStats.saved += 1;
+            const currentRevision = Number(this.persistRevisionByPlayerId.get(playerId) || 0);
+            if (currentRevision === saveRevision) {
+                this.dirtyPlayerIds.delete(playerId);
+            }
+        }
+        catch (error) {
+            this.dirtyPlayerIds.add(playerId);
+            this.persistStats.failed += 1;
+            shouldEnqueueFallback = true;
+            (0, logger_1.logEvent)('ERROR', 'save_player_error', { playerId: player.id, reason, error: String(error) });
+        }
+        finally {
+            this.persistInFlightByPlayerId.delete(playerId);
+            await this.lockService.release(lockKey, lockToken);
+            if (shouldEnqueueFallback) {
+                try {
+                    await this.persistence.enqueuePlayerSave(player, String(reason || 'save_failure'));
+                }
+                catch (queueError) {
+                    (0, logger_1.logEvent)('ERROR', 'enqueue_player_save_error', { playerId: player.id, reason, error: String(queueError) });
+                }
+            }
+            if (saveOk && this.dirtyPlayerIds.has(playerId)) {
+                void this.persistPlayerNow(player, `${reason}:followup`, forceSave);
+            }
+        }
+    }
+    markPlayerDirty(playerId) {
+        const next = Number(this.persistRevisionByPlayerId.get(playerId) || 0) + 1;
+        this.persistRevisionByPlayerId.set(playerId, next);
+        this.dirtyPlayerIds.add(playerId);
+    }
+    computePersistenceSignature(player) {
+        const wallet = (0, currency_1.normalizeWallet)(player.wallet);
+        const inventory = Array.isArray(player.inventory)
+            ? player.inventory.map((item) => ({
+                id: String(item?.id || ''),
+                templateId: String(item?.templateId || ''),
+                type: String(item?.type || ''),
+                quantity: Number(item?.quantity || 0),
+                slotIndex: Number(item?.slotIndex || 0),
+                equipped: Boolean(item?.equipped),
+                equippedSlot: String(item?.equippedSlot || '')
+            }))
+            : [];
+        const statusOverrides = player.statusOverrides && typeof player.statusOverrides === 'object'
+            ? player.statusOverrides
+            : {};
+        return JSON.stringify({
+            level: Number(player.level || 1),
+            xp: Number(player.xp || 0),
+            hp: Number(player.hp || 0),
+            maxHp: Number(player.maxHp || 0),
+            role: String(player.role || 'player'),
+            pvpMode: String(player.pvpMode || 'peace'),
+            mapKey: String(player.mapKey || ''),
+            mapId: String(player.mapId || ''),
+            x: Number(player.x || 0),
+            y: Number(player.y || 0),
+            equippedWeaponId: String(player.equippedWeaponId || ''),
+            wallet,
+            stats: player.stats || {},
+            allocatedStats: player.allocatedStats || {},
+            unspentPoints: Number(player.unspentPoints || 0),
+            statusOverrides,
+            inventory
+        });
+    }
+    sleep(ms) {
+        return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
+    }
+    preparePlayerForSave(player) {
         if (!player.statusOverrides || typeof player.statusOverrides !== 'object')
             player.statusOverrides = {};
         player.statusOverrides.__skillLevels = this.normalizeSkillLevels(player.skillLevels || {});
-        void this.persistence.savePlayer(player).catch((error) => {
-            (0, logger_1.logEvent)('ERROR', 'save_player_error', { playerId: player.id, error: String(error) });
-        });
     }
     normalizeAllocatedStats(input) {
         const source = input && typeof input === 'object' ? input : {};
@@ -1780,7 +2298,8 @@ class GameController {
             xp: player.xp,
             xpToNext: (0, math_1.xpRequired)(player.level),
             hp: player.hp,
-            maxHp: player.maxHp
+            maxHp: player.maxHp,
+            wallet: (0, currency_1.normalizeWallet)(player.wallet)
         });
     }
     sendRaw(ws, payload) {

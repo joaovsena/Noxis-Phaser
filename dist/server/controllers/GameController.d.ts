@@ -1,5 +1,6 @@
 import { PersistenceService } from '../services/PersistenceService';
 import { MobService } from '../services/MobService';
+import { DistributedLockService } from '../services/DistributedLockService';
 import { PlayerRuntime, GroundItem, AuthMessage, MoveMessage } from '../models/types';
 interface AuthSocket {
     send: (payload: string) => void;
@@ -25,12 +26,21 @@ export declare class GameController {
     private combatCoreService;
     private questService;
     private eventService;
+    private lockService;
+    private dungeonService;
     players: Map<number, PlayerRuntime>;
     usernameToPlayerId: Map<string, number>;
     groundItems: GroundItem[];
     private lastPartySyncAt;
+    private lastAutosaveAt;
     private mobsPeacefulMode;
-    constructor(persistence: PersistenceService, mobService: MobService);
+    private dirtyPlayerIds;
+    private persistInFlightByPlayerId;
+    private persistRevisionByPlayerId;
+    private lastPersistSignatureByPlayerId;
+    private autosaveInFlight;
+    private persistStats;
+    constructor(persistence: PersistenceService, mobService: MobService, lockService: DistributedLockService);
     handleAuth(ws: any, msg: AuthMessage): Promise<void>;
     private handleRegister;
     private handleLogin;
@@ -84,8 +94,12 @@ export declare class GameController {
     handleSkillCast(player: PlayerRuntime, msg: any): void;
     handleSkillLearn(player: PlayerRuntime, msg: any): void;
     handleNpcInteract(player: PlayerRuntime, msg: any): void;
+    handleNpcBuy(player: PlayerRuntime, msg: any): void;
     handleQuestAccept(player: PlayerRuntime, msg: any): void;
     handleQuestComplete(player: PlayerRuntime, msg: any): void;
+    handleDungeonEnter(player: PlayerRuntime, msg: any): void;
+    handleDungeonReady(player: PlayerRuntime, msg: any): void;
+    handleDungeonLeave(player: PlayerRuntime): void;
     handleToggleAfk(player: PlayerRuntime): void;
     handleStatsAllocate(player: PlayerRuntime, msg: any): void;
     tick(deltaSeconds: number, now: number): void;
@@ -103,7 +117,7 @@ export declare class GameController {
             name: string;
             x: number;
             y: number;
-            role: "quest_giver";
+            role: "quest_giver" | "shopkeeper" | "chest_keeper" | "civilian";
             spriteKey: string | null;
             hitbox: {
                 w: number;
@@ -131,9 +145,10 @@ export declare class GameController {
             y: number;
             w: number;
             h: number;
-            toMapKey: string;
-            toX: number;
-            toY: number;
+            toMapKey?: string;
+            toX?: number;
+            toY?: number;
+            dungeonTemplateId?: string;
         }[];
         mapId: string;
         world: {
@@ -177,17 +192,26 @@ export declare class GameController {
     private grantXp;
     private normalizeInventorySlots;
     private getEquippedWeapon;
+    private getEquippedItemsBySlot;
     private recomputePlayerStats;
     private sendInventoryState;
+    private ensureWallet;
+    private addWalletCopper;
+    private trySpendCopper;
+    private computeTemplatePriceCopper;
+    private grantCurrency;
+    private grantMobCurrency;
     private computeLootDropPosition;
     private pickRandomWeaponTemplate;
     private dropWeaponAt;
     private dropHpPotionAt;
     private dropSkillResetHourglassAt;
     private addItemToInventory;
+    private dropTemplateAt;
     private grantRewardItem;
     private onItemCollected;
     private pruneExpiredGroundItems;
+    private removeGroundItemsByMapInstance;
     private getAreaIdForPlayer;
     private sendPartyStateToPlayer;
     private syncAllPartyStates;
@@ -200,6 +224,7 @@ export declare class GameController {
     private pruneExpiredFriendRequests;
     private clearFriendRequestsForPlayer;
     private findOnlinePlayerByName;
+    private resolveAdminTarget;
     private sendFriendState;
     private hydrateFriendStateForPlayer;
     private removePlayerFromParty;
@@ -219,6 +244,19 @@ export declare class GameController {
     private shouldLuckyStrike;
     private getMobEvasion;
     private persistPlayer;
+    private persistPlayerCritical;
+    flushAllPlayers(reason?: string): Promise<void>;
+    processPersistenceQueue(limit?: number): Promise<{
+        processed: number;
+        fetched: number;
+    }>;
+    private flushAutosavePlayers;
+    private flushDirtyPlayers;
+    private persistPlayerNow;
+    private markPlayerDirty;
+    private computePersistenceSignature;
+    private sleep;
+    private preparePlayerForSave;
     private normalizeAllocatedStats;
     private normalizeSkillLevels;
     private getSpentSkillPoints;

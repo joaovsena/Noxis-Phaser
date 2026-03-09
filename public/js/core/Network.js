@@ -241,6 +241,16 @@ export class Network {
             this.game.onNpcDialog(message);
             return;
         }
+
+        if (message.type === 'dungeon.readyCheck') {
+            this.game.onDungeonReadyCheck(message);
+            return;
+        }
+
+        if (message.type === 'dungeon.readyUpdate') {
+            this.game.onDungeonReadyUpdate(message);
+            return;
+        }
     }
 
     startPingLoop() {

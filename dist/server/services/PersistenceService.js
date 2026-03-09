@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.PersistenceService = void 0;
 const prisma_1 = __importDefault(require("../utils/prisma"));
 const hash_1 = require("../utils/hash");
+const currency_1 = require("../utils/currency");
 class PersistenceService {
     async getUser(username) {
         return await prisma_1.default.user.findUnique({
@@ -49,27 +50,126 @@ class PersistenceService {
             }
         });
     }
-    async savePlayer(player) {
-        await prisma_1.default.player.update({
-            where: { id: player.id },
+    async savePlayer(player, options = {}) {
+        const wallet = (0, currency_1.normalizeWallet)(player.wallet);
+        const snapshot = {
+            playerId: Number(player.id),
+            expectedVersion: Number.isFinite(Number(options.expectedVersion)) ? Number(options.expectedVersion) : undefined,
+            level: Number(player.level || 1),
+            xp: Number(player.xp || 0),
+            hp: Number(player.hp || 0),
+            role: String(player.role || 'player'),
+            stats: player.stats,
+            allocatedStats: player.allocatedStats,
+            unspentPoints: Number(player.unspentPoints || 0),
+            statusOverrides: player.statusOverrides,
+            pvpMode: String(player.pvpMode || 'peace'),
+            mapKey: String(player.mapKey || 'forest'),
+            mapId: String(player.mapId || 'Z1'),
+            posX: Number(player.x || 0),
+            posY: Number(player.y || 0),
+            inventory: player.inventory,
+            equippedWeaponId: player.equippedWeaponId ? String(player.equippedWeaponId) : null,
+            currencyCopper: wallet.copper,
+            currencySilver: wallet.silver,
+            currencyGold: wallet.gold,
+            currencyDiamond: wallet.diamond
+        };
+        return await this.savePlayerFromSnapshot(snapshot, options);
+    }
+    async enqueuePlayerSave(player, reason, maxAttempts = 8) {
+        const wallet = (0, currency_1.normalizeWallet)(player.wallet);
+        const payload = {
+            playerId: Number(player.id),
+            expectedVersion: Number.isFinite(Number(player.persistenceVersion)) ? Number(player.persistenceVersion) : undefined,
+            level: Number(player.level || 1),
+            xp: Number(player.xp || 0),
+            hp: Number(player.hp || 0),
+            role: String(player.role || 'player'),
+            stats: player.stats,
+            allocatedStats: player.allocatedStats,
+            unspentPoints: Number(player.unspentPoints || 0),
+            statusOverrides: player.statusOverrides,
+            pvpMode: String(player.pvpMode || 'peace'),
+            mapKey: String(player.mapKey || 'forest'),
+            mapId: String(player.mapId || 'Z1'),
+            posX: Number(player.x || 0),
+            posY: Number(player.y || 0),
+            inventory: player.inventory,
+            equippedWeaponId: player.equippedWeaponId ? String(player.equippedWeaponId) : null,
+            currencyCopper: wallet.copper,
+            currencySilver: wallet.silver,
+            currencyGold: wallet.gold,
+            currencyDiamond: wallet.diamond
+        };
+        await prisma_1.default.persistenceJob.create({
             data: {
-                level: player.level,
-                xp: player.xp,
-                hp: player.hp,
-                role: player.role,
-                stats: player.stats,
-                allocatedStats: player.allocatedStats,
-                unspentPoints: player.unspentPoints,
-                statusOverrides: player.statusOverrides,
-                pvpMode: player.pvpMode,
-                mapKey: player.mapKey,
-                mapId: player.mapId,
-                posX: player.x,
-                posY: player.y,
-                inventory: player.inventory,
-                equippedWeaponId: player.equippedWeaponId
+                playerId: Number(player.id),
+                kind: 'player_save',
+                payload: payload,
+                status: 'pending',
+                attempts: 0,
+                maxAttempts: Math.max(1, Math.min(20, Math.floor(Number(maxAttempts || 8)))),
+                availableAt: new Date(),
+                lastError: reason ? String(reason).slice(0, 250) : null
             }
         });
+    }
+    async processPendingPlayerSaveJobs(limit = 20) {
+        const now = new Date();
+        const jobs = await prisma_1.default.persistenceJob.findMany({
+            where: {
+                kind: 'player_save',
+                status: 'pending',
+                availableAt: { lte: now }
+            },
+            orderBy: { createdAt: 'asc' },
+            take: Math.max(1, Math.min(100, Math.floor(Number(limit || 20))))
+        });
+        let processed = 0;
+        for (const job of jobs) {
+            const claimed = await prisma_1.default.persistenceJob.updateMany({
+                where: { id: job.id, status: 'pending' },
+                data: { status: 'processing', lockedAt: new Date(), attempts: { increment: 1 } }
+            });
+            if (!claimed.count)
+                continue;
+            const payload = job.payload;
+            try {
+                const result = await this.savePlayerFromSnapshot(payload, {
+                    expectedVersion: Number.isFinite(Number(payload?.expectedVersion)) ? Number(payload.expectedVersion) : undefined,
+                    useOptimisticLock: Number.isFinite(Number(payload?.expectedVersion))
+                });
+                if (result.ok || result.conflict) {
+                    await prisma_1.default.persistenceJob.delete({ where: { id: job.id } });
+                }
+                else {
+                    throw new Error('save_not_applied');
+                }
+                processed += 1;
+            }
+            catch (error) {
+                const attempts = Math.max(1, Number(job.attempts || 0) + 1);
+                const maxAttempts = Math.max(1, Number(job.maxAttempts || 8));
+                if (attempts >= maxAttempts) {
+                    await prisma_1.default.persistenceJob.update({
+                        where: { id: job.id },
+                        data: { status: 'failed', lastError: String(error).slice(0, 500) }
+                    });
+                    continue;
+                }
+                const backoffMs = Math.min(300000, 500 * (2 ** (attempts - 1)));
+                await prisma_1.default.persistenceJob.update({
+                    where: { id: job.id },
+                    data: {
+                        status: 'pending',
+                        availableAt: new Date(Date.now() + backoffMs),
+                        lastError: String(error).slice(0, 500)
+                    }
+                });
+            }
+        }
+        return { processed, fetched: jobs.length };
     }
     async getItems() {
         return await prisma_1.default.item.findMany();
@@ -171,6 +271,60 @@ class PersistenceService {
             where: { id: { in: ids } },
             select: { id: true, name: true }
         });
+    }
+    async savePlayerFromSnapshot(snapshot, options = {}) {
+        const playerId = Number(snapshot?.playerId);
+        if (!Number.isFinite(playerId) || playerId <= 0) {
+            throw new Error('invalid_player_snapshot');
+        }
+        const data = {
+            level: Number(snapshot?.level || 1),
+            xp: Number(snapshot?.xp || 0),
+            hp: Number(snapshot?.hp || 0),
+            role: String(snapshot?.role || 'player'),
+            stats: snapshot?.stats ?? {},
+            allocatedStats: snapshot?.allocatedStats ?? {},
+            unspentPoints: Number(snapshot?.unspentPoints || 0),
+            statusOverrides: snapshot?.statusOverrides ?? {},
+            pvpMode: String(snapshot?.pvpMode || 'peace'),
+            mapKey: String(snapshot?.mapKey || 'forest'),
+            mapId: String(snapshot?.mapId || 'Z1'),
+            posX: Number(snapshot?.posX || 0),
+            posY: Number(snapshot?.posY || 0),
+            inventory: snapshot?.inventory ?? [],
+            equippedWeaponId: snapshot?.equippedWeaponId ? String(snapshot.equippedWeaponId) : null,
+            currencyCopper: Number(snapshot?.currencyCopper || 0),
+            currencySilver: Number(snapshot?.currencySilver || 0),
+            currencyGold: Number(snapshot?.currencyGold || 0),
+            currencyDiamond: Number(snapshot?.currencyDiamond || 0),
+            stateVersion: { increment: 1 }
+        };
+        const useOptimistic = Boolean(options.useOptimisticLock) && Number.isFinite(Number(options.expectedVersion));
+        if (useOptimistic) {
+            const expectedVersion = Number(options.expectedVersion);
+            const updated = await prisma_1.default.player.updateMany({
+                where: { id: playerId, stateVersion: expectedVersion },
+                data
+            });
+            if (!updated.count) {
+                const current = await prisma_1.default.player.findUnique({
+                    where: { id: playerId },
+                    select: { stateVersion: true }
+                });
+                return {
+                    ok: false,
+                    conflict: true,
+                    version: Number(current?.stateVersion || expectedVersion || 0)
+                };
+            }
+            return { ok: true, version: expectedVersion + 1 };
+        }
+        const updated = await prisma_1.default.player.update({
+            where: { id: playerId },
+            data,
+            select: { stateVersion: true }
+        });
+        return { ok: true, version: Number(updated.stateVersion || 0) };
     }
 }
 exports.PersistenceService = PersistenceService;

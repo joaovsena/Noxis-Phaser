@@ -4,8 +4,9 @@ exports.InventoryService = void 0;
 const crypto_1 = require("crypto");
 const config_1 = require("../config");
 const math_1 = require("../utils/math");
+const EQUIPMENT_SLOTS = new Set(['helmet', 'chest', 'pants', 'gloves', 'boots', 'ring', 'necklace']);
 class InventoryService {
-    constructor(getGroundItems, setGroundItems, mapInstanceId, persistPlayer, recomputePlayerStats, sendInventoryState, sendStatsUpdated, normalizeHotbarBindings, firstFreeInventorySlot, getSpentSkillPoints, sendRaw, onItemCollected) {
+    constructor(getGroundItems, setGroundItems, mapInstanceId, persistPlayer, recomputePlayerStats, sendInventoryState, sendStatsUpdated, normalizeHotbarBindings, firstFreeInventorySlot, getSpentSkillPoints, sendRaw, normalizeClassId, onItemCollected) {
         this.getGroundItems = getGroundItems;
         this.setGroundItems = setGroundItems;
         this.mapInstanceId = mapInstanceId;
@@ -17,6 +18,7 @@ class InventoryService {
         this.firstFreeInventorySlot = firstFreeInventorySlot;
         this.getSpentSkillPoints = getSpentSkillPoints;
         this.sendRaw = sendRaw;
+        this.normalizeClassId = normalizeClassId;
         this.onItemCollected = onItemCollected;
     }
     handlePickupItem(player, msg) {
@@ -30,6 +32,18 @@ class InventoryService {
             items.splice(index, 1);
             this.setGroundItems(items);
             return;
+        }
+        const now = Date.now();
+        const reservedUntil = Number(item.reservedUntil || 0);
+        if (reservedUntil > now) {
+            const ownerId = Number(item.ownerId || 0);
+            const ownerPartyId = String(item.ownerPartyId || '');
+            const sameOwner = ownerId > 0 && ownerId === Number(player.id);
+            const sameParty = ownerPartyId && String(player.partyId || '') === ownerPartyId;
+            if (!sameOwner && !sameParty) {
+                this.sendRaw(player.ws, { type: 'system_message', text: 'Item temporariamente reservado para outro jogador/grupo.' });
+                return;
+            }
         }
         if ((0, math_1.distance)(player, item) > config_1.ITEM_PICKUP_RANGE)
             return;
@@ -76,9 +90,65 @@ class InventoryService {
             this.sendInventoryState(player);
             return;
         }
-        const found = player.inventory.find((it) => it.id === itemId && it.type === 'weapon');
+        const found = player.inventory.find((it) => it.id === itemId);
         if (!found)
             return;
+        const itemType = String(found.type || '');
+        if (itemType !== 'weapon' && !this.isEquippableArmorOrAccessory(found))
+            return;
+        if (itemType !== 'weapon') {
+            const requiredClass = String(found.requiredClass || '').trim();
+            if (requiredClass) {
+                const playerClass = this.normalizeClassId(player.class);
+                if (this.normalizeClassId(requiredClass) !== playerClass) {
+                    this.sendRaw(player.ws, {
+                        type: 'system_message',
+                        text: `Classe invalida para esse item. Classe: ${requiredClass}.`
+                    });
+                    return;
+                }
+            }
+        }
+        if (itemType !== 'weapon') {
+            const equipSlot = String(found.slot || '');
+            if (!EQUIPMENT_SLOTS.has(equipSlot))
+                return;
+            if (found.equipped === true && String(found.equippedSlot || '') === equipSlot) {
+                found.equipped = false;
+                found.equippedSlot = null;
+                found.slotIndex = this.firstFreeInventorySlot(player.inventory, new Set([String(found.id)]));
+                player.inventory = this.normalizeInventorySlots(player.inventory, player.equippedWeaponId);
+                this.recomputePlayerStats(player);
+                this.persistPlayer(player);
+                this.sendInventoryState(player);
+                return;
+            }
+            const equippedOnSameSlot = player.inventory.find((it) => it.id !== found.id
+                && it.equipped === true
+                && String(it.equippedSlot || '') === equipSlot);
+            if (equippedOnSameSlot) {
+                equippedOnSameSlot.equipped = false;
+                equippedOnSameSlot.equippedSlot = null;
+                equippedOnSameSlot.slotIndex = this.firstFreeInventorySlot(player.inventory, new Set([String(equippedOnSameSlot.id), String(found.id)]));
+            }
+            found.equipped = true;
+            found.equippedSlot = equipSlot;
+            found.slotIndex = -1;
+            player.inventory = this.normalizeInventorySlots(player.inventory, player.equippedWeaponId);
+            this.recomputePlayerStats(player);
+            this.persistPlayer(player);
+            this.sendInventoryState(player);
+            return;
+        }
+        if (player.equippedWeaponId === found.id) {
+            found.slotIndex = this.firstFreeInventorySlot(player.inventory, new Set([String(found.id)]));
+            player.equippedWeaponId = null;
+            player.inventory = this.normalizeInventorySlots(player.inventory, null);
+            this.recomputePlayerStats(player);
+            this.persistPlayer(player);
+            this.sendInventoryState(player);
+            return;
+        }
         const previousEquippedId = player.equippedWeaponId && player.equippedWeaponId !== found.id ? player.equippedWeaponId : null;
         if (previousEquippedId) {
             const oldEquipped = player.inventory.find((it) => it.id === previousEquippedId && it.type === 'weapon');
@@ -104,6 +174,8 @@ class InventoryService {
             return;
         const item = player.inventory.find((it) => it.id === itemId);
         if (!item)
+            return;
+        if (item.equipped === true)
             return;
         const occupant = player.inventory.find((it) => it.slotIndex === toSlot);
         const fromSlot = item.slotIndex;
@@ -144,8 +216,11 @@ class InventoryService {
     }
     handleInventorySort(player) {
         const equippedId = player.equippedWeaponId || null;
+        const equippedArmorIds = new Set((Array.isArray(player.inventory) ? player.inventory : [])
+            .filter((it) => it?.equipped === true)
+            .map((it) => String(it.id || '')));
         const sorted = [...player.inventory]
-            .filter((it) => it.id !== equippedId)
+            .filter((it) => it.id !== equippedId && !equippedArmorIds.has(String(it.id || '')))
             .sort((a, b) => {
             const byName = String(a.name || '').localeCompare(String(b.name || ''));
             if (byName !== 0)
@@ -157,6 +232,11 @@ class InventoryService {
         }
         if (equippedId) {
             const equipped = player.inventory.find((it) => it.id === equippedId);
+            if (equipped)
+                sorted.push({ ...equipped, slotIndex: -1 });
+        }
+        for (const eqId of equippedArmorIds) {
+            const equipped = player.inventory.find((it) => String(it.id || '') === eqId);
             if (equipped)
                 sorted.push({ ...equipped, slotIndex: -1 });
         }
@@ -173,6 +253,9 @@ class InventoryService {
             player.equippedWeaponId = null;
             this.recomputePlayerStats(player);
         }
+        if (player.inventory[index].equipped === true) {
+            this.recomputePlayerStats(player);
+        }
         player.inventory.splice(index, 1);
         player.inventory = this.normalizeInventorySlots(player.inventory, player.equippedWeaponId);
         this.persistPlayer(player);
@@ -183,17 +266,25 @@ class InventoryService {
         const toSlot = Number(msg.toSlot);
         if (!Number.isInteger(toSlot) || toSlot < 0 || toSlot >= config_1.INVENTORY_SIZE)
             return;
-        if (player.equippedWeaponId !== itemId)
-            return;
         const item = player.inventory.find((it) => it.id === itemId);
         if (!item)
+            return;
+        const isEquippedWeapon = player.equippedWeaponId === itemId;
+        const isEquippedAccessory = item.equipped === true;
+        if (!isEquippedWeapon && !isEquippedAccessory)
             return;
         const occupant = player.inventory.find((it) => it.slotIndex === toSlot && it.id !== itemId);
         const fromSlot = item.slotIndex;
         item.slotIndex = toSlot;
         if (occupant)
             occupant.slotIndex = fromSlot;
-        player.equippedWeaponId = null;
+        if (isEquippedWeapon) {
+            player.equippedWeaponId = null;
+        }
+        else {
+            item.equipped = false;
+            item.equippedSlot = null;
+        }
         this.recomputePlayerStats(player);
         player.inventory = this.normalizeInventorySlots(player.inventory, player.equippedWeaponId);
         this.persistPlayer(player);
@@ -253,9 +344,21 @@ class InventoryService {
             const clone = { ...item };
             if (clone.id === equippedWeaponId) {
                 clone.slotIndex = -1;
+                clone.equipped = true;
+                clone.equippedSlot = 'weapon';
                 out.push(clone);
                 continue;
             }
+            const armorEquipped = clone.equipped === true && EQUIPMENT_SLOTS.has(String(clone.equippedSlot || clone.slot || ''));
+            if (armorEquipped) {
+                clone.slotIndex = -1;
+                clone.equipped = true;
+                clone.equippedSlot = String(clone.equippedSlot || clone.slot || '');
+                out.push(clone);
+                continue;
+            }
+            clone.equipped = false;
+            clone.equippedSlot = null;
             if (!Number.isInteger(clone.slotIndex) || clone.slotIndex < 0 || clone.slotIndex >= config_1.INVENTORY_SIZE || used.has(clone.slotIndex)) {
                 clone.slotIndex = this.firstFreeInventorySlot(out.filter((it) => it.id !== equippedWeaponId));
             }
@@ -326,6 +429,14 @@ class InventoryService {
         const at = String(a.templateId || a.type || '');
         const bt = String(b.templateId || b.type || '');
         return at.length > 0 && at === bt;
+    }
+    isEquippableArmorOrAccessory(item) {
+        if (!item || typeof item !== 'object')
+            return false;
+        const slot = String(item.slot || '');
+        if (!EQUIPMENT_SLOTS.has(slot))
+            return false;
+        return String(item.type || '') === 'equipment';
     }
 }
 exports.InventoryService = InventoryService;

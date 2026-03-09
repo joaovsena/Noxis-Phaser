@@ -13,12 +13,13 @@ type SendStatsFn = (player: PlayerRuntime) => void;
 type PersistPlayerFn = (player: PlayerRuntime) => void;
 type SyncPartyFn = () => void;
 type GrantXpFn = (player: PlayerRuntime, amount: number, context?: { mapKey?: string; mapId?: string; }) => void;
+type GrantMobCurrencyFn = (player: PlayerRuntime, mob: any) => void;
 type MapInstanceIdFn = (mapKey: string, mapId: string) => string;
 type DropPosFn = (originX: number, originY: number, dropIndex: number, dropTotal: number, mapKey: string) => { x: number; y: number };
 type PickWeaponTemplateFn = () => any;
-type DropWeaponFn = (x: number, y: number, mapId: string, template?: any) => void;
-type DropPotionFn = (x: number, y: number, mapId: string) => void;
-type DropHourglassFn = (x: number, y: number, mapId: string) => void;
+type DropWeaponFn = (x: number, y: number, mapId: string, template?: any, ownerId?: number | null, ownerPartyId?: string | null, reservedMs?: number) => void;
+type DropPotionFn = (x: number, y: number, mapId: string, ownerId?: number | null, ownerPartyId?: string | null, reservedMs?: number) => void;
+type DropHourglassFn = (x: number, y: number, mapId: string, ownerId?: number | null, ownerPartyId?: string | null, reservedMs?: number) => void;
 
 export class CombatCoreService {
     constructor(
@@ -35,6 +36,7 @@ export class CombatCoreService {
         private readonly persistPlayer: PersistPlayerFn,
         private readonly syncAllPartyStates: SyncPartyFn,
         private readonly grantXp: GrantXpFn,
+        private readonly grantMobCurrency: GrantMobCurrencyFn,
         private readonly mapInstanceId: MapInstanceIdFn,
         private readonly computeLootDropPosition: DropPosFn,
         private readonly pickRandomWeaponTemplate: PickWeaponTemplateFn,
@@ -68,6 +70,7 @@ export class CombatCoreService {
         if (mob.hp > 0) return true;
 
         this.grantXp(player, mob.xpReward, { mapKey: player.mapKey, mapId: player.mapId });
+        this.grantMobCurrency(player, mob);
         const mapInstanceId = this.mapInstanceId(player.mapKey, player.mapId);
         const dropDefs: Array<'weapon' | 'potion_hp' | 'skill_reset_hourglass'> = [];
         if (Math.random() < 0.5) dropDefs.push('weapon');
@@ -84,9 +87,12 @@ export class CombatCoreService {
         }
         dropDefs.forEach((dropType, index) => {
             const dropPos = this.computeLootDropPosition(mob.x, mob.y, index, dropDefs.length, player.mapKey);
-            if (dropType === 'weapon') this.dropWeaponAt(dropPos.x, dropPos.y, mapInstanceId, this.pickRandomWeaponTemplate());
-            else if (dropType === 'potion_hp') this.dropHpPotionAt(dropPos.x, dropPos.y, mapInstanceId);
-            else this.dropSkillResetHourglassAt(dropPos.x, dropPos.y, mapInstanceId);
+            const ownerId = Number(player.id);
+            const ownerPartyId = String(player.partyId || '') || null;
+            const reserveMs = (mob?.kind === 'elite' || mob?.kind === 'subboss' || mob?.kind === 'boss') ? 60_000 : 0;
+            if (dropType === 'weapon') this.dropWeaponAt(dropPos.x, dropPos.y, mapInstanceId, this.pickRandomWeaponTemplate(), ownerId, ownerPartyId, reserveMs);
+            else if (dropType === 'potion_hp') this.dropHpPotionAt(dropPos.x, dropPos.y, mapInstanceId, ownerId, ownerPartyId, reserveMs);
+            else this.dropSkillResetHourglassAt(dropPos.x, dropPos.y, mapInstanceId, ownerId, ownerPartyId, reserveMs);
         });
         this.mobService.removeMob(mob.id);
         return true;

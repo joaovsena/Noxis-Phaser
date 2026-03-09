@@ -53,9 +53,10 @@ export declare const PORTALS_BY_MAP_KEY: Record<string, Array<{
     y: number;
     w: number;
     h: number;
-    toMapKey: string;
-    toX: number;
-    toY: number;
+    toMapKey?: string;
+    toX?: number;
+    toY?: number;
+    dungeonTemplateId?: string;
 }>>;
 export declare function composeMapInstanceId(mapKey: string, instanceId: string): string;
 export declare const DEFAULT_MOB: {
@@ -98,6 +99,9 @@ export declare const WEAPON_TEMPLATE: {
     type: string;
     name: string;
     slot: string;
+    price: {
+        silver: number;
+    };
     bonuses: {
         physicalAttack: number;
         magicAttack: number;
@@ -110,6 +114,10 @@ export declare const WEAPON_TEMPLATE_RUBI: {
     type: string;
     name: string;
     slot: string;
+    price: {
+        gold: number;
+        silver: number;
+    };
     bonuses: {
         physicalAttack: number;
         magicAttack: number;
@@ -122,6 +130,9 @@ export declare const WEAPON_TEMPLATES: {
     type: string;
     name: string;
     slot: string;
+    price: {
+        silver: number;
+    };
     bonuses: {
         physicalAttack: number;
         magicAttack: number;
@@ -134,6 +145,9 @@ export declare const HP_POTION_TEMPLATE: {
     type: string;
     name: string;
     slot: string;
+    price: {
+        copper: number;
+    };
     healPercent: number;
     stackable: boolean;
     maxStack: number;
@@ -143,14 +157,29 @@ export declare const SKILL_RESET_HOURGLASS_TEMPLATE: {
     type: string;
     name: string;
     slot: string;
+    price: {
+        silver: number;
+    };
     stackable: boolean;
     maxStack: number;
 };
+export declare const CLASS_EQUIPMENT_TEMPLATES: {
+    id: string;
+    type: string;
+    name: string;
+    slot: "helmet" | "chest" | "pants" | "gloves" | "boots" | "ring" | "necklace";
+    requiredClass: "knight" | "archer" | "druid" | "assassin";
+    price: any;
+    bonuses: Record<string, number>;
+}[];
 export declare const BUILTIN_ITEM_TEMPLATES: ({
     id: string;
     type: string;
     name: string;
     slot: string;
+    price: {
+        silver: number;
+    };
     bonuses: {
         physicalAttack: number;
         magicAttack: number;
@@ -162,10 +191,37 @@ export declare const BUILTIN_ITEM_TEMPLATES: ({
     type: string;
     name: string;
     slot: string;
+    price: {
+        copper: number;
+    };
+    healPercent: number;
     stackable: boolean;
     maxStack: number;
+} | {
+    id: string;
+    type: string;
+    name: string;
+    slot: string;
+    price: {
+        silver: number;
+    };
+    stackable: boolean;
+    maxStack: number;
+} | {
+    id: string;
+    type: string;
+    name: string;
+    slot: "helmet" | "chest" | "pants" | "gloves" | "boots" | "ring" | "necklace";
+    requiredClass: "knight" | "archer" | "druid" | "assassin";
+    price: any;
+    bonuses: Record<string, number>;
 })[];
 export declare const BUILTIN_ITEM_TEMPLATE_BY_ID: Record<string, any>;
+export declare const NPC_SHOPS: Record<string, Array<{
+    offerId: string;
+    templateId: string;
+    quantity?: number;
+}>>;
 export declare const SKILL_RESET_HOURGLASS_DROP_CHANCE = 0.5;
 export declare const STATUS_IDS: {
     physicalAttack: number;

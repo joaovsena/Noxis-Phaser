@@ -18,6 +18,13 @@ export interface PlayerRuntime {
     role: string;
     inventory: any;
     equippedWeaponId: string | null;
+    wallet: {
+        copper: number;
+        silver: number;
+        gold: number;
+        diamond: number;
+    };
+    persistenceVersion?: number;
     ws: any;
     mapKey: string;
     mapId: string;
@@ -114,6 +121,9 @@ export interface GroundItem {
     x: number;
     y: number;
     mapId: string;
+    ownerId?: number | null;
+    ownerPartyId?: string | null;
+    reservedUntil?: number;
     expiresAt?: number;
 }
 
@@ -351,6 +361,13 @@ export interface NpcInteractMessage {
     npcId: string;
 }
 
+export interface NpcBuyMessage {
+    type: 'npc.buy';
+    npcId: string;
+    offerId: string;
+    quantity?: number;
+}
+
 export interface QuestAcceptMessage {
     type: 'quest.accept';
     questId: string;
@@ -359,6 +376,22 @@ export interface QuestAcceptMessage {
 export interface QuestCompleteMessage {
     type: 'quest.complete';
     questId: string;
+}
+
+export interface DungeonEnterMessage {
+    type: 'dungeon.enter';
+    npcId: string;
+    mode?: 'solo' | 'group';
+}
+
+export interface DungeonReadyMessage {
+    type: 'dungeon.ready';
+    requestId: string;
+    accept: boolean;
+}
+
+export interface DungeonLeaveMessage {
+    type: 'dungeon.leave';
 }
 
 export interface PlayerToggleAfkMessage {
@@ -419,8 +452,12 @@ export type WSMessage =
     | SkillCastMessage
     | SkillLearnMessage
     | NpcInteractMessage
+    | NpcBuyMessage
     | QuestAcceptMessage
     | QuestCompleteMessage
+    | DungeonEnterMessage
+    | DungeonReadyMessage
+    | DungeonLeaveMessage
     | PlayerToggleAfkMessage
     | HotbarSetMessage
     | PingMessage;
