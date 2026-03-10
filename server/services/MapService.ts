@@ -8,8 +8,8 @@ import {
 } from '../config';
 import { PlayerRuntime } from '../models/types';
 import { clamp } from '../utils/math';
-import { getForestTiledCollisionSampler } from '../maps/tiledForestCollision';
-import { getDungeonTiledCollisionSampler } from '../maps/tiledDungeonCollision';
+import { getMapTiledCollisionSampler as getGenericMapTiledCollisionSampler } from '../maps/tiledCollision';
+import { getMapMetadata } from '../maps/mapMetadata';
 
 const MOVE_COLLISION_PADDING = 4;
 const PATHFIND_CELL_SIZE = 12;
@@ -18,6 +18,23 @@ const PROJECT_TO_WALKABLE_MAX_RADIUS = 420;
 const PROJECT_TO_WALKABLE_ANGLE_STEPS = 64;
 
 export class MapService {
+    getMapWorld(mapKey: string) {
+        return getMapMetadata(mapKey)?.world || WORLD;
+    }
+
+    getMapNavGrid(mapKey: string) {
+        const metadata = getMapMetadata(mapKey);
+        const world = metadata?.world || WORLD;
+        const cols = Math.max(1, Number(metadata?.width || Math.floor(world.width / PATHFIND_CELL_SIZE)));
+        const rows = Math.max(1, Number(metadata?.height || Math.floor(world.height / PATHFIND_CELL_SIZE)));
+        return {
+            cols,
+            rows,
+            cellWidth: world.width / cols,
+            cellHeight: world.height / rows
+        };
+    }
+
     mapInstanceId(mapKey: string, mapId: string) {
         return composeMapInstanceId(mapKey, mapId);
     }
@@ -27,14 +44,13 @@ export class MapService {
     }
 
     getMapTiledCollisionSampler(mapKey: string) {
-        if (mapKey === 'forest') return getForestTiledCollisionSampler();
-        if (String(mapKey || '').startsWith('dng_')) return getDungeonTiledCollisionSampler();
-        return null;
+        return getGenericMapTiledCollisionSampler(mapKey);
     }
 
     isBlockedAt(mapKey: string, x: number, y: number) {
-        const px = clamp(x, 0, WORLD.width);
-        const py = clamp(y, 0, WORLD.height);
+        const world = this.getMapWorld(mapKey);
+        const px = clamp(x, 0, world.width);
+        const py = clamp(y, 0, world.height);
         const radius = Math.max(8, PLAYER_HALF_SIZE - 6) + MOVE_COLLISION_PADDING;
         const tiledSampler = this.getMapTiledCollisionSampler(mapKey);
         if (tiledSampler) return tiledSampler.isBlockedAt(px, py, radius);
@@ -55,20 +71,21 @@ export class MapService {
     }
 
     projectToWalkable(mapKey: string, x: number, y: number) {
-        const px = clamp(x, 0, WORLD.width);
-        const py = clamp(y, 0, WORLD.height);
+        const world = this.getMapWorld(mapKey);
+        const px = clamp(x, 0, world.width);
+        const py = clamp(y, 0, world.height);
         if (!this.isBlockedAt(mapKey, px, py)) return { x: px, y: py };
-        const goalCell = this.worldToPathCell(px, py);
+        const goalCell = this.worldToPathCell(mapKey, px, py);
         const nearestGoalCell = this.findNearestWalkableCell(mapKey, goalCell.cx, goalCell.cy, 96);
         if (nearestGoalCell) {
-            const snapped = this.pathCellToWorld(nearestGoalCell.cx, nearestGoalCell.cy);
+            const snapped = this.pathCellToWorld(mapKey, nearestGoalCell.cx, nearestGoalCell.cy);
             if (!this.isBlockedAt(mapKey, snapped.x, snapped.y)) return snapped;
         }
         for (let radius = 8; radius <= PROJECT_TO_WALKABLE_MAX_RADIUS; radius += 8) {
             for (let i = 0; i < PROJECT_TO_WALKABLE_ANGLE_STEPS; i++) {
                 const angle = (Math.PI * 2 * i) / PROJECT_TO_WALKABLE_ANGLE_STEPS;
-                const nx = clamp(px + Math.cos(angle) * radius, 0, WORLD.width);
-                const ny = clamp(py + Math.sin(angle) * radius, 0, WORLD.height);
+                const nx = clamp(px + Math.cos(angle) * radius, 0, world.width);
+                const ny = clamp(py + Math.sin(angle) * radius, 0, world.height);
                 if (!this.isBlockedAt(mapKey, nx, ny)) return { x: nx, y: ny };
             }
         }
@@ -95,10 +112,11 @@ export class MapService {
             }
             if (!portal.toMapKey || !Number.isFinite(Number(portal.toX)) || !Number.isFinite(Number(portal.toY))) continue;
             player.mapKey = portal.toMapKey;
+            const targetWorld = this.getMapWorld(portal.toMapKey);
             const projected = this.projectToWalkable(
                 portal.toMapKey,
-                clamp(Number(portal.toX), 0, WORLD.width),
-                clamp(Number(portal.toY), 0, WORLD.height)
+                clamp(Number(portal.toX), 0, targetWorld.width),
+                clamp(Number(portal.toY), 0, targetWorld.height)
             );
             player.x = projected.x;
             player.y = projected.y;
@@ -117,27 +135,32 @@ export class MapService {
         }
     }
 
-    private worldToPathCell(x: number, y: number) {
-        const maxCellX = Math.floor(WORLD.width / PATHFIND_CELL_SIZE);
-        const maxCellY = Math.floor(WORLD.height / PATHFIND_CELL_SIZE);
+    private worldToPathCell(mapKey: string, x: number, y: number) {
+        const world = this.getMapWorld(mapKey);
+        const grid = this.getMapNavGrid(mapKey);
+        const maxCellX = Math.max(0, grid.cols - 1);
+        const maxCellY = Math.max(0, grid.rows - 1);
         return {
-            cx: clamp(Math.floor(clamp(x, 0, WORLD.width) / PATHFIND_CELL_SIZE), 0, maxCellX),
-            cy: clamp(Math.floor(clamp(y, 0, WORLD.height) / PATHFIND_CELL_SIZE), 0, maxCellY)
+            cx: clamp(Math.floor(clamp(x, 0, world.width) / Math.max(1, grid.cellWidth)), 0, maxCellX),
+            cy: clamp(Math.floor(clamp(y, 0, world.height) / Math.max(1, grid.cellHeight)), 0, maxCellY)
         };
     }
 
-    private pathCellToWorld(cx: number, cy: number) {
+    private pathCellToWorld(mapKey: string, cx: number, cy: number) {
+        const world = this.getMapWorld(mapKey);
+        const grid = this.getMapNavGrid(mapKey);
         return {
-            x: clamp(cx * PATHFIND_CELL_SIZE + PATHFIND_CELL_SIZE / 2, 0, WORLD.width),
-            y: clamp(cy * PATHFIND_CELL_SIZE + PATHFIND_CELL_SIZE / 2, 0, WORLD.height)
+            x: clamp(cx * grid.cellWidth + grid.cellWidth / 2, 0, world.width),
+            y: clamp(cy * grid.cellHeight + grid.cellHeight / 2, 0, world.height)
         };
     }
 
     private isPathCellWalkable(mapKey: string, cx: number, cy: number) {
-        const maxCellX = Math.floor(WORLD.width / PATHFIND_CELL_SIZE);
-        const maxCellY = Math.floor(WORLD.height / PATHFIND_CELL_SIZE);
+        const grid = this.getMapNavGrid(mapKey);
+        const maxCellX = Math.max(0, grid.cols - 1);
+        const maxCellY = Math.max(0, grid.rows - 1);
         if (cx < 0 || cy < 0 || cx > maxCellX || cy > maxCellY) return false;
-        const world = this.pathCellToWorld(cx, cy);
+        const world = this.pathCellToWorld(mapKey, cx, cy);
         const offset = Math.max(2, PATH_PLAN_RADIUS * 0.55);
         const probes = [
             { x: world.x, y: world.y },

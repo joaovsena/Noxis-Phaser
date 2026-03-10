@@ -31,12 +31,13 @@ export class MovementService {
         if (player.dead || player.hp <= 0) return;
         const incomingX = Number(msg.x);
         const incomingY = Number(msg.y);
+        const world = this.mapService.getMapWorld(player.mapKey);
         player.autoAttackActive = false;
         player.attackTargetId = null;
         player.pvpAutoAttackActive = false;
         player.attackTargetPlayerId = null;
-        const destinationX = clamp(Number.isFinite(incomingX) ? incomingX : player.x, 0, WORLD.width);
-        const destinationY = clamp(Number.isFinite(incomingY) ? incomingY : player.y, 0, WORLD.height);
+        const destinationX = clamp(Number.isFinite(incomingX) ? incomingX : player.x, 0, world.width);
+        const destinationY = clamp(Number.isFinite(incomingY) ? incomingY : player.y, 0, world.height);
         this.assignPathTo(player, destinationX, destinationY);
         player.ws.send(JSON.stringify({
             type: 'move_ack',
@@ -222,7 +223,7 @@ export class MovementService {
         if (direct.length > 0) return direct;
         if (Date.now() > deadlineMs) return [];
 
-        const goal = this.worldToPathCell(toX, toY);
+        const goal = this.worldToPathCell(mapKey, toX, toY);
         let candidatesChecked = 0;
         const maxCandidates = this.getNearbyGoalCandidateLimit(mapKey);
         const maxRadius = PATH_NEARBY_GOAL_MAX_RADIUS;
@@ -238,7 +239,7 @@ export class MovementService {
                     if (Date.now() > deadlineMs) break;
                     candidatesChecked += 1;
                     if (!this.isPathCellWalkable(mapKey, cell.cx, cell.cy)) continue;
-                    const world = this.pathCellToWorld(cell.cx, cell.cy);
+                    const world = this.pathCellToWorld(mapKey, cell.cx, cell.cy);
                     const candidate = this.findPath(mapKey, fromX, fromY, world.x, world.y, deadlineMs);
                     if (candidate.length > 0) return candidate;
                     if (candidatesChecked >= maxCandidates) break;
@@ -254,7 +255,7 @@ export class MovementService {
                     if (Date.now() > deadlineMs) break;
                     candidatesChecked += 1;
                     if (!this.isPathCellWalkable(mapKey, cell.cx, cell.cy)) continue;
-                    const world = this.pathCellToWorld(cell.cx, cell.cy);
+                    const world = this.pathCellToWorld(mapKey, cell.cx, cell.cy);
                     const candidate = this.findPath(mapKey, fromX, fromY, world.x, world.y, deadlineMs);
                     if (candidate.length > 0) return candidate;
                     if (candidatesChecked >= maxCandidates) break;
@@ -293,27 +294,32 @@ export class MovementService {
         return smoothed;
     }
 
-    private worldToPathCell(x: number, y: number) {
-        const maxCellX = Math.floor(WORLD.width / PATHFIND_CELL_SIZE);
-        const maxCellY = Math.floor(WORLD.height / PATHFIND_CELL_SIZE);
+    private worldToPathCell(mapKey: string, x: number, y: number) {
+        const world = this.mapService.getMapWorld(mapKey);
+        const grid = this.mapService.getMapNavGrid(mapKey);
+        const maxCellX = Math.max(0, grid.cols - 1);
+        const maxCellY = Math.max(0, grid.rows - 1);
         return {
-            cx: clamp(Math.floor(clamp(x, 0, WORLD.width) / PATHFIND_CELL_SIZE), 0, maxCellX),
-            cy: clamp(Math.floor(clamp(y, 0, WORLD.height) / PATHFIND_CELL_SIZE), 0, maxCellY)
+            cx: clamp(Math.floor(clamp(x, 0, world.width) / Math.max(1, grid.cellWidth)), 0, maxCellX),
+            cy: clamp(Math.floor(clamp(y, 0, world.height) / Math.max(1, grid.cellHeight)), 0, maxCellY)
         };
     }
 
-    private pathCellToWorld(cx: number, cy: number) {
+    private pathCellToWorld(mapKey: string, cx: number, cy: number) {
+        const world = this.mapService.getMapWorld(mapKey);
+        const grid = this.mapService.getMapNavGrid(mapKey);
         return {
-            x: clamp(cx * PATHFIND_CELL_SIZE + PATHFIND_CELL_SIZE / 2, 0, WORLD.width),
-            y: clamp(cy * PATHFIND_CELL_SIZE + PATHFIND_CELL_SIZE / 2, 0, WORLD.height)
+            x: clamp(cx * grid.cellWidth + grid.cellWidth / 2, 0, world.width),
+            y: clamp(cy * grid.cellHeight + grid.cellHeight / 2, 0, world.height)
         };
     }
 
     private isPathCellWalkable(mapKey: string, cx: number, cy: number) {
-        const maxCellX = Math.floor(WORLD.width / PATHFIND_CELL_SIZE);
-        const maxCellY = Math.floor(WORLD.height / PATHFIND_CELL_SIZE);
+        const grid = this.mapService.getMapNavGrid(mapKey);
+        const maxCellX = Math.max(0, grid.cols - 1);
+        const maxCellY = Math.max(0, grid.rows - 1);
         if (cx < 0 || cy < 0 || cx > maxCellX || cy > maxCellY) return false;
-        const world = this.pathCellToWorld(cx, cy);
+        const world = this.pathCellToWorld(mapKey, cx, cy);
         const offset = Math.max(2, PATH_PLAN_RADIUS * 0.55);
         const probes = [
             { x: world.x, y: world.y },
@@ -333,12 +339,13 @@ export class MovementService {
     }
 
     private findPath(mapKey: string, fromX: number, fromY: number, toX: number, toY: number, deadlineMs: number) {
-        const startRaw = this.worldToPathCell(fromX, fromY);
-        const goalRaw = this.worldToPathCell(toX, toY);
+        const world = this.mapService.getMapWorld(mapKey);
+        const startRaw = this.worldToPathCell(mapKey, fromX, fromY);
+        const goalRaw = this.worldToPathCell(mapKey, toX, toY);
         const start = this.findNearestWalkableCell(mapKey, startRaw.cx, startRaw.cy, 20) || startRaw;
         const goal = this.findNearestWalkableCell(mapKey, goalRaw.cx, goalRaw.cy, 72) || goalRaw;
         const sameCell = start.cx === goal.cx && start.cy === goal.cy;
-        if (sameCell) return [{ x: clamp(toX, 0, WORLD.width), y: clamp(toY, 0, WORLD.height) }];
+        if (sameCell) return [{ x: clamp(toX, 0, world.width), y: clamp(toY, 0, world.height) }];
 
         const walkableMemo = new Map<string, boolean>();
         const isWalkable = (cx: number, cy: number) => {
@@ -384,7 +391,7 @@ export class MovementService {
             }
             if (!current) break;
             if (current === goalKey) {
-                return this.rebuildPath(cameFrom, current, toX, toY);
+                return this.rebuildPath(mapKey, cameFrom, current, toX, toY);
             }
             open.delete(current);
             closed.add(current);
@@ -398,8 +405,8 @@ export class MovementService {
                 if (closed.has(nkey)) continue;
                 if (!isWalkable(nx, ny)) continue;
                 if (dir.x !== 0 && dir.y !== 0) {
-                    const from = this.pathCellToWorld(cx, cy);
-                    const to = this.pathCellToWorld(nx, ny);
+                    const from = this.pathCellToWorld(mapKey, cx, cy);
+                    const to = this.pathCellToWorld(mapKey, nx, ny);
                     if (this.isPathSegmentBlocked(mapKey, from.x, from.y, to.x, to.y)) continue;
                 }
                 const tentative = Number(g.get(current) ?? Number.POSITIVE_INFINITY) + dir.c;
@@ -414,8 +421,9 @@ export class MovementService {
     }
 
     private isPathBlockedAt(mapKey: string, x: number, y: number, radiusOverride?: number) {
-        const px = clamp(x, 0, WORLD.width);
-        const py = clamp(y, 0, WORLD.height);
+        const world = this.mapService.getMapWorld(mapKey);
+        const px = clamp(x, 0, world.width);
+        const py = clamp(y, 0, world.height);
         const radius = Number.isFinite(Number(radiusOverride)) ? Number(radiusOverride) : PATH_PROBE_RADIUS;
         const tiledSampler = this.mapService.getMapTiledCollisionSampler(mapKey);
         if (tiledSampler) return tiledSampler.isBlockedAt(px, py, radius);
@@ -478,7 +486,7 @@ export class MovementService {
         return diag * 1.4142 + straight;
     }
 
-    private rebuildPath(cameFrom: Map<string, string>, current: string, toX: number, toY: number) {
+    private rebuildPath(mapKey: string, cameFrom: Map<string, string>, current: string, toX: number, toY: number) {
         const reversed: string[] = [current];
         while (cameFrom.has(current)) {
             current = String(cameFrom.get(current));
@@ -491,9 +499,10 @@ export class MovementService {
                 const [cxRaw, cyRaw] = key.split(',');
                 const cx = Number(cxRaw);
                 const cy = Number(cyRaw);
-                return this.pathCellToWorld(cx, cy);
+                return this.pathCellToWorld(mapKey, cx, cy);
             });
-        path.push({ x: clamp(toX, 0, WORLD.width), y: clamp(toY, 0, WORLD.height) });
+        const world = this.mapService.getMapWorld(mapKey);
+        path.push({ x: clamp(toX, 0, world.width), y: clamp(toY, 0, world.height) });
         return path;
     }
 }

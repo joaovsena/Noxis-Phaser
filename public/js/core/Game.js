@@ -293,6 +293,7 @@ export class Game {
         this.tiledTilesets = {};
         this.tiledTilesetLoadState = {};
         this.tiledRenderCache = {};
+        this.tiledMapConfigs = {};
         this.forestDecor = [];
         this.minimapViewSize = 1850;
         this.minimapLastDrawAt = 0;
@@ -309,8 +310,6 @@ export class Game {
         this.maxFps = 60;
         this.frameIntervalMs = 1000 / this.maxFps;
         this.lastRenderAt = 0;
-        this.loadTiledMapLayout('A1');
-        this.loadTiledMapLayout('DNG');
         this.ensureForestMap();
         this.setPartyTab('area');
         this.renderPartyPanel();
@@ -1246,6 +1245,18 @@ export class Game {
             this.mapWidth = message.world.width;
             this.mapHeight = message.world.height;
             this.ensureForestMap();
+        }
+        if (message.mapTiled && message.mapTiled.mapCode) {
+            const configCode = String(message.mapTiled.mapCode || '').toUpperCase();
+            if (configCode) {
+                this.tiledMapConfigs[configCode] = {
+                    tmjUrl: String(message.mapTiled.tmjUrl || ''),
+                    tilesBaseUrl: String(message.mapTiled.tilesBaseUrl || '')
+                };
+                this.currentMapCode = String(message.mapTiled.mapCode || this.currentMapCode);
+                if (this.mapCodeLabel) this.mapCodeLabel.textContent = `Mapa ${this.currentMapCode}`;
+                this.loadTiledMapLayout(this.currentMapCode);
+            }
         }
 
         if (this.menu) this.menu.hide();
@@ -3620,8 +3631,17 @@ export class Game {
             this.mapHeight = message.world.height;
             this.ensureForestMap();
         }
+        if (message.mapTiled && message.mapTiled.mapCode) {
+            const configCode = String(message.mapTiled.mapCode || '').toUpperCase();
+            if (configCode) {
+                this.tiledMapConfigs[configCode] = {
+                    tmjUrl: String(message.mapTiled.tmjUrl || ''),
+                    tilesBaseUrl: String(message.mapTiled.tilesBaseUrl || '')
+                };
+            }
+        }
         if (message.mapCode) {
-            this.currentMapCode = message.mapCode;
+            this.currentMapCode = String(message.mapTiled?.mapCode || message.mapCode);
             if (this.mapCodeLabel) this.mapCodeLabel.textContent = `Mapa ${this.currentMapCode}`;
         }
         if (message.mapId) {
@@ -3656,7 +3676,7 @@ export class Game {
     }
 
     isDungeonMapActive() {
-        return this.currentMapCode === 'DNG' || String(this.currentMapKey || '').startsWith('dng_');
+        return String(this.currentMapKey || '').startsWith('dng_');
     }
 
     updateDungeonLeaveButtonVisibility() {
@@ -3671,7 +3691,7 @@ export class Game {
 
     hasTiledTileset(mapCode = this.currentMapCode) {
         const code = String(mapCode || '').toUpperCase();
-        return Boolean(this.tiledTilesets && this.tiledTilesets[code] && this.tiledTilesets[code].tileImagesById);
+        return Boolean(this.tiledTilesets && this.tiledTilesets[code] && Array.isArray(this.tiledTilesets[code].sets) && this.tiledTilesets[code].sets.length > 0);
     }
 
     shouldRenderTiledMap() {
@@ -3683,7 +3703,7 @@ export class Game {
         const code = String(this.currentMapCode || '').toUpperCase();
         const layout = this.tiledMapLayouts?.[code];
         if (layout) return String(layout?.orientation || '').toLowerCase() === 'isometric';
-        return code === 'DNG';
+        return false;
     }
 
     getIsoProjectionConfig() {
@@ -3715,23 +3735,6 @@ export class Game {
                 offsetX,
                 offsetY
             };
-        }
-        if (code === 'DNG') {
-            const mapW = Math.max(24, Math.floor(this.mapWidth / this.tileSize));
-            const mapH = Math.max(24, Math.floor(this.mapHeight / this.tileSize));
-            const tileW = 128;
-            const tileH = 64;
-            const halfW = tileW / 2;
-            const halfH = tileH / 2;
-            const span = Math.max(1, mapW + mapH - 2);
-            const isoW = span * halfW;
-            const isoH = span * halfH;
-            const scale = Math.min(this.mapWidth / Math.max(1, isoW), this.mapHeight / Math.max(1, isoH));
-            const projectedW = isoW * scale;
-            const projectedH = isoH * scale;
-            const offsetX = (this.mapWidth - projectedW) * 0.5;
-            const offsetY = (this.mapHeight - projectedH) * 0.5;
-            return { mapW, mapH, tileW, tileH, halfW, halfH, scale, offsetX, offsetY };
         }
         return null;
     }
@@ -3818,23 +3821,29 @@ export class Game {
         }
     }
 
-    async loadTiledTilesetForMap(mapCode, tmj, tmjUrl, tilesBaseUrl = '/maps/tileset/a1/') {
+    async loadTiledTilesetForMap(mapCode, tmj, tmjUrl, tilesBaseUrl = '') {
         const code = String(mapCode || '').toUpperCase();
         if (this.tiledTilesetLoadState[code] === 'loading' || this.tiledTilesetLoadState[code] === 'ready') return;
-        const tsRef = Array.isArray(tmj?.tilesets) ? tmj.tilesets[0] : null;
-        const source = String(tsRef?.source || '');
-        if (!source) return;
+        const tsRefs = Array.isArray(tmj?.tilesets) ? tmj.tilesets.filter((ts) => String(ts?.source || '').trim()) : [];
+        if (!tsRefs.length) return;
 
         this.tiledTilesetLoadState[code] = 'loading';
         try {
-            const tsxUrl = new URL(source, `https://noxis.local${tmjUrl}`).pathname;
-            const response = await fetch(tsxUrl, { cache: 'no-store' });
-            if (!response.ok) throw new Error(`http_${response.status}`);
-            const tsx = await response.text();
-            const parsedTileset = this.parseTsxTileImages(tsx, { mapCode: code, tmjUrl, tilesBaseUrl });
+            const sets = [];
+            for (const tsRef of tsRefs) {
+                const source = String(tsRef?.source || '');
+                const tsxUrl = new URL(source, `https://noxis.local${tmjUrl}`).pathname;
+                const response = await fetch(tsxUrl, { cache: 'no-store' });
+                if (!response.ok) throw new Error(`http_${response.status}`);
+                const tsx = await response.text();
+                const parsedTileset = this.parseTsxTileImages(tsx, { mapCode: code, tmjUrl, tilesBaseUrl });
+                sets.push({
+                    ...parsedTileset,
+                    firstgid: Math.max(1, Number(tsRef?.firstgid || 1))
+                });
+            }
             this.tiledTilesets[code] = {
-                ...parsedTileset,
-                firstgid: Math.max(1, Number(tsRef?.firstgid || 1))
+                sets
             };
             delete this.tiledRenderCache[code];
             this.tiledTilesetLoadState[code] = 'ready';
@@ -3847,8 +3856,9 @@ export class Game {
         const out = {};
         const text = String(tsxText || '');
         const mapCode = String(options?.mapCode || this.currentMapCode || '').toUpperCase();
-        const tmjUrl = String(options?.tmjUrl || '/maps/A1/a1.tmj');
-        const tilesBaseUrl = String(options?.tilesBaseUrl || '/maps/tileset/a1/');
+        const mapConfig = this.getTiledMapConfig(mapCode) || {};
+        const tmjUrl = String(options?.tmjUrl || mapConfig.tmjUrl || '');
+        const tilesBaseUrl = String(options?.tilesBaseUrl || mapConfig.tilesBaseUrl || '');
         const tileOffsetMatch = text.match(/<tileoffset\s+x="(-?\d+)"\s+y="(-?\d+)"/);
         const tilesetTileWidthMatch = text.match(/tilewidth="(\d+)"/);
         const tilesetTileHeightMatch = text.match(/tileheight="(\d+)"/);
@@ -3885,19 +3895,7 @@ export class Game {
 
     getTiledMapConfig(mapCode) {
         const code = String(mapCode || '').toUpperCase();
-        if (code === 'A1') {
-            return {
-                tmjUrl: '/maps/A1/a1.tmj',
-                tilesBaseUrl: '/maps/tileset/a1/'
-            };
-        }
-        if (code === 'DNG') {
-            return {
-                tmjUrl: '/maps/dungeon1/dungeon1.tmj',
-                tilesBaseUrl: '/maps/dungeon1/tiles/'
-            };
-        }
-        return null;
+        return this.tiledMapConfigs?.[code] || null;
     }
 
     decodeTiledLayerData(layer, mapWidth, mapHeight) {
@@ -3932,10 +3930,6 @@ export class Game {
         const direct = new URL(source, `https://noxis.local${tmjUrl}`).pathname;
         out.push(direct);
         out.push(`${String(tilesBaseUrl || '/').replace(/\/+$/, '')}/${basename}`);
-        if (mapCode === 'DNG') {
-            out.push(`/maps/dungeon1/assets/${basename}`);
-            out.push(`/maps/tileset/a1/${basename}`);
-        }
         return [...new Set(out)];
     }
 
@@ -5990,19 +5984,13 @@ export class Game {
 
         const mapW = Math.max(1, Number(layout.width || 1));
         const mapH = Math.max(1, Number(layout.height || 1));
-        const firstgid = Math.max(1, Number(tileset.firstgid || 1));
         const gidMask = 0x1fffffff;
         const layers = Array.isArray(layout.layers) ? layout.layers : [];
-        const tileImagesById = tileset.tileImagesById || {};
-        const tileImageList = Object.values(tileImagesById);
+        const tilesetSets = Array.isArray(tileset.sets) ? [...tileset.sets].sort((a, b) => Number(a.firstgid || 0) - Number(b.firstgid || 0)) : [];
+        const tileImageList = tilesetSets.flatMap((set) => Object.values(set.tileImagesById || {}));
         if (!tileImageList.length) return null;
         const allReady = tileImageList.every((img) => img && img.complete && img.naturalWidth && img.naturalHeight);
         if (!allReady) return null;
-        const tileoffsetX = Number(tileset.tileoffsetX || 0);
-        const tileoffsetY = Number(tileset.tileoffsetY || 0);
-        const tilesetTileWidth = Math.max(1, Number(tileset.tilesetTileWidth || layout.tilewidth || 1));
-        const tilesetTileHeight = Math.max(1, Number(tileset.tilesetTileHeight || layout.tileheight || 1));
-        const spriteScale = cfg.scale * (Number(layout.tilewidth || tilesetTileWidth) / Math.max(1, tilesetTileWidth));
 
         for (let layerIndex = 0; layerIndex < layers.length; layerIndex++) {
             const layer = layers[layerIndex];
@@ -6022,10 +6010,22 @@ export class Game {
                     const raw = Number(data[idx] || 0) >>> 0;
                     if (!raw) continue;
                     const gid = raw & gidMask;
-                    if (!gid || gid < firstgid) continue;
-                    const localId = gid - firstgid;
-                    const img = tileImagesById[localId];
+                    if (!gid) continue;
+                    let activeTileset = null;
+                    for (let i = 0; i < tilesetSets.length; i++) {
+                        const candidate = tilesetSets[i];
+                        if (Number(candidate.firstgid || 0) <= gid) activeTileset = candidate;
+                        else break;
+                    }
+                    if (!activeTileset) continue;
+                    const localId = gid - Math.max(1, Number(activeTileset.firstgid || 1));
+                    const img = activeTileset.tileImagesById?.[localId];
                     if (!img || !img.complete || !img.naturalWidth || !img.naturalHeight) continue;
+                    const tileoffsetX = Number(activeTileset.tileoffsetX || 0);
+                    const tileoffsetY = Number(activeTileset.tileoffsetY || 0);
+                    const tilesetTileWidth = Math.max(1, Number(activeTileset.tilesetTileWidth || layout.tilewidth || 1));
+                    const tilesetTileHeight = Math.max(1, Number(activeTileset.tilesetTileHeight || layout.tileheight || 1));
+                    const spriteScale = cfg.scale * (Number(layout.tilewidth || tilesetTileWidth) / Math.max(1, tilesetTileWidth));
 
                     const projected = this.isoGridToRenderCoords(col, row, cfg);
                     const drawW = img.naturalWidth * spriteScale;

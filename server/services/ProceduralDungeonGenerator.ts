@@ -85,7 +85,7 @@ export function generateDungeonLayout(instanceId: string, template: DungeonTempl
     });
 
     return {
-        mapKey: `dng_${instanceId}`,
+        mapKey: template.id,
         entrySpawn: room1Spawn,
         features,
         mobSpawns,

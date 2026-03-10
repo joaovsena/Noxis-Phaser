@@ -21,6 +21,7 @@ export type DungeonTemplate = {
     name: string;
     description: string;
     mapKey: string;
+    mapAssetKey?: string;
     maxPlayers: number;
     entryNpcId?: string;
     entryPortalId?: string;
@@ -40,6 +41,7 @@ export const DUNGEON_TEMPLATES: DungeonTemplate[] = [
         name: 'Ruinas de Alder',
         description: 'Instancia curta para grupo: limpe os corredores e derrote o Guardiao das Ruinas.',
         mapKey: 'forest',
+        mapAssetKey: 'dungeon1',
         maxPlayers: 4,
         entryNpcId: 'npc_dungeon_warden',
         entryPortalId: 'forest_dungeon_ruins_01',
@@ -77,4 +79,3 @@ export const DUNGEON_BY_ENTRY_NPC = Object.fromEntries(
 export const DUNGEON_BY_ENTRY_PORTAL = Object.fromEntries(
     DUNGEON_TEMPLATES.filter((d) => d.entryPortalId).map((d) => [String(d.entryPortalId), d])
 ) as Record<string, DungeonTemplate>;
-

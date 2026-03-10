@@ -231,6 +231,11 @@
  </tile>
  <tile id="76">
   <image source="../../../../Kenney - Dungeon/Isometric/stoneColumnWood_E.png" width="256" height="512"/>
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="128" y="246">
+    <polygon points="0,0 -32,18 -32,58 0,76 32,58 32,18"/>
+   </object>
+  </objectgroup>
  </tile>
  <tile id="77">
   <image source="../../../../Kenney - Dungeon/Isometric/stoneColumnWood_N.png" width="256" height="512"/>
@@ -690,15 +695,30 @@
  </tile>
  <tile id="209">
   <image source="../../../../Kenney - Dungeon/Isometric/stoneWallRound_N.png" width="256" height="512"/>
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="0" y="286">
+    <polygon points="0,0 30,-16 124,34 226,-12 256,8 256,154 128,224 0,156"/>
+   </object>
+  </objectgroup>
  </tile>
  <tile id="210">
   <image source="../../../../Kenney - Dungeon/Isometric/stoneWallRound_S.png" width="256" height="512"/>
  </tile>
  <tile id="211">
   <image source="../../../../Kenney - Dungeon/Isometric/stoneWallRound_W.png" width="256" height="512"/>
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="126" y="224">
+    <polygon points="0,0 124,62 128,224 2,290 -28,272 -28,18"/>
+   </object>
+  </objectgroup>
  </tile>
  <tile id="212">
   <image source="../../../../Kenney - Dungeon/Isometric/stoneWallRoundBroken_E.png" width="256" height="512"/>
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="128" y="224">
+    <polygon points="0,0 -122,62 -126,214 -94,232 28,170 26,18"/>
+   </object>
+  </objectgroup>
  </tile>
  <tile id="213">
   <image source="../../../../Kenney - Dungeon/Isometric/stoneWallRoundBroken_N.png" width="256" height="512"/>
@@ -777,6 +797,11 @@
  </tile>
  <tile id="238">
   <image source="../../../../Kenney - Dungeon/Isometric/tableChairsBroken_S.png" width="256" height="512"/>
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="128" y="248">
+    <polygon points="0,0 -58,30 -58,74 0,104 58,74 58,30"/>
+   </object>
+  </objectgroup>
  </tile>
  <tile id="239">
   <image source="../../../../Kenney - Dungeon/Isometric/tableChairsBroken_W.png" width="256" height="512"/>
@@ -789,6 +814,11 @@
  </tile>
  <tile id="242">
   <image source="../../../../Kenney - Dungeon/Isometric/tableRound_S.png" width="256" height="512"/>
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="128" y="254">
+    <polygon points="0,0 -40,22 -40,58 0,78 40,58 40,22"/>
+   </object>
+  </objectgroup>
  </tile>
  <tile id="243">
   <image source="../../../../Kenney - Dungeon/Isometric/tableRound_W.png" width="256" height="512"/>
@@ -798,18 +828,33 @@
  </tile>
  <tile id="245">
   <image source="../../../../Kenney - Dungeon/Isometric/tableRoundChairs_N.png" width="256" height="512"/>
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="128" y="248">
+    <polygon points="0,0 -62,30 -62,80 0,110 62,80 62,30"/>
+   </object>
+  </objectgroup>
  </tile>
  <tile id="246">
   <image source="../../../../Kenney - Dungeon/Isometric/tableRoundChairs_S.png" width="256" height="512"/>
  </tile>
  <tile id="247">
   <image source="../../../../Kenney - Dungeon/Isometric/tableRoundChairs_W.png" width="256" height="512"/>
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="128" y="248">
+    <polygon points="0,0 -62,30 -62,80 0,110 62,80 62,30"/>
+   </object>
+  </objectgroup>
  </tile>
  <tile id="248">
   <image source="../../../../Kenney - Dungeon/Isometric/tableRoundItemsChairs_E.png" width="256" height="512"/>
  </tile>
  <tile id="249">
   <image source="../../../../Kenney - Dungeon/Isometric/tableRoundItemsChairs_N.png" width="256" height="512"/>
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="128" y="248">
+    <polygon points="0,0 -62,30 -62,80 0,110 62,80 62,30"/>
+   </object>
+  </objectgroup>
  </tile>
  <tile id="250">
   <image source="../../../../Kenney - Dungeon/Isometric/tableRoundItemsChairs_S.png" width="256" height="512"/>
@@ -822,6 +867,11 @@
  </tile>
  <tile id="253">
   <image source="../../../../Kenney - Dungeon/Isometric/tableShort_N.png" width="256" height="512"/>
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="128" y="252">
+    <polygon points="0,0 -52,26 -52,64 0,90 52,64 52,26"/>
+   </object>
+  </objectgroup>
  </tile>
  <tile id="254">
   <image source="../../../../Kenney - Dungeon/Isometric/tableShort_S.png" width="256" height="512"/>
@@ -831,15 +881,35 @@
  </tile>
  <tile id="256">
   <image source="../../../../Kenney - Dungeon/Isometric/tableShortChairs_E.png" width="256" height="512"/>
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="128" y="248">
+    <polygon points="0,0 -62,30 -62,78 0,108 62,78 62,30"/>
+   </object>
+  </objectgroup>
  </tile>
  <tile id="257">
   <image source="../../../../Kenney - Dungeon/Isometric/tableShortChairs_N.png" width="256" height="512"/>
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="128" y="248">
+    <polygon points="0,0 -62,30 -62,78 0,108 62,78 62,30"/>
+   </object>
+  </objectgroup>
  </tile>
  <tile id="258">
   <image source="../../../../Kenney - Dungeon/Isometric/tableShortChairs_S.png" width="256" height="512"/>
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="128" y="248">
+    <polygon points="0,0 -62,30 -62,78 0,108 62,78 62,30"/>
+   </object>
+  </objectgroup>
  </tile>
  <tile id="259">
   <image source="../../../../Kenney - Dungeon/Isometric/tableShortChairs_W.png" width="256" height="512"/>
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="128" y="248">
+    <polygon points="0,0 -62,30 -62,78 0,108 62,78 62,30"/>
+   </object>
+  </objectgroup>
  </tile>
  <tile id="260">
   <image source="../../../../Kenney - Dungeon/Isometric/woodenCrate_E.png" width="256" height="512"/>
@@ -852,27 +922,57 @@
  </tile>
  <tile id="263">
   <image source="../../../../Kenney - Dungeon/Isometric/woodenCrate_W.png" width="256" height="512"/>
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="128" y="258">
+    <polygon points="0,0 -36,18 -36,52 0,70 36,52 36,18"/>
+   </object>
+  </objectgroup>
  </tile>
  <tile id="264">
   <image source="../../../../Kenney - Dungeon/Isometric/woodenCrates_E.png" width="256" height="512"/>
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="128" y="252">
+    <polygon points="0,0 -52,24 -52,66 0,92 52,66 52,24"/>
+   </object>
+  </objectgroup>
  </tile>
  <tile id="265">
   <image source="../../../../Kenney - Dungeon/Isometric/woodenCrates_N.png" width="256" height="512"/>
  </tile>
  <tile id="266">
   <image source="../../../../Kenney - Dungeon/Isometric/woodenCrates_S.png" width="256" height="512"/>
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="128" y="252">
+    <polygon points="0,0 -52,24 -52,66 0,92 52,66 52,24"/>
+   </object>
+  </objectgroup>
  </tile>
  <tile id="267">
   <image source="../../../../Kenney - Dungeon/Isometric/woodenCrates_W.png" width="256" height="512"/>
  </tile>
  <tile id="268">
   <image source="../../../../Kenney - Dungeon/Isometric/woodenPile_E.png" width="256" height="512"/>
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="128" y="250">
+    <polygon points="0,0 -56,28 -56,82 0,110 56,82 56,28"/>
+   </object>
+  </objectgroup>
  </tile>
  <tile id="269">
   <image source="../../../../Kenney - Dungeon/Isometric/woodenPile_N.png" width="256" height="512"/>
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="128" y="250">
+    <polygon points="0,0 -56,28 -56,82 0,110 56,82 56,28"/>
+   </object>
+  </objectgroup>
  </tile>
  <tile id="270">
   <image source="../../../../Kenney - Dungeon/Isometric/woodenPile_S.png" width="256" height="512"/>
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="128" y="250">
+    <polygon points="0,0 -56,28 -56,82 0,110 56,82 56,28"/>
+   </object>
+  </objectgroup>
  </tile>
  <tile id="271">
   <image source="../../../../Kenney - Dungeon/Isometric/woodenPile_W.png" width="256" height="512"/>

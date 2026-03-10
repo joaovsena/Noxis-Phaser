@@ -20,6 +20,7 @@ import { PlayerRuntime, GroundItem, AuthMessage, MoveMessage } from '../models/t
 import { hashPassword } from '../utils/hash';
 import { clamp, distance, xpRequired } from '../utils/math';
 import { CURRENCY_LABELS, CurrencyName, formatWallet, normalizeWallet, parseCurrencyName, toCopperByCurrency, walletFromCopper, walletToCopper, Wallet } from '../utils/currency';
+import { getMapMetadata } from '../maps/mapMetadata';
 import {
     CLASS_TEMPLATES,
     WORLD,
@@ -571,11 +572,21 @@ export class GameController {
             this.players.set(player.id, player);
             this.usernameToPlayerId.set(username, player.id);
             ws.playerId = player.id;
+            const mapMetadata = getMapMetadata(player.mapKey);
 
             ws.send(JSON.stringify({
                 type: 'auth_success',
                 playerId: player.id,
-                world: WORLD,
+                world: mapMetadata?.world || WORLD,
+                mapTiled: mapMetadata
+                    ? {
+                        mapCode: mapMetadata.mapCode,
+                        assetKey: mapMetadata.assetKey,
+                        tmjUrl: mapMetadata.tmjUrl,
+                        tilesBaseUrl: mapMetadata.tilesBaseUrl,
+                        orientation: mapMetadata.orientation
+                    }
+                    : null,
                 role: player.role,
                 statusIds: STATUS_IDS,
                 hotbarBindings: this.getPlayerHotbarBindings(player)
@@ -674,10 +685,11 @@ export class GameController {
     private createRuntimePlayer(username: string, profile: any): PlayerRuntime {
         const mapKey = MAP_KEYS.includes(profile?.mapKey) ? profile.mapKey : DEFAULT_MAP_KEY;
         const mapId = MAP_IDS.includes(profile?.mapId) ? profile.mapId : DEFAULT_MAP_ID;
+        const mapWorld = this.mapService.getMapWorld(mapKey);
         const spawn = this.projectToWalkable(
             mapKey,
-            clamp(Number.isFinite(Number(profile?.posX)) ? Number(profile.posX) : 500, 0, WORLD.width),
-            clamp(Number.isFinite(Number(profile?.posY)) ? Number(profile.posY) : 500, 0, WORLD.height)
+            clamp(Number.isFinite(Number(profile?.posX)) ? Number(profile.posX) : 500, 0, mapWorld.width),
+            clamp(Number.isFinite(Number(profile?.posY)) ? Number(profile.posY) : 500, 0, mapWorld.height)
         );
         const parsedId = Number(profile?.id);
         const id = Number.isInteger(parsedId) ? parsedId : Math.floor(Date.now() % 2147483647);
@@ -924,10 +936,11 @@ export class GameController {
                 return;
             }
             target.mapKey = mapKey;
+            const targetWorld = this.mapService.getMapWorld(target.mapKey);
             const projected = this.projectToWalkable(
                 target.mapKey,
-                clamp(target.x, 0, WORLD.width),
-                clamp(target.y, 0, WORLD.height)
+                clamp(target.x, 0, targetWorld.width),
+                clamp(target.y, 0, targetWorld.height)
             );
             target.x = projected.x;
             target.y = projected.y;
@@ -956,10 +969,11 @@ export class GameController {
             }
             player.mapKey = target.mapKey;
             player.mapId = target.mapId;
+            const playerWorld = this.mapService.getMapWorld(player.mapKey);
             const projected = this.projectToWalkable(
                 player.mapKey,
-                clamp(target.x, 0, WORLD.width),
-                clamp(target.y, 0, WORLD.height)
+                clamp(target.x, 0, playerWorld.width),
+                clamp(target.y, 0, playerWorld.height)
             );
             player.x = projected.x;
             player.y = projected.y;
@@ -987,10 +1001,11 @@ export class GameController {
             }
             target.mapKey = player.mapKey;
             target.mapId = player.mapId;
+            const summonWorld = this.mapService.getMapWorld(target.mapKey);
             const projected = this.projectToWalkable(
                 target.mapKey,
-                clamp(player.x, 0, WORLD.width),
-                clamp(player.y, 0, WORLD.height)
+                clamp(player.x, 0, summonWorld.width),
+                clamp(player.y, 0, summonWorld.height)
             );
             target.x = projected.x;
             target.y = projected.y;
@@ -1261,10 +1276,11 @@ export class GameController {
         player.hp = player.maxHp;
         const reviveX = Number.isFinite(Number(player.deathX)) ? Number(player.deathX) : player.x;
         const reviveY = Number.isFinite(Number(player.deathY)) ? Number(player.deathY) : player.y;
+        const mapWorld = this.mapService.getMapWorld(player.mapKey);
         const projected = this.projectToWalkable(
             player.mapKey,
-            clamp(reviveX, 0, WORLD.width),
-            clamp(reviveY, 0, WORLD.height)
+            clamp(reviveX, 0, mapWorld.width),
+            clamp(reviveY, 0, mapWorld.height)
         );
         player.x = projected.x;
         player.y = projected.y;
@@ -1536,6 +1552,7 @@ export class GameController {
         const mapInstanceId = this.mapInstanceId(mapKey, mapId);
         const hasTiledCollision = Boolean(this.getMapTiledCollisionSampler(mapKey));
         const isDungeonMap = String(mapKey || '').startsWith('dng_');
+        const mapMetadata = getMapMetadata(mapKey);
         const publicPlayers: Record<string, any> = {};
         for (const [id, player] of this.players.entries()) {
             if (player.mapId !== mapId || player.mapKey !== mapKey) continue;
@@ -1546,7 +1563,7 @@ export class GameController {
             players: publicPlayers,
             mobs: this.mobService.getMobsByMap(mapInstanceId),
             groundItems: this.groundItems.filter((it) => it.mapId === mapInstanceId),
-            mapCode: mapCodeFromKey(mapKey),
+            mapCode: mapMetadata?.mapCode || mapCodeFromKey(mapKey),
             mapKey,
             mapTheme: isDungeonMap ? 'undead' : (MAP_THEMES[mapKey] || 'forest'),
             mapFeatures: hasTiledCollision ? [] : (MAP_FEATURES_BY_KEY[mapKey] || []),
@@ -1554,7 +1571,16 @@ export class GameController {
             activeEvents: this.eventService.getActiveEventsForMap(mapKey, mapId),
             portals: PORTALS_BY_MAP_KEY[mapKey] || [],
             mapId,
-            world: WORLD
+            world: mapMetadata?.world || WORLD,
+            mapTiled: mapMetadata
+                ? {
+                    mapCode: mapMetadata.mapCode,
+                    assetKey: mapMetadata.assetKey,
+                    tmjUrl: mapMetadata.tmjUrl,
+                    tilesBaseUrl: mapMetadata.tilesBaseUrl,
+                    orientation: mapMetadata.orientation
+                }
+                : null
         };
     }
 
@@ -2046,10 +2072,11 @@ export class GameController {
     }
 
     private computeLootDropPosition(originX: number, originY: number, dropIndex: number, dropTotal: number, mapKey: string) {
+        const mapWorld = this.mapService.getMapWorld(mapKey);
         const center = this.projectToWalkable(
             mapKey,
-            clamp(Number(originX || 0), 0, WORLD.width),
-            clamp(Number(originY || 0), 0, WORLD.height)
+            clamp(Number(originX || 0), 0, mapWorld.width),
+            clamp(Number(originY || 0), 0, mapWorld.height)
         );
         if (dropTotal <= 1 || dropIndex <= 0) return center;
 
