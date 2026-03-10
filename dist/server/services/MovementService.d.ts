@@ -12,6 +12,10 @@ export declare class MovementService {
     assignPathTo(player: PlayerRuntime, destinationX: number, destinationY: number): void;
     recalculatePathToward(player: PlayerRuntime, destinationX: number, destinationY: number, now: number): void;
     private getIsoMoveStepMultiplier;
+    private isDungeonMap;
+    private getPathfindBudgetMs;
+    private getPathfindMaxIters;
+    private getNearbyGoalCandidateLimit;
     private findPathWithNearbyGoals;
     private smoothWorldPath;
     private worldToPathCell;

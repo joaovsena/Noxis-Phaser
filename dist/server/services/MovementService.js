@@ -4,15 +4,20 @@ exports.MovementService = void 0;
 const config_1 = require("../config");
 const math_1 = require("../utils/math");
 const PATHFIND_CELL_SIZE = 12;
-const PATHFIND_MAX_ITERS = 45000;
+const PATHFIND_MAX_ITERS = 18000;
+const PATHFIND_MAX_ITERS_DUNGEON = 6500;
 const PATH_RECALC_MS = 280;
 const PATH_PROBE_RADIUS = Math.max(8, config_1.PLAYER_HALF_SIZE - 6);
 const PATH_STUCK_REPATH_MS = 520;
 const PATH_STUCK_TIMEOUT_MS = 1200;
 const PATH_NEARBY_GOAL_MAX_CANDIDATES = 72;
+const PATH_NEARBY_GOAL_MAX_CANDIDATES_DUNGEON = 18;
 const PATH_NEARBY_GOAL_MAX_RADIUS = 42;
 const ISO_AXIAL_RATIO = 2;
 const PATH_PLAN_RADIUS = Math.max(6, PATH_PROBE_RADIUS - 4);
+const PATHFIND_BUDGET_MS = 12;
+const PATHFIND_BUDGET_MS_DUNGEON = 6;
+const MOVE_ACK_PATH_NODE_LIMIT = 80;
 class MovementService {
     constructor(mapService, getActiveSkillEffectAggregate) {
         this.mapService = mapService;
@@ -37,8 +42,8 @@ class MovementService {
             targetY: player.targetY,
             projectedX: player.pathDestinationX,
             projectedY: player.pathDestinationY,
-            pathNodes: Array.isArray(player.movePath) ? player.movePath : [],
-            pathNodesRaw: Array.isArray(player.rawMovePath) ? player.rawMovePath : []
+            pathNodes: Array.isArray(player.movePath) ? player.movePath.slice(0, MOVE_ACK_PATH_NODE_LIMIT) : [],
+            pathNodesRaw: Array.isArray(player.rawMovePath) ? player.rawMovePath.slice(0, MOVE_ACK_PATH_NODE_LIMIT) : []
         }));
     }
     movePlayerTowardTarget(player, deltaSeconds, now) {
@@ -153,9 +158,10 @@ class MovementService {
     }
     assignPathTo(player, destinationX, destinationY) {
         const projected = this.mapService.projectToWalkable(player.mapKey, destinationX, destinationY);
+        const deadlineMs = Date.now() + this.getPathfindBudgetMs(player.mapKey);
         player.pathDestinationX = projected.x;
         player.pathDestinationY = projected.y;
-        const rawPath = this.findPathWithNearbyGoals(player.mapKey, player.x, player.y, projected.x, projected.y);
+        const rawPath = this.findPathWithNearbyGoals(player.mapKey, player.x, player.y, projected.x, projected.y, deadlineMs);
         player.rawMovePath = rawPath;
         player.movePath = this.smoothWorldPath(player.mapKey, player.x, player.y, rawPath);
         if (player.movePath.length > 0) {
@@ -189,26 +195,46 @@ class MovementService {
             return 1;
         return (0, math_1.clamp)(card / proj, 0.78, 1.62);
     }
-    findPathWithNearbyGoals(mapKey, fromX, fromY, toX, toY) {
-        const direct = this.findPath(mapKey, fromX, fromY, toX, toY);
+    isDungeonMap(mapKey) {
+        return String(mapKey || '').startsWith('dng_');
+    }
+    getPathfindBudgetMs(mapKey) {
+        return this.isDungeonMap(mapKey) ? PATHFIND_BUDGET_MS_DUNGEON : PATHFIND_BUDGET_MS;
+    }
+    getPathfindMaxIters(mapKey) {
+        return this.isDungeonMap(mapKey) ? PATHFIND_MAX_ITERS_DUNGEON : PATHFIND_MAX_ITERS;
+    }
+    getNearbyGoalCandidateLimit(mapKey) {
+        return this.isDungeonMap(mapKey) ? PATH_NEARBY_GOAL_MAX_CANDIDATES_DUNGEON : PATH_NEARBY_GOAL_MAX_CANDIDATES;
+    }
+    findPathWithNearbyGoals(mapKey, fromX, fromY, toX, toY, deadlineMs) {
+        const direct = this.findPath(mapKey, fromX, fromY, toX, toY, deadlineMs);
         if (direct.length > 0)
             return direct;
+        if (Date.now() > deadlineMs)
+            return [];
         const goal = this.worldToPathCell(toX, toY);
         let candidatesChecked = 0;
-        const maxCandidates = PATH_NEARBY_GOAL_MAX_CANDIDATES;
+        const maxCandidates = this.getNearbyGoalCandidateLimit(mapKey);
         const maxRadius = PATH_NEARBY_GOAL_MAX_RADIUS;
         for (let r = 1; r <= maxRadius && candidatesChecked < maxCandidates; r++) {
+            if (Date.now() > deadlineMs)
+                break;
             for (let dx = -r; dx <= r && candidatesChecked < maxCandidates; dx++) {
+                if (Date.now() > deadlineMs)
+                    break;
                 const checks = [
                     { cx: goal.cx + dx, cy: goal.cy - r },
                     { cx: goal.cx + dx, cy: goal.cy + r }
                 ];
                 for (const cell of checks) {
+                    if (Date.now() > deadlineMs)
+                        break;
                     candidatesChecked += 1;
                     if (!this.isPathCellWalkable(mapKey, cell.cx, cell.cy))
                         continue;
                     const world = this.pathCellToWorld(cell.cx, cell.cy);
-                    const candidate = this.findPath(mapKey, fromX, fromY, world.x, world.y);
+                    const candidate = this.findPath(mapKey, fromX, fromY, world.x, world.y, deadlineMs);
                     if (candidate.length > 0)
                         return candidate;
                     if (candidatesChecked >= maxCandidates)
@@ -216,16 +242,20 @@ class MovementService {
                 }
             }
             for (let dy = -r + 1; dy <= r - 1 && candidatesChecked < maxCandidates; dy++) {
+                if (Date.now() > deadlineMs)
+                    break;
                 const checks = [
                     { cx: goal.cx - r, cy: goal.cy + dy },
                     { cx: goal.cx + r, cy: goal.cy + dy }
                 ];
                 for (const cell of checks) {
+                    if (Date.now() > deadlineMs)
+                        break;
                     candidatesChecked += 1;
                     if (!this.isPathCellWalkable(mapKey, cell.cx, cell.cy))
                         continue;
                     const world = this.pathCellToWorld(cell.cx, cell.cy);
-                    const candidate = this.findPath(mapKey, fromX, fromY, world.x, world.y);
+                    const candidate = this.findPath(mapKey, fromX, fromY, world.x, world.y, deadlineMs);
                     if (candidate.length > 0)
                         return candidate;
                     if (candidatesChecked >= maxCandidates)
@@ -300,7 +330,7 @@ class MovementService {
         }
         return true;
     }
-    findPath(mapKey, fromX, fromY, toX, toY) {
+    findPath(mapKey, fromX, fromY, toX, toY, deadlineMs) {
         const startRaw = this.worldToPathCell(fromX, fromY);
         const goalRaw = this.worldToPathCell(toX, toY);
         const start = this.findNearestWalkableCell(mapKey, startRaw.cx, startRaw.cy, 20) || startRaw;
@@ -336,7 +366,8 @@ class MovementService {
             { x: -1, y: -1, c: 1.4142 }
         ];
         let iter = 0;
-        while (open.size > 0 && iter < PATHFIND_MAX_ITERS) {
+        const iterLimit = this.getPathfindMaxIters(mapKey);
+        while (open.size > 0 && iter < iterLimit && Date.now() <= deadlineMs) {
             iter += 1;
             let current = '';
             let bestF = Number.POSITIVE_INFINITY;

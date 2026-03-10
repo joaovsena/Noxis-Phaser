@@ -4929,23 +4929,50 @@ export class Game {
                 ctx.strokeStyle = 'rgba(255, 70, 70, 0.95)';
                 ctx.lineWidth = 1;
                 if (feature.shape === 'rect') {
-                    const projected = this.worldToRenderCoords(Number(feature.x), Number(feature.y));
-                    const x = (projected.x - worldRect.x) * sx;
-                    const y = (projected.y - worldRect.y) * sy;
-                    const w = Number(feature.w) * sx;
-                    const h = Number(feature.h) * sy;
-                    ctx.strokeRect(x, y, w, h);
+                    if (this.isIsometricMap()) {
+                        this.traceIsoRectPath(
+                            ctx,
+                            Number(feature.x),
+                            Number(feature.y),
+                            Number(feature.w || 0),
+                            Number(feature.h || 0),
+                            worldRect,
+                            sx,
+                            sy
+                        );
+                        ctx.stroke();
+                    } else {
+                        const projected = this.worldToRenderCoords(Number(feature.x), Number(feature.y));
+                        const x = (projected.x - worldRect.x) * sx;
+                        const y = (projected.y - worldRect.y) * sy;
+                        const w = Number(feature.w) * sx;
+                        const h = Number(feature.h) * sy;
+                        ctx.strokeRect(x, y, w, h);
+                    }
                 } else if (feature.shape === 'circle') {
-                    const projected = this.worldToRenderCoords(Number(feature.x), Number(feature.y));
-                    ctx.beginPath();
-                    ctx.arc(
-                        (projected.x - worldRect.x) * sx,
-                        (projected.y - worldRect.y) * sy,
-                        Number(feature.r) * Math.min(sx, sy),
-                        0,
-                        Math.PI * 2
-                    );
-                    ctx.stroke();
+                    if (this.isIsometricMap()) {
+                        this.traceIsoCirclePath(
+                            ctx,
+                            Number(feature.x),
+                            Number(feature.y),
+                            Number(feature.r || 0),
+                            worldRect,
+                            sx,
+                            sy
+                        );
+                        ctx.stroke();
+                    } else {
+                        const projected = this.worldToRenderCoords(Number(feature.x), Number(feature.y));
+                        ctx.beginPath();
+                        ctx.arc(
+                            (projected.x - worldRect.x) * sx,
+                            (projected.y - worldRect.y) * sy,
+                            Number(feature.r) * Math.min(sx, sy),
+                            0,
+                            Math.PI * 2
+                        );
+                        ctx.stroke();
+                    }
                 }
             }
         }
@@ -5312,6 +5339,7 @@ export class Game {
     drawMapFeatures(ctx, worldRect, sx = 1, sy = 1, previewMode = false) {
         if (this.currentMapCode === 'A1' && this.hasTiledLayout('A1')) return;
         if (!Array.isArray(this.mapFeatures) || !this.mapFeatures.length) return;
+        const isIso = this.isIsometricMap();
         for (const feature of this.mapFeatures) {
             const kind = String(feature.kind || '');
             const shape = String(feature.shape || '');
@@ -5364,6 +5392,25 @@ export class Game {
             if (shape === 'rect') {
                 const fw = Number(feature.w) || 0;
                 const fh = Number(feature.h) || 0;
+                if (isIso) {
+                    if (fw <= 0 || fh <= 0) continue;
+                    this.traceIsoRectPath(ctx, Number(feature.x), Number(feature.y), fw, fh, worldRect, sx, sy);
+                    ctx.fill();
+                    ctx.stroke();
+                    if (accent) {
+                        ctx.strokeStyle = accent;
+                        ctx.lineWidth = Math.max(1, (previewMode ? 1 : 2) * 0.9);
+                        const p1 = this.projectWorldToLayer(Number(feature.x), Number(feature.y), worldRect, sx, sy);
+                        const p2 = this.projectWorldToLayer(Number(feature.x) + fw, Number(feature.y), worldRect, sx, sy);
+                        ctx.beginPath();
+                        ctx.moveTo(p1.x, p1.y);
+                        ctx.lineTo(p2.x, p2.y);
+                        ctx.stroke();
+                        ctx.strokeStyle = edge;
+                        ctx.lineWidth = previewMode ? 1 : 2;
+                    }
+                    continue;
+                }
                 const fx = (Number(feature.x) - worldRect.x) * sx;
                 const fy = (Number(feature.y) - worldRect.y) * sy;
                 const pw = fw * sx;
@@ -5390,6 +5437,19 @@ export class Game {
 
             if (shape === 'circle') {
                 const fr = Number(feature.r) || 0;
+                if (isIso) {
+                    if (fr <= 0) continue;
+                    this.traceIsoCirclePath(ctx, Number(feature.x), Number(feature.y), fr, worldRect, sx, sy);
+                    ctx.fill();
+                    ctx.stroke();
+                    if (!accent) continue;
+                    const projected = this.projectWorldToLayer(Number(feature.x), Number(feature.y), worldRect, sx, sy);
+                    ctx.fillStyle = accent;
+                    ctx.beginPath();
+                    ctx.arc(projected.x, projected.y, Math.max(2, fr * Math.min(sx, sy) * 0.18), 0, Math.PI * 2);
+                    ctx.fill();
+                    continue;
+                }
                 const fx = (Number(feature.x) - worldRect.x) * sx;
                 const fy = (Number(feature.y) - worldRect.y) * sy;
                 const pr = fr * Math.min(sx, sy);
@@ -5405,6 +5465,41 @@ export class Game {
                 ctx.fill();
             }
         }
+    }
+
+    projectWorldToLayer(worldX, worldY, worldRect, sx = 1, sy = 1) {
+        const projected = this.worldToRenderCoords(Number(worldX || 0), Number(worldY || 0));
+        return {
+            x: (projected.x - Number(worldRect?.x || 0)) * sx,
+            y: (projected.y - Number(worldRect?.y || 0)) * sy
+        };
+    }
+
+    traceIsoRectPath(ctx, x, y, w, h, worldRect, sx = 1, sy = 1) {
+        const p1 = this.projectWorldToLayer(x, y, worldRect, sx, sy);
+        const p2 = this.projectWorldToLayer(x + w, y, worldRect, sx, sy);
+        const p3 = this.projectWorldToLayer(x + w, y + h, worldRect, sx, sy);
+        const p4 = this.projectWorldToLayer(x, y + h, worldRect, sx, sy);
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.lineTo(p3.x, p3.y);
+        ctx.lineTo(p4.x, p4.y);
+        ctx.closePath();
+    }
+
+    traceIsoCirclePath(ctx, cx, cy, r, worldRect, sx = 1, sy = 1) {
+        const steps = 20;
+        ctx.beginPath();
+        for (let i = 0; i <= steps; i++) {
+            const t = (i / steps) * Math.PI * 2;
+            const px = cx + Math.cos(t) * r;
+            const py = cy + Math.sin(t) * r;
+            const projected = this.projectWorldToLayer(px, py, worldRect, sx, sy);
+            if (i === 0) ctx.moveTo(projected.x, projected.y);
+            else ctx.lineTo(projected.x, projected.y);
+        }
+        ctx.closePath();
     }
 
     drawPixelPortal(ctx, centerX, centerY, radius, pixelSize = 2) {
@@ -6797,23 +6892,50 @@ export class Game {
                 this.ctx.strokeStyle = 'rgba(255, 80, 80, 0.9)';
                 this.ctx.lineWidth = 2;
                 if (feature.shape === 'rect') {
-                this.ctx.strokeRect(
-                    this.worldToRenderCoords(Number(feature.x), Number(feature.y)).x - this.camera.x,
-                    this.worldToRenderCoords(Number(feature.x), Number(feature.y)).y - this.camera.y,
-                    Number(feature.w),
-                    Number(feature.h)
-                );
-            } else if (feature.shape === 'circle') {
-                const projected = this.worldToRenderCoords(Number(feature.x), Number(feature.y));
-                this.ctx.beginPath();
-                this.ctx.arc(
-                    projected.x - this.camera.x,
-                    projected.y - this.camera.y,
-                    Number(feature.r),
-                    0,
-                    Math.PI * 2
-                );
-                this.ctx.stroke();
+                    if (this.isIsometricMap()) {
+                        this.traceIsoRectPath(
+                            this.ctx,
+                            Number(feature.x),
+                            Number(feature.y),
+                            Number(feature.w || 0),
+                            Number(feature.h || 0),
+                            { x: this.camera.x, y: this.camera.y },
+                            1,
+                            1
+                        );
+                        this.ctx.stroke();
+                    } else {
+                        this.ctx.strokeRect(
+                            this.worldToRenderCoords(Number(feature.x), Number(feature.y)).x - this.camera.x,
+                            this.worldToRenderCoords(Number(feature.x), Number(feature.y)).y - this.camera.y,
+                            Number(feature.w),
+                            Number(feature.h)
+                        );
+                    }
+                } else if (feature.shape === 'circle') {
+                    if (this.isIsometricMap()) {
+                        this.traceIsoCirclePath(
+                            this.ctx,
+                            Number(feature.x),
+                            Number(feature.y),
+                            Number(feature.r || 0),
+                            { x: this.camera.x, y: this.camera.y },
+                            1,
+                            1
+                        );
+                        this.ctx.stroke();
+                    } else {
+                        const projected = this.worldToRenderCoords(Number(feature.x), Number(feature.y));
+                        this.ctx.beginPath();
+                        this.ctx.arc(
+                            projected.x - this.camera.x,
+                            projected.y - this.camera.y,
+                            Number(feature.r),
+                            0,
+                            Math.PI * 2
+                        );
+                        this.ctx.stroke();
+                    }
                 }
             }
         }
