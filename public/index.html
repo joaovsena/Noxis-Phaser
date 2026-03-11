@@ -104,7 +104,10 @@
     </div>
 
     <div id="char-panel" class="panel card shadow hidden">
-        <div id="char-panel-header" class="panel-header card-header">Personagem (arraste)</div>
+        <div id="char-panel-header" class="panel-header card-header">
+            <span>Personagem (arraste)</span>
+            <button id="char-panel-close" class="panel-close-btn btn btn-outline-light btn-sm" type="button" aria-label="Fechar personagem">X</button>
+        </div>
         <div class="card-body">
         <div id="char-panel-name">-</div>
         <div class="char-layout">
@@ -171,6 +174,7 @@
     <div id="minimap-wrap" class="hud-minimap hidden">
         <canvas id="minimap-canvas" width="190" height="190"></canvas>
         <div id="map-code-label">Mapa A1</div>
+        <div id="minimap-coords-label" class="map-coords-label">X: -- | Y: --</div>
         <div class="minimap-instance-bar">
             <label for="instance-select" class="form-label mb-0">Instancia</label>
             <select id="instance-select" class="form-select form-select-sm">
@@ -218,8 +222,11 @@
 
     <div id="worldmap-panel" class="hud-worldmap card shadow hidden">
         <div id="worldmap-header" class="worldmap-header card-header">
-            <div>Mapa Completo (M)</div>
-            <button id="worldmap-close" class="btn btn-outline-light btn-sm" type="button">Fechar</button>
+            <div class="worldmap-header-main">
+                <div>Mapa Completo (M)</div>
+                <div id="worldmap-coords-label" class="map-coords-label">X: -- | Y: --</div>
+            </div>
+            <button id="worldmap-close" class="panel-close-btn btn btn-outline-light btn-sm" type="button" aria-label="Fechar mapa">X</button>
         </div>
         <div class="card-body">
             <canvas id="worldmap-canvas" width="860" height="560"></canvas>
@@ -278,7 +285,10 @@
     </div>
 
     <div id="quest-panel" class="panel card shadow hidden">
-        <div id="quest-header" class="panel-header card-header">Quests Ativas (J)</div>
+        <div id="quest-header" class="panel-header card-header">
+            <span>Quests Ativas (J)</span>
+            <button id="quest-panel-close" class="panel-close-btn btn btn-outline-light btn-sm" type="button" aria-label="Fechar quests">X</button>
+        </div>
         <div class="card-body">
             <div id="quest-list"></div>
         </div>
@@ -295,7 +305,10 @@
     </div>
 
     <div id="party-panel" class="panel card shadow hidden">
-        <div id="party-header" class="panel-header card-header">Grupo (G)</div>
+        <div id="party-header" class="panel-header card-header">
+            <span>Grupo (G)</span>
+            <button id="party-panel-close" class="panel-close-btn btn btn-outline-light btn-sm" type="button" aria-label="Fechar grupo">X</button>
+        </div>
         <div class="card-body">
         <div class="party-tabs">
             <button id="party-tab-area" class="btn btn-outline-light active" type="button">Grupos na Area</button>
@@ -346,7 +359,10 @@
     </div>
 
     <div id="friends-panel" class="panel card shadow hidden">
-        <div id="friends-header" class="panel-header card-header">Amigos (O)</div>
+        <div id="friends-header" class="panel-header card-header">
+            <span>Amigos (O)</span>
+            <button id="friends-panel-close" class="panel-close-btn btn btn-outline-light btn-sm" type="button" aria-label="Fechar amigos">X</button>
+        </div>
         <div class="card-body">
         <div class="party-tabs">
             <button id="friends-tab-list" class="btn btn-outline-light active" type="button">Amigos</button>
@@ -368,7 +384,10 @@
     </div>
 
     <div id="inventory-panel" class="panel card shadow hidden">
-        <div id="inventory-header" class="panel-header card-header">Inventario</div>
+        <div id="inventory-header" class="panel-header card-header">
+            <span>Inventario</span>
+            <button id="inventory-panel-close" class="panel-close-btn btn btn-outline-light btn-sm" type="button" aria-label="Fechar inventario">X</button>
+        </div>
         <div class="card-body">
         <div class="inventory-toolbar">
             <button id="inventory-sort" class="btn btn-outline-light btn-sm" type="button">Ordenar</button>
@@ -380,7 +399,10 @@
     </div>
 
     <div id="skills-panel" class="panel card shadow hidden">
-        <div id="skills-header" class="panel-header card-header">Habilidades (V)</div>
+        <div id="skills-header" class="panel-header card-header">
+            <span>Habilidades (V)</span>
+            <button id="skills-panel-close" class="panel-close-btn btn btn-outline-light btn-sm" type="button" aria-label="Fechar habilidades">X</button>
+        </div>
         <div class="card-body">
         <div class="skills-topbar">
             <button id="skills-tab-holy" class="skills-tab btn btn-outline-light active" type="button">Holy</button>

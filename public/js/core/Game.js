@@ -75,6 +75,7 @@ export class Game {
         this.minimapCanvas = document.getElementById('minimap-canvas');
         this.minimapCtx = this.minimapCanvas.getContext('2d');
         this.mapCodeLabel = document.getElementById('map-code-label');
+        this.minimapCoordsLabel = document.getElementById('minimap-coords-label');
         this.mapSettingsToggle = document.getElementById('map-settings-toggle');
         this.mapSettingsPanel = document.getElementById('map-settings-panel');
         this.autoAttackToggle = document.getElementById('auto-attack-toggle');
@@ -101,12 +102,14 @@ export class Game {
         this.worldmapCanvas = document.getElementById('worldmap-canvas');
         this.worldmapCtx = this.worldmapCanvas.getContext('2d');
         this.worldmapClose = document.getElementById('worldmap-close');
+        this.worldmapCoordsLabel = document.getElementById('worldmap-coords-label');
         this.menuMap = document.getElementById('menu-map');
         this.menuParty = document.getElementById('menu-party');
         this.menuFriends = document.getElementById('menu-friends');
         this.menusWrap = document.getElementById('menus-wrap');
         this.partyPanel = document.getElementById('party-panel');
         this.partyHeader = document.getElementById('party-header');
+        this.partyPanelClose = document.getElementById('party-panel-close');
         this.partyTabMy = document.getElementById('party-tab-my');
         this.partyTabArea = document.getElementById('party-tab-area');
         this.partyViewMy = document.getElementById('party-view-my');
@@ -133,6 +136,7 @@ export class Game {
         this.dungeonNotificationsList = document.getElementById('dungeon-notifications-list');
         this.friendsPanel = document.getElementById('friends-panel');
         this.friendsHeader = document.getElementById('friends-header');
+        this.friendsPanelClose = document.getElementById('friends-panel-close');
         this.friendsTabList = document.getElementById('friends-tab-list');
         this.friendsTabRequests = document.getElementById('friends-tab-requests');
         this.friendsViewList = document.getElementById('friends-view-list');
@@ -191,6 +195,7 @@ export class Game {
         this.instanceSelect = document.getElementById('instance-select');
         this.inventoryPanel = document.getElementById('inventory-panel');
         this.inventoryHeader = document.getElementById('inventory-header');
+        this.inventoryPanelClose = document.getElementById('inventory-panel-close');
         this.inventoryGrid = document.getElementById('inventory-grid');
         this.inventorySortBtn = document.getElementById('inventory-sort');
         this.inventoryEquippedLabel = document.getElementById('inventory-equipped-label');
@@ -216,9 +221,11 @@ export class Game {
         };
         this.draggingEquippedWeapon = null;
         this.charPanelHeader = document.getElementById('char-panel-header');
+        this.charPanelClose = document.getElementById('char-panel-close');
         this.charPanelName = document.getElementById('char-panel-name');
         this.skillsPanel = document.getElementById('skills-panel');
         this.skillsHeader = document.getElementById('skills-header');
+        this.skillsPanelClose = document.getElementById('skills-panel-close');
         this.skillsTabHoly = document.getElementById('skills-tab-holy');
         this.skillsTabBlood = document.getElementById('skills-tab-blood');
         this.skillsPointsLabel = document.getElementById('skills-points-label');
@@ -232,6 +239,8 @@ export class Game {
         this.adminSend = document.getElementById('admin-send');
         this.adminResult = document.getElementById('admin-result');
         this.questPanel = document.getElementById('quest-panel');
+        this.questHeader = document.getElementById('quest-header');
+        this.questPanelClose = document.getElementById('quest-panel-close');
         this.questList = document.getElementById('quest-list');
         this.npcDialogPanel = document.getElementById('npc-dialog-panel');
         this.npcDialogHeader = document.getElementById('npc-dialog-header');
@@ -254,6 +263,8 @@ export class Game {
         this.partyNotifyExpiryTimer = null;
         this.friendNotifyExpiryTimer = null;
         this.dungeonNotifyExpiryTimer = null;
+        this.minimapHoverWorld = null;
+        this.worldmapHoverWorld = null;
         this.partyPanelSignature = '';
         this.isDead = false;
         this.statAllocationPending = {
@@ -312,6 +323,9 @@ export class Game {
         this.perfHudLastPaintAt = 0;
         this.perfHudPaintIntervalMs = 250;
         this.perfHudDirty = true;
+        this.clientPerfWindowStartedAt = performance.now();
+        this.clientPerfWindowMs = 2000;
+        this.clientPerfSamples = {};
         this.maxFps = 60;
         this.frameIntervalMs = 1000 / this.maxFps;
         this.lastRenderAt = 0;
@@ -448,6 +462,10 @@ export class Game {
             if (isUiBlockedTarget(t)) return;
             if (t.closest('#gameCanvas')) return;
             sendMoveOrTarget(e.clientX, e.clientY);
+        });
+
+        window.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
         });
 
         window.addEventListener('resize', () => this.resize());
@@ -629,6 +647,12 @@ export class Game {
             if (!this.localId) return;
             this.toggleFriendsPanel();
         });
+        if (this.charPanelClose) this.charPanelClose.addEventListener('click', () => this.hidePanel(this.panel));
+        if (this.inventoryPanelClose) this.inventoryPanelClose.addEventListener('click', () => this.hidePanel(this.inventoryPanel));
+        if (this.skillsPanelClose) this.skillsPanelClose.addEventListener('click', () => this.hidePanel(this.skillsPanel));
+        if (this.questPanelClose) this.questPanelClose.addEventListener('click', () => this.hidePanel(this.questPanel));
+        if (this.partyPanelClose) this.partyPanelClose.addEventListener('click', () => this.hidePanel(this.partyPanel));
+        if (this.friendsPanelClose) this.friendsPanelClose.addEventListener('click', () => this.hidePanel(this.friendsPanel));
         if (this.npcDialogClose) {
             this.npcDialogClose.addEventListener('click', () => {
                 if (this.npcDialogPanel) this.npcDialogPanel.classList.add('hidden');
@@ -643,6 +667,15 @@ export class Game {
             if (!this.localId) return;
             this.handleMinimapClick(e.clientX, e.clientY);
         });
+        this.minimapCanvas.addEventListener('mousemove', (e) => {
+            const worldRect = this.getMinimapWorldRect();
+            this.minimapHoverWorld = this.worldFromCanvasClient(this.minimapCanvas, e.clientX, e.clientY, worldRect);
+            this.updateMapCoordsLabel(this.minimapCoordsLabel, this.minimapHoverWorld);
+        });
+        this.minimapCanvas.addEventListener('mouseleave', () => {
+            this.minimapHoverWorld = null;
+            this.updateMapCoordsLabel(this.minimapCoordsLabel, null);
+        });
         this.worldmapCanvas.addEventListener('pointerdown', (e) => {
             if (!this.localId) return;
             if (e.button === 0) {
@@ -654,9 +687,20 @@ export class Game {
                 this.handleWorldMapWaypointPing(e.clientX, e.clientY);
             }
         });
+        this.worldmapCanvas.addEventListener('mousemove', (e) => {
+            const worldRect = this.getFullPreviewWorldRect();
+            this.worldmapHoverWorld = this.worldFromCanvasClient(this.worldmapCanvas, e.clientX, e.clientY, worldRect);
+            this.updateMapCoordsLabel(this.worldmapCoordsLabel, this.worldmapHoverWorld);
+        });
+        this.worldmapCanvas.addEventListener('mouseleave', () => {
+            this.worldmapHoverWorld = null;
+            this.updateMapCoordsLabel(this.worldmapCoordsLabel, null);
+        });
         this.worldmapClose.addEventListener('click', () => {
             this.worldmapPanel.classList.add('hidden');
             this.closeAllTooltips('ui_window_focus_changed');
+            this.worldmapHoverWorld = null;
+            this.updateMapCoordsLabel(this.worldmapCoordsLabel, null);
         });
         this.inventorySortBtn.addEventListener('click', () => {
             if (!this.localId) return;
@@ -1018,6 +1062,7 @@ export class Game {
         this.makeDraggable(this.panel, this.charPanelHeader);
         this.makeDraggable(this.inventoryPanel, this.inventoryHeader);
         this.makeDraggable(this.skillsPanel, this.skillsHeader, true);
+        this.makeDraggable(this.questPanel, this.questHeader);
         this.makeDraggable(this.adminPanel, this.adminHeader);
         this.makeDraggable(this.partyPanel, this.partyHeader);
         this.makeDraggable(this.friendsPanel, this.friendsHeader);
@@ -1057,6 +1102,21 @@ export class Game {
         });
     }
 
+    hidePanel(panel) {
+        if (!panel) return;
+        panel.classList.add('hidden');
+        this.closeAllTooltips('ui_window_focus_changed');
+    }
+
+    updateMapCoordsLabel(labelEl, world) {
+        if (!labelEl) return;
+        if (!world || !Number.isFinite(Number(world.x)) || !Number.isFinite(Number(world.y))) {
+            labelEl.textContent = 'X: -- | Y: --';
+            return;
+        }
+        labelEl.textContent = `X: ${Math.round(Number(world.x))} | Y: ${Math.round(Number(world.y))}`;
+    }
+
     /**
      * Alterna visibilidade do painel de atributos.
      */
@@ -1084,6 +1144,10 @@ export class Game {
     toggleWorldMapPanel() {
         this.closeAllTooltips('ui_window_focus_changed');
         this.worldmapPanel.classList.toggle('hidden');
+        if (this.worldmapPanel.classList.contains('hidden')) {
+            this.worldmapHoverWorld = null;
+            this.updateMapCoordsLabel(this.worldmapCoordsLabel, null);
+        }
     }
 
     togglePartyPanel() {
@@ -1353,6 +1417,10 @@ export class Game {
         this.partyWaypoints = [];
         this.onPingUpdated(null);
         this.friendsState = { friends: [], incoming: [], outgoing: [] };
+        this.minimapHoverWorld = null;
+        this.worldmapHoverWorld = null;
+        this.updateMapCoordsLabel(this.minimapCoordsLabel, null);
+        this.updateMapCoordsLabel(this.worldmapCoordsLabel, null);
         this.resetPendingStatAllocation();
         this.isDead = false;
         this.pendingPickup = null;
@@ -1413,6 +1481,10 @@ export class Game {
         this.pendingNpcDialog = null;
         this.pendingNpcInteract = null;
         this.pendingDungeonReadyChecks = [];
+        this.minimapHoverWorld = null;
+        this.worldmapHoverWorld = null;
+        this.updateMapCoordsLabel(this.minimapCoordsLabel, null);
+        this.updateMapCoordsLabel(this.worldmapCoordsLabel, null);
         if (this.dungeonNotifyExpiryTimer) {
             clearTimeout(this.dungeonNotifyExpiryTimer);
             this.dungeonNotifyExpiryTimer = null;
@@ -1551,6 +1623,13 @@ export class Game {
         }
         const summary = members.map((m) => `${String(m.name || `#${m.playerId}`)}:${m.ready ? 'ok' : '...'}`).join(' | ');
         this.onSystemMessage({ text: `Ready Check: ${summary}` });
+    }
+
+    onDungeonReadyResolved(message) {
+        const requestId = String(message?.requestId || '');
+        if (!requestId) return;
+        this.pendingDungeonReadyChecks = this.pendingDungeonReadyChecks.filter((it) => it.requestId !== requestId);
+        this.renderDungeonNotifications();
     }
 
     toggleQuestPanel() {
@@ -2242,14 +2321,46 @@ export class Game {
         };
     }
 
+    getFullPreviewWorldRect() {
+        if (this.isIsometricMap()) {
+            const cfg = this.getIsoProjectionConfig();
+            if (cfg) {
+                return {
+                    x: Number(cfg.offsetX || 0),
+                    y: Number(cfg.offsetY || 0),
+                    w: Math.max(1, Number(cfg.projectedW || this.mapWidth)),
+                    h: Math.max(1, Number(cfg.projectedH || this.mapHeight))
+                };
+            }
+        }
+        return { x: 0, y: 0, w: this.mapWidth, h: this.mapHeight };
+    }
+
+    getPreviewTransform(canvas, worldRect) {
+        const width = Math.max(1, Number(canvas?.width || 1));
+        const height = Math.max(1, Number(canvas?.height || 1));
+        const scale = Math.min(
+            width / Math.max(1, Number(worldRect?.w || 1)),
+            height / Math.max(1, Number(worldRect?.h || 1))
+        );
+        const drawWidth = Math.max(1, Number(worldRect?.w || 1) * scale);
+        const drawHeight = Math.max(1, Number(worldRect?.h || 1) * scale);
+        return {
+            scale,
+            offsetX: (width - drawWidth) * 0.5,
+            offsetY: (height - drawHeight) * 0.5
+        };
+    }
+
     worldFromCanvasClient(canvas, clientX, clientY, worldRect) {
         const rect = canvas.getBoundingClientRect();
         const localX = Math.max(0, Math.min(rect.width, clientX - rect.left));
         const localY = Math.max(0, Math.min(rect.height, clientY - rect.top));
-        const nx = rect.width > 0 ? localX / rect.width : 0;
-        const ny = rect.height > 0 ? localY / rect.height : 0;
-        const renderX = worldRect.x + nx * worldRect.w;
-        const renderY = worldRect.y + ny * worldRect.h;
+        const canvasX = (rect.width > 0 ? localX / rect.width : 0) * Math.max(1, Number(canvas.width || 1));
+        const canvasY = (rect.height > 0 ? localY / rect.height : 0) * Math.max(1, Number(canvas.height || 1));
+        const preview = this.getPreviewTransform(canvas, worldRect);
+        const renderX = worldRect.x + (canvasX - preview.offsetX) / Math.max(0.0001, preview.scale);
+        const renderY = worldRect.y + (canvasY - preview.offsetY) / Math.max(0.0001, preview.scale);
         return this.renderToWorldCoords(renderX, renderY);
     }
 
@@ -2260,7 +2371,7 @@ export class Game {
     }
 
     handleWorldMapClick(clientX, clientY) {
-        const worldRect = { x: 0, y: 0, w: this.mapWidth, h: this.mapHeight };
+        const worldRect = this.getFullPreviewWorldRect();
         const world = this.worldFromCanvasClient(this.worldmapCanvas, clientX, clientY, worldRect);
         this.sendMoveToWorld(world.x, world.y);
     }
@@ -2270,7 +2381,7 @@ export class Game {
             this.onSystemMessage({ text: 'Voce precisa estar em um grupo para marcar waypoint.' });
             return;
         }
-        const worldRect = { x: 0, y: 0, w: this.mapWidth, h: this.mapHeight };
+        const worldRect = this.getFullPreviewWorldRect();
         const world = this.worldFromCanvasClient(this.worldmapCanvas, clientX, clientY, worldRect);
         this.network.send({
             type: 'party.waypointPing',
@@ -3631,6 +3742,7 @@ export class Game {
      * Atualiza estado completo do mundo recebido do servidor.
      */
     updateWorld(message) {
+        const perfStart = performance.now();
         if (message.world) {
             this.mapWidth = message.world.width;
             this.mapHeight = message.world.height;
@@ -3678,6 +3790,7 @@ export class Game {
         this.updateAfkBanner();
         this.updatePlayerCard();
         this.updateTargetPlayerCard();
+        this.recordClientPerf('net.updateWorld', performance.now() - perfStart);
     }
 
     isDungeonMapActive() {
@@ -3737,6 +3850,8 @@ export class Game {
                 halfW,
                 halfH,
                 scale,
+                projectedW,
+                projectedH,
                 offsetX,
                 offsetY
             };
@@ -6080,8 +6195,11 @@ export class Game {
         ctx.fillStyle = '#101620';
         ctx.fillRect(0, 0, w, h);
 
-        const sx = w / Math.max(1, worldRect.w);
-        const sy = h / Math.max(1, worldRect.h);
+        const preview = this.getPreviewTransform(canvas, worldRect);
+        const sx = preview.scale;
+        const sy = preview.scale;
+        ctx.save();
+        ctx.translate(preview.offsetX, preview.offsetY);
         if (this.shouldRenderTiledMap()) {
             this.drawTiledTerrain(ctx, worldRect, sx, sy);
         } else {
@@ -6180,6 +6298,7 @@ export class Game {
             ctx.lineWidth = 1;
             ctx.strokeRect(camX, camY, camW, camH);
         }
+        ctx.restore();
 
         ctx.strokeStyle = '#324055';
         ctx.lineWidth = 1;
@@ -6200,7 +6319,7 @@ export class Game {
         if (this.worldmapPanel.classList.contains('hidden')) return;
         if (now - this.worldmapLastDrawAt < this.worldmapDrawIntervalMs) return;
         this.worldmapLastDrawAt = now;
-        const worldRect = { x: 0, y: 0, w: this.mapWidth, h: this.mapHeight };
+        const worldRect = this.getFullPreviewWorldRect();
         this.drawWorldPreview(this.worldmapCtx, this.worldmapCanvas, worldRect, false);
     }
 
@@ -6593,6 +6712,27 @@ export class Game {
         this.perfHudDirty = true;
     }
 
+    recordClientPerf(name, durationMs) {
+        const now = performance.now();
+        if (now - this.clientPerfWindowStartedAt >= this.clientPerfWindowMs) {
+            this.clientPerfWindowStartedAt = now;
+            this.clientPerfSamples = {};
+        }
+        const safeDuration = Math.max(0, Number(durationMs || 0));
+        const bucket = this.clientPerfSamples[name] || { count: 0, totalMs: 0, maxMs: 0 };
+        bucket.count += 1;
+        bucket.totalMs += safeDuration;
+        bucket.maxMs = Math.max(bucket.maxMs, safeDuration);
+        this.clientPerfSamples[name] = bucket;
+        this.perfHudDirty = true;
+    }
+
+    getClientPerfAverage(name) {
+        const bucket = this.clientPerfSamples[name];
+        if (!bucket || !bucket.count) return null;
+        return bucket.totalMs / Math.max(1, bucket.count);
+    }
+
     refreshPerformanceHud(force = false, now = performance.now()) {
         if (!this.perfHud) return;
         if (!this.localId) {
@@ -6604,7 +6744,19 @@ export class Game {
         if (!force && !this.perfHudDirty && !due) return;
         const fpsLabel = Number.isFinite(Number(this.fpsValue)) && this.fpsValue > 0 ? String(this.fpsValue) : '--';
         const pingLabel = Number.isFinite(Number(this.networkPingMs)) ? `${Math.round(Number(this.networkPingMs))}ms` : '--';
-        this.perfHud.textContent = `FPS ${fpsLabel} | Ping ${pingLabel}`;
+        const drawAvg = this.getClientPerfAverage('draw.total');
+        const mapAvg = this.getClientPerfAverage('draw.map');
+        const miniAvg = this.getClientPerfAverage('draw.minimap');
+        const netAvg = this.getClientPerfAverage('net.updateWorld');
+        const extras = [
+            Number.isFinite(drawAvg) ? `Draw ${drawAvg.toFixed(1)}ms` : null,
+            Number.isFinite(mapAvg) ? `Map ${mapAvg.toFixed(1)}ms` : null,
+            Number.isFinite(miniAvg) ? `Mini ${miniAvg.toFixed(1)}ms` : null,
+            Number.isFinite(netAvg) ? `Net ${netAvg.toFixed(1)}ms` : null
+        ].filter(Boolean).join(' | ');
+        this.perfHud.textContent = extras
+            ? `FPS ${fpsLabel} | Ping ${pingLabel} | ${extras}`
+            : `FPS ${fpsLabel} | Ping ${pingLabel}`;
         this.perfHudLastPaintAt = now;
         this.perfHudDirty = false;
     }
@@ -7617,6 +7769,7 @@ export class Game {
      * Render principal de cada frame.
      */
     draw(now = performance.now(), deltaMs = 16.67) {
+        const drawStart = performance.now();
         this.updatePerformanceMetrics(now);
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this.smoothEntities(deltaMs);
@@ -7645,16 +7798,36 @@ export class Game {
         this.pruneTargetByDistance();
         this.updateTargetPlayerCard();
 
+        let sectionStart = performance.now();
         this.drawMap();
+        this.recordClientPerf('draw.map', performance.now() - sectionStart);
+        sectionStart = performance.now();
         this.drawPathDebugOverlay();
+        this.recordClientPerf('draw.pathDebug', performance.now() - sectionStart);
+        sectionStart = performance.now();
         this.drawMobs();
+        this.recordClientPerf('draw.mobs', performance.now() - sectionStart);
+        sectionStart = performance.now();
         this.drawNpcs();
+        this.recordClientPerf('draw.npcs', performance.now() - sectionStart);
+        sectionStart = performance.now();
         this.drawGroundItems();
+        this.recordClientPerf('draw.groundItems', performance.now() - sectionStart);
+        sectionStart = performance.now();
         this.drawPlayers();
+        this.recordClientPerf('draw.players', performance.now() - sectionStart);
+        sectionStart = performance.now();
         this.drawSkillEffects();
+        this.recordClientPerf('draw.skillEffects', performance.now() - sectionStart);
+        sectionStart = performance.now();
         this.drawCombatProjectiles();
+        this.recordClientPerf('draw.projectiles', performance.now() - sectionStart);
+        sectionStart = performance.now();
         this.drawMinimap(now);
+        this.recordClientPerf('draw.minimap', performance.now() - sectionStart);
+        sectionStart = performance.now();
         this.drawWorldMapPanel(now);
+        this.recordClientPerf('draw.worldmap', performance.now() - sectionStart);
         this.refreshPerformanceHud(false, now);
 
         if (this.lastMoveAck) {
@@ -7678,6 +7851,7 @@ export class Game {
                 this.canvas.height - 30
             );
         }
+        this.recordClientPerf('draw.total', performance.now() - drawStart);
     }
 
     drawPolyline(ctx, points, color, width, transform = null) {

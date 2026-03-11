@@ -1,7 +1,9 @@
 import { BASE_MOVE_SPEED, MAP_FEATURES_BY_KEY, PLAYER_HALF_SIZE, WORLD } from '../config';
+import { performance } from 'perf_hooks';
 import { MoveMessage, PlayerRuntime } from '../models/types';
 import { clamp } from '../utils/math';
 import { MapService } from './MapService';
+import { perfStats } from '../utils/perfStats';
 
 const PATHFIND_CELL_SIZE = 12;
 const PATHFIND_MAX_ITERS = 18000;
@@ -29,6 +31,7 @@ export class MovementService {
 
     handleMove(player: PlayerRuntime, msg: MoveMessage) {
         if (player.dead || player.hp <= 0) return;
+        perfStats.increment('path.handleMove.calls');
         const incomingX = Number(msg.x);
         const incomingY = Number(msg.y);
         const world = this.mapService.getMapWorld(player.mapKey);
@@ -144,31 +147,40 @@ export class MovementService {
     }
 
     assignPathTo(player: PlayerRuntime, destinationX: number, destinationY: number) {
-        const projected = this.mapService.projectToWalkable(player.mapKey, destinationX, destinationY);
-        const deadlineMs = Date.now() + this.getPathfindBudgetMs(player.mapKey);
-        player.pathDestinationX = projected.x;
-        player.pathDestinationY = projected.y;
-        const rawPath = this.findPathWithNearbyGoals(player.mapKey, player.x, player.y, projected.x, projected.y, deadlineMs);
-        player.rawMovePath = rawPath;
-        player.movePath = this.smoothWorldPath(player.mapKey, player.x, player.y, rawPath);
-        if (player.movePath.length > 0) {
-            player.targetX = player.movePath[0].x;
-            player.targetY = player.movePath[0].y;
-            return;
-        }
-        if (!this.isPathSegmentBlocked(player.mapKey, player.x, player.y, projected.x, projected.y)) {
-            player.targetX = projected.x;
-            player.targetY = projected.y;
-            return;
-        }
-        player.rawMovePath = [];
-        player.targetX = player.x;
-        player.targetY = player.y;
+        perfStats.increment('path.assign.calls');
+        perfStats.time('path.assign.total', () => {
+            const projected = this.mapService.projectToWalkable(player.mapKey, destinationX, destinationY);
+            const deadlineMs = Date.now() + this.getPathfindBudgetMs(player.mapKey);
+            player.pathDestinationX = projected.x;
+            player.pathDestinationY = projected.y;
+            const rawPath = this.findPathWithNearbyGoals(player.mapKey, player.x, player.y, projected.x, projected.y, deadlineMs);
+            player.rawMovePath = rawPath;
+            player.movePath = perfStats.time('path.smoothWorldPath', () =>
+                this.smoothWorldPath(player.mapKey, player.x, player.y, rawPath)
+            );
+            if (player.movePath.length > 0) {
+                perfStats.increment('path.assign.withNodes');
+                player.targetX = player.movePath[0].x;
+                player.targetY = player.movePath[0].y;
+                return;
+            }
+            if (!this.isPathSegmentBlocked(player.mapKey, player.x, player.y, projected.x, projected.y)) {
+                perfStats.increment('path.assign.directFallback');
+                player.targetX = projected.x;
+                player.targetY = projected.y;
+                return;
+            }
+            perfStats.increment('path.assign.failed');
+            player.rawMovePath = [];
+            player.targetX = player.x;
+            player.targetY = player.y;
+        });
     }
 
     recalculatePathToward(player: PlayerRuntime, destinationX: number, destinationY: number, now: number) {
         if (now < Number(player.nextPathfindAt || 0)) return;
         player.nextPathfindAt = now + PATH_RECALC_MS;
+        perfStats.increment('path.recalculate.calls');
         this.assignPathTo(player, destinationX, destinationY);
     }
 
@@ -237,50 +249,54 @@ export class MovementService {
     }
 
     private findPathWithNearbyGoals(mapKey: string, fromX: number, fromY: number, toX: number, toY: number, deadlineMs: number) {
-        const direct = this.findPath(mapKey, fromX, fromY, toX, toY, deadlineMs);
-        if (direct.length > 0) return direct;
-        if (Date.now() > deadlineMs) return [];
+        return perfStats.time('path.findPathWithNearbyGoals', () => {
+            const direct = this.findPath(mapKey, fromX, fromY, toX, toY, deadlineMs);
+            if (direct.length > 0) return direct;
+            if (Date.now() > deadlineMs) return [];
 
-        const goal = this.worldToPathCell(mapKey, toX, toY);
-        let candidatesChecked = 0;
-        const maxCandidates = this.getNearbyGoalCandidateLimit(mapKey);
-        const maxRadius = PATH_NEARBY_GOAL_MAX_RADIUS;
-        for (let r = 1; r <= maxRadius && candidatesChecked < maxCandidates; r++) {
-            if (Date.now() > deadlineMs) break;
-            for (let dx = -r; dx <= r && candidatesChecked < maxCandidates; dx++) {
+            const goal = this.worldToPathCell(mapKey, toX, toY);
+            let candidatesChecked = 0;
+            const maxCandidates = this.getNearbyGoalCandidateLimit(mapKey);
+            const maxRadius = PATH_NEARBY_GOAL_MAX_RADIUS;
+            for (let r = 1; r <= maxRadius && candidatesChecked < maxCandidates; r++) {
                 if (Date.now() > deadlineMs) break;
-                const checks = [
-                    { cx: goal.cx + dx, cy: goal.cy - r },
-                    { cx: goal.cx + dx, cy: goal.cy + r }
-                ];
-                for (const cell of checks) {
+                for (let dx = -r; dx <= r && candidatesChecked < maxCandidates; dx++) {
                     if (Date.now() > deadlineMs) break;
-                    candidatesChecked += 1;
-                    if (!this.isPathCellWalkable(mapKey, cell.cx, cell.cy)) continue;
-                    const world = this.pathCellToWorld(mapKey, cell.cx, cell.cy);
-                    const candidate = this.findPath(mapKey, fromX, fromY, world.x, world.y, deadlineMs);
-                    if (candidate.length > 0) return candidate;
-                    if (candidatesChecked >= maxCandidates) break;
+                    const checks = [
+                        { cx: goal.cx + dx, cy: goal.cy - r },
+                        { cx: goal.cx + dx, cy: goal.cy + r }
+                    ];
+                    for (const cell of checks) {
+                        if (Date.now() > deadlineMs) break;
+                        candidatesChecked += 1;
+                        perfStats.increment('path.nearbyGoal.candidates');
+                        if (!this.isPathCellWalkable(mapKey, cell.cx, cell.cy)) continue;
+                        const world = this.pathCellToWorld(mapKey, cell.cx, cell.cy);
+                        const candidate = this.findPath(mapKey, fromX, fromY, world.x, world.y, deadlineMs);
+                        if (candidate.length > 0) return candidate;
+                        if (candidatesChecked >= maxCandidates) break;
+                    }
+                }
+                for (let dy = -r + 1; dy <= r - 1 && candidatesChecked < maxCandidates; dy++) {
+                    if (Date.now() > deadlineMs) break;
+                    const checks = [
+                        { cx: goal.cx - r, cy: goal.cy + dy },
+                        { cx: goal.cx + r, cy: goal.cy + dy }
+                    ];
+                    for (const cell of checks) {
+                        if (Date.now() > deadlineMs) break;
+                        candidatesChecked += 1;
+                        perfStats.increment('path.nearbyGoal.candidates');
+                        if (!this.isPathCellWalkable(mapKey, cell.cx, cell.cy)) continue;
+                        const world = this.pathCellToWorld(mapKey, cell.cx, cell.cy);
+                        const candidate = this.findPath(mapKey, fromX, fromY, world.x, world.y, deadlineMs);
+                        if (candidate.length > 0) return candidate;
+                        if (candidatesChecked >= maxCandidates) break;
+                    }
                 }
             }
-            for (let dy = -r + 1; dy <= r - 1 && candidatesChecked < maxCandidates; dy++) {
-                if (Date.now() > deadlineMs) break;
-                const checks = [
-                    { cx: goal.cx - r, cy: goal.cy + dy },
-                    { cx: goal.cx + r, cy: goal.cy + dy }
-                ];
-                for (const cell of checks) {
-                    if (Date.now() > deadlineMs) break;
-                    candidatesChecked += 1;
-                    if (!this.isPathCellWalkable(mapKey, cell.cx, cell.cy)) continue;
-                    const world = this.pathCellToWorld(mapKey, cell.cx, cell.cy);
-                    const candidate = this.findPath(mapKey, fromX, fromY, world.x, world.y, deadlineMs);
-                    if (candidate.length > 0) return candidate;
-                    if (candidatesChecked >= maxCandidates) break;
-                }
-            }
-        }
-        return [];
+            return [];
+        });
     }
 
     private smoothWorldPath(mapKey: string, startX: number, startY: number, points: Array<{ x: number; y: number }>) {
@@ -357,13 +373,18 @@ export class MovementService {
     }
 
     private findPath(mapKey: string, fromX: number, fromY: number, toX: number, toY: number, deadlineMs: number) {
+        const startAt = performance.now();
         const world = this.mapService.getMapWorld(mapKey);
         const startRaw = this.worldToPathCell(mapKey, fromX, fromY);
         const goalRaw = this.worldToPathCell(mapKey, toX, toY);
         const start = this.findNearestWalkableCell(mapKey, startRaw.cx, startRaw.cy, this.isDungeonMap(mapKey) ? 36 : 20) || startRaw;
         const goal = this.findNearestWalkableCell(mapKey, goalRaw.cx, goalRaw.cy, this.isDungeonMap(mapKey) ? 140 : 72) || goalRaw;
         const sameCell = start.cx === goal.cx && start.cy === goal.cy;
-        if (sameCell) return [{ x: clamp(toX, 0, world.width), y: clamp(toY, 0, world.height) }];
+        if (sameCell) {
+            perfStats.increment('path.findPath.sameCell');
+            perfStats.recordDuration('path.findPath', performance.now() - startAt);
+            return [{ x: clamp(toX, 0, world.width), y: clamp(toY, 0, world.height) }];
+        }
 
         const walkableMemo = new Map<string, boolean>();
         const isWalkable = (cx: number, cy: number) => {
@@ -411,7 +432,11 @@ export class MovementService {
             }
             if (!current) break;
             if (current === goalKey) {
-                return this.rebuildPath(mapKey, cameFrom, current, toX, toY);
+                const full = this.rebuildPath(mapKey, cameFrom, current, toX, toY);
+                perfStats.increment('path.findPath.complete');
+                perfStats.increment('path.findPath.iterations', iter);
+                perfStats.recordDuration('path.findPath', performance.now() - startAt);
+                return full;
             }
             open.delete(current);
             closed.add(current);
@@ -451,8 +476,15 @@ export class MovementService {
         if (bestReachedKey !== startKey) {
             const [bestCxRaw, bestCyRaw] = bestReachedKey.split(',');
             const bestWorld = this.pathCellToWorld(mapKey, Number(bestCxRaw), Number(bestCyRaw));
-            return this.rebuildPath(mapKey, cameFrom, bestReachedKey, bestWorld.x, bestWorld.y);
+            const partial = this.rebuildPath(mapKey, cameFrom, bestReachedKey, bestWorld.x, bestWorld.y);
+            perfStats.increment('path.findPath.partial');
+            perfStats.increment('path.findPath.iterations', iter);
+            perfStats.recordDuration('path.findPath', performance.now() - startAt);
+            return partial;
         }
+        perfStats.increment('path.findPath.failed');
+        perfStats.increment('path.findPath.iterations', iter);
+        perfStats.recordDuration('path.findPath', performance.now() - startAt);
         return [];
     }
 

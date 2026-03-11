@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const http_1 = require("http");
+const perf_hooks_1 = require("perf_hooks");
 const path_1 = __importDefault(require("path"));
 const ws_1 = require("ws");
 const GameController_1 = require("./controllers/GameController");
@@ -16,6 +17,7 @@ const config_1 = require("./config");
 const prisma_1 = __importDefault(require("./utils/prisma"));
 const redis_1 = require("./utils/redis");
 const DistributedLockService_1 = require("./services/DistributedLockService");
+const perfStats_1 = require("./utils/perfStats");
 const app = (0, express_1.default)();
 const PORT = Number(process.env.PORT || 3000);
 const HOST = String(process.env.HOST || '0.0.0.0');
@@ -35,6 +37,13 @@ app.get('/healthz', async (_req, res) => {
         console.error('healthcheck_error', error);
         res.status(503).json({ ok: false });
     }
+});
+app.get('/debug/perf', (_req, res) => {
+    res.status(200).json(perfStats_1.perfStats.snapshot());
+});
+app.post('/debug/perf/reset', (_req, res) => {
+    perfStats_1.perfStats.reset();
+    res.status(200).json({ ok: true });
 });
 app.use(express_1.default.static(path_1.default.resolve(process.cwd(), 'public')));
 const server = (0, http_1.createServer)(app);
@@ -95,11 +104,14 @@ async function initializeServer() {
             const elapsedMs = Math.max(1, now - lastTickAt);
             lastTickAt = now;
             const dt = Math.max(0.010, Math.min(0.100, elapsedMs / 1000));
+            const tickStart = perf_hooks_1.performance.now();
             gameController.tick(dt, now);
+            perfStats_1.perfStats.recordDuration('server.tick.total', perf_hooks_1.performance.now() - tickStart);
             if (now - lastWorldBroadcastAt < WORLD_STATE_MS)
                 return;
             lastWorldBroadcastAt = now;
             const serializedSnapshotByInstance = new Map();
+            const broadcastStart = perf_hooks_1.performance.now();
             for (const client of wss.clients) {
                 if (client.readyState !== ws_1.WebSocket.OPEN)
                     continue;
@@ -117,6 +129,7 @@ async function initializeServer() {
                 }
                 client.send(serialized);
             }
+            perfStats_1.perfStats.recordDuration('server.broadcast.worldState', perf_hooks_1.performance.now() - broadcastStart);
         }, config_1.TICK_MS);
         const queueTimer = setInterval(() => {
             void gameController.processPersistenceQueue(25).catch((error) => {

@@ -10,6 +10,7 @@ import { PlayerRuntime } from '../models/types';
 import { clamp } from '../utils/math';
 import { getMapTiledCollisionSampler as getGenericMapTiledCollisionSampler } from '../maps/tiledCollision';
 import { getMapMetadata } from '../maps/mapMetadata';
+import { perfStats } from '../utils/perfStats';
 
 const MOVE_COLLISION_PADDING = 4;
 const PATHFIND_CELL_SIZE = 12;
@@ -50,26 +51,29 @@ export class MapService {
     }
 
     isBlockedAt(mapKey: string, x: number, y: number) {
-        const world = this.getMapWorld(mapKey);
-        const px = clamp(x, 0, world.width);
-        const py = clamp(y, 0, world.height);
-        const radius = Math.max(8, PLAYER_HALF_SIZE - 6) + MOVE_COLLISION_PADDING;
-        const tiledSampler = this.getMapTiledCollisionSampler(mapKey);
-        if (tiledSampler) return tiledSampler.isBlockedAt(px, py, radius);
-        const features = MAP_FEATURES_BY_KEY[mapKey] || [];
-        for (const feature of features) {
-            if (!feature.collision) continue;
-            if (feature.shape === 'rect') {
-                const insideX = px >= (feature.x - radius) && px <= (feature.x + feature.w + radius);
-                const insideY = py >= (feature.y - radius) && py <= (feature.y + feature.h + radius);
-                if (insideX && insideY) return true;
-                continue;
+        perfStats.increment('collision.isBlockedAt.calls');
+        return perfStats.time('collision.isBlockedAt', () => {
+            const world = this.getMapWorld(mapKey);
+            const px = clamp(x, 0, world.width);
+            const py = clamp(y, 0, world.height);
+            const radius = Math.max(8, PLAYER_HALF_SIZE - 6) + MOVE_COLLISION_PADDING;
+            const tiledSampler = this.getMapTiledCollisionSampler(mapKey);
+            if (tiledSampler) return tiledSampler.isBlockedAt(px, py, radius);
+            const features = MAP_FEATURES_BY_KEY[mapKey] || [];
+            for (const feature of features) {
+                if (!feature.collision) continue;
+                if (feature.shape === 'rect') {
+                    const insideX = px >= (feature.x - radius) && px <= (feature.x + feature.w + radius);
+                    const insideY = py >= (feature.y - radius) && py <= (feature.y + feature.h + radius);
+                    if (insideX && insideY) return true;
+                    continue;
+                }
+                const dx = px - feature.x;
+                const dy = py - feature.y;
+                if (dx * dx + dy * dy <= (feature.r + radius) * (feature.r + radius)) return true;
             }
-            const dx = px - feature.x;
-            const dy = py - feature.y;
-            if (dx * dx + dy * dy <= (feature.r + radius) * (feature.r + radius)) return true;
-        }
-        return false;
+            return false;
+        });
     }
 
     projectToWalkable(mapKey: string, x: number, y: number) {

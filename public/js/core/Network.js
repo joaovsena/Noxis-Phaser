@@ -251,6 +251,11 @@ export class Network {
             this.game.onDungeonReadyUpdate(message);
             return;
         }
+
+        if (message.type === 'dungeon.readyResolved') {
+            this.game.onDungeonReadyResolved(message);
+            return;
+        }
     }
 
     startPingLoop() {

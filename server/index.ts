@@ -1,5 +1,6 @@
 import express from 'express';
 import { createServer } from 'http';
+import { performance } from 'perf_hooks';
 import path from 'path';
 import { WebSocket, WebSocketServer } from 'ws';
 import { GameController } from './controllers/GameController';
@@ -11,6 +12,7 @@ import { TICK_MS, MAP_IDS, MAP_KEYS, composeMapInstanceId } from './config';
 import prisma from './utils/prisma';
 import { createRedisClient } from './utils/redis';
 import { DistributedLockService } from './services/DistributedLockService';
+import { perfStats } from './utils/perfStats';
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -30,6 +32,13 @@ app.get('/healthz', async (_req, res) => {
         console.error('healthcheck_error', error);
         res.status(503).json({ ok: false });
     }
+});
+app.get('/debug/perf', (_req, res) => {
+    res.status(200).json(perfStats.snapshot());
+});
+app.post('/debug/perf/reset', (_req, res) => {
+    perfStats.reset();
+    res.status(200).json({ ok: true });
 });
 app.use(express.static(path.resolve(process.cwd(), 'public')));
 
@@ -98,11 +107,14 @@ async function initializeServer() {
             const elapsedMs = Math.max(1, now - lastTickAt);
             lastTickAt = now;
             const dt = Math.max(0.010, Math.min(0.100, elapsedMs / 1000));
+            const tickStart = performance.now();
             gameController.tick(dt, now);
+            perfStats.recordDuration('server.tick.total', performance.now() - tickStart);
 
             if (now - lastWorldBroadcastAt < WORLD_STATE_MS) return;
             lastWorldBroadcastAt = now;
             const serializedSnapshotByInstance = new Map<string, string>();
+            const broadcastStart = performance.now();
             for (const client of wss.clients) {
                 if (client.readyState !== WebSocket.OPEN) continue;
                 const extClient = client as ExtendedWebSocket;
@@ -117,6 +129,7 @@ async function initializeServer() {
                 }
                 client.send(serialized);
             }
+            perfStats.recordDuration('server.broadcast.worldState', performance.now() - broadcastStart);
         }, TICK_MS);
 
         const queueTimer = setInterval(() => {

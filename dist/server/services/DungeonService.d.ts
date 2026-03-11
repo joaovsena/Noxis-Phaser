@@ -87,6 +87,7 @@ export declare class DungeonService {
     private areReadyMembersResolved;
     private tickReadyCheck;
     private finalizeReadyCheck;
+    private broadcastReadyResolved;
     private broadcastReadyState;
     private tickPendingTeleports;
     private ensureInstanceActive;

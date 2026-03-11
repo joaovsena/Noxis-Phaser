@@ -46,6 +46,7 @@ export declare class CombatRuntimeService {
     private readonly isBlockedAt;
     private readonly computeDamageAfterMitigation;
     constructor(players: Map<number, PlayerRuntime>, mobService: any, mobsPeacefulMode: () => boolean, mapInstanceId: MapInstanceIdFn, projectToWalkable: ProjectToWalkableFn, recalculatePathToward: RecalcPathFn, getActiveSkillEffectAggregate: SkillAggregateFn, computeHitChance: ComputeHitChanceFn, getMobEvasion: GetMobEvasionFn, computeMobDamage: ComputeMobDamageFn, applyDamageToMobAndHandleDeath: ApplyDamageMobFn, applyOnHitSkillEffects: ApplyOnHitFn, sendStatsUpdated: SendStatsUpdatedFn, broadcastMobHit: BroadcastMobHitFn, sendRaw: SendRawFn, persistPlayer: PersistPlayerFn, syncAllPartyStates: SyncPartyFn, tryPlayerAttack: TryPlayerAttackFn, getPvpAttackPermission: GetPvpPermissionFn, isBlockedAt: IsBlockedAtFn, computeDamageAfterMitigation: ComputeDamageAfterMitigationFn);
+    private hasLineOfSight;
     processAutoAttack(player: PlayerRuntime, now: number): void;
     processAutoAttackPlayer(player: PlayerRuntime, now: number): void;
     processMobAggroAndCombat(deltaSeconds: number, now: number): void;

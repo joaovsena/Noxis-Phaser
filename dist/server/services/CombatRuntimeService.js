@@ -31,6 +31,23 @@ class CombatRuntimeService {
         this.isBlockedAt = isBlockedAt;
         this.computeDamageAfterMitigation = computeDamageAfterMitigation;
     }
+    hasLineOfSight(mapKey, fromX, fromY, toX, toY) {
+        const dx = Number(toX || 0) - Number(fromX || 0);
+        const dy = Number(toY || 0) - Number(fromY || 0);
+        const distanceTotal = Math.sqrt(dx * dx + dy * dy);
+        if (!Number.isFinite(distanceTotal) || distanceTotal <= 1)
+            return true;
+        const step = 18;
+        const samples = Math.max(2, Math.ceil(distanceTotal / step));
+        for (let i = 1; i < samples; i++) {
+            const t = i / samples;
+            const sampleX = Number(fromX || 0) + dx * t;
+            const sampleY = Number(fromY || 0) + dy * t;
+            if (this.isBlockedAt(mapKey, sampleX, sampleY))
+                return false;
+        }
+        return true;
+    }
     processAutoAttack(player, now) {
         if (!player.autoAttackActive || !player.attackTargetId)
             return;
@@ -48,7 +65,8 @@ class CombatRuntimeService {
         const edgeDistance = currentDistance - (mob.size / 2 + config_1.PLAYER_HALF_SIZE);
         const attackRange = Number(player.stats?.attackRange || 60);
         const inRange = edgeDistance <= attackRange;
-        if (!inRange) {
+        const hasLos = this.hasLineOfSight(player.mapKey, player.x, player.y, mob.x, mob.y);
+        if (!inRange || !hasLos) {
             const desiredDistance = mob.size / 2 + config_1.PLAYER_HALF_SIZE + Math.max(2, attackRange - 4);
             const dx = player.x - mob.x;
             const dy = player.y - mob.y;
@@ -104,7 +122,8 @@ class CombatRuntimeService {
         const currentDistance = (0, math_1.distance)(player, target);
         const edgeDistance = Math.max(0, currentDistance - config_1.PLAYER_HALF_SIZE * 2);
         const attackRange = Number(player.stats?.attackRange || 60);
-        if (edgeDistance > attackRange) {
+        const hasLos = this.hasLineOfSight(player.mapKey, player.x, player.y, target.x, target.y);
+        if (edgeDistance > attackRange || !hasLos) {
             const desiredDistance = config_1.PLAYER_HALF_SIZE * 2 + Math.max(2, attackRange - 4);
             const dx = player.x - target.x;
             const dy = player.y - target.y;

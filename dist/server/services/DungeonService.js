@@ -390,6 +390,7 @@ class DungeonService {
                     text: `Ready Check encerrado sem confirmacoes.${suffix}`
                 });
             }
+            this.broadcastReadyResolved(instance, 'cancelled');
             this.destroyReadyCheck(instance);
             this.instances.delete(instance.id);
             return;
@@ -406,10 +407,12 @@ class DungeonService {
                         text: 'Abertura cancelada: todos os membros precisam confirmar.'
                     });
                 }
+                this.broadcastReadyResolved(instance, 'cancelled');
                 this.destroyReadyCheck(instance);
                 this.instances.delete(instance.id);
                 return;
             }
+            this.broadcastReadyResolved(instance, 'opened');
             this.destroyReadyCheck(instance);
             instance.state = 'open';
             if (instance.ownerPartyId)
@@ -460,6 +463,22 @@ class DungeonService {
             });
         }
         this.destroyReadyCheck(instance);
+    }
+    broadcastReadyResolved(instance, result) {
+        if (!instance.readyCheckId)
+            return;
+        const payload = {
+            type: 'dungeon.readyResolved',
+            requestId: instance.readyCheckId,
+            purpose: String(instance.readyPurpose || 'open'),
+            result
+        };
+        for (const memberId of instance.readyMemberIds) {
+            const member = this.players.get(memberId);
+            if (!member)
+                continue;
+            this.sendRaw(member.ws, payload);
+        }
     }
     broadcastReadyState(instance, targetMemberIds, extraPayload = {}) {
         if (!instance.readyCheckId)

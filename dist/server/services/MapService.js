@@ -5,6 +5,7 @@ const config_1 = require("../config");
 const math_1 = require("../utils/math");
 const tiledCollision_1 = require("../maps/tiledCollision");
 const mapMetadata_1 = require("../maps/mapMetadata");
+const perfStats_1 = require("../utils/perfStats");
 const MOVE_COLLISION_PADDING = 4;
 const PATHFIND_CELL_SIZE = 12;
 const PATH_PLAN_RADIUS = 8;
@@ -38,30 +39,33 @@ class MapService {
         return (0, tiledCollision_1.getMapTiledCollisionSampler)(mapKey);
     }
     isBlockedAt(mapKey, x, y) {
-        const world = this.getMapWorld(mapKey);
-        const px = (0, math_1.clamp)(x, 0, world.width);
-        const py = (0, math_1.clamp)(y, 0, world.height);
-        const radius = Math.max(8, config_1.PLAYER_HALF_SIZE - 6) + MOVE_COLLISION_PADDING;
-        const tiledSampler = this.getMapTiledCollisionSampler(mapKey);
-        if (tiledSampler)
-            return tiledSampler.isBlockedAt(px, py, radius);
-        const features = config_1.MAP_FEATURES_BY_KEY[mapKey] || [];
-        for (const feature of features) {
-            if (!feature.collision)
-                continue;
-            if (feature.shape === 'rect') {
-                const insideX = px >= (feature.x - radius) && px <= (feature.x + feature.w + radius);
-                const insideY = py >= (feature.y - radius) && py <= (feature.y + feature.h + radius);
-                if (insideX && insideY)
+        perfStats_1.perfStats.increment('collision.isBlockedAt.calls');
+        return perfStats_1.perfStats.time('collision.isBlockedAt', () => {
+            const world = this.getMapWorld(mapKey);
+            const px = (0, math_1.clamp)(x, 0, world.width);
+            const py = (0, math_1.clamp)(y, 0, world.height);
+            const radius = Math.max(8, config_1.PLAYER_HALF_SIZE - 6) + MOVE_COLLISION_PADDING;
+            const tiledSampler = this.getMapTiledCollisionSampler(mapKey);
+            if (tiledSampler)
+                return tiledSampler.isBlockedAt(px, py, radius);
+            const features = config_1.MAP_FEATURES_BY_KEY[mapKey] || [];
+            for (const feature of features) {
+                if (!feature.collision)
+                    continue;
+                if (feature.shape === 'rect') {
+                    const insideX = px >= (feature.x - radius) && px <= (feature.x + feature.w + radius);
+                    const insideY = py >= (feature.y - radius) && py <= (feature.y + feature.h + radius);
+                    if (insideX && insideY)
+                        return true;
+                    continue;
+                }
+                const dx = px - feature.x;
+                const dy = py - feature.y;
+                if (dx * dx + dy * dy <= (feature.r + radius) * (feature.r + radius))
                     return true;
-                continue;
             }
-            const dx = px - feature.x;
-            const dy = py - feature.y;
-            if (dx * dx + dy * dy <= (feature.r + radius) * (feature.r + radius))
-                return true;
-        }
-        return false;
+            return false;
+        });
     }
     projectToWalkable(mapKey, x, y) {
         const world = this.getMapWorld(mapKey);

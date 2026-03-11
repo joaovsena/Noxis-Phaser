@@ -22,6 +22,7 @@ const currency_1 = require("../utils/currency");
 const mapMetadata_1 = require("../maps/mapMetadata");
 const config_1 = require("../config");
 const logger_1 = require("../utils/logger");
+const perfStats_1 = require("../utils/perfStats");
 const PRIMARY_STATS = ['str', 'int', 'dex', 'vit'];
 const LEGACY_ALLOC_MAP = {
     physicalAttack: 'str',
@@ -1198,14 +1199,16 @@ class GameController {
         this.sendStatsUpdated(player);
     }
     tick(deltaSeconds, now) {
-        this.eventService.tick(now);
-        this.dungeonService.tick(now);
-        this.pruneExpiredGroundItems(now);
-        this.pruneExpiredPartyInvites(now);
-        this.pruneExpiredPartyJoinRequests(now);
-        this.pruneExpiredFriendRequests(now);
-        this.processMobAggroAndCombat(deltaSeconds, now);
+        perfStats_1.perfStats.time('tick.events', () => this.eventService.tick(now));
+        perfStats_1.perfStats.time('tick.dungeons', () => this.dungeonService.tick(now));
+        perfStats_1.perfStats.time('tick.pruneGroundItems', () => this.pruneExpiredGroundItems(now));
+        perfStats_1.perfStats.time('tick.prunePartyInvites', () => this.pruneExpiredPartyInvites(now));
+        perfStats_1.perfStats.time('tick.prunePartyJoinRequests', () => this.pruneExpiredPartyJoinRequests(now));
+        perfStats_1.perfStats.time('tick.pruneFriendRequests', () => this.pruneExpiredFriendRequests(now));
+        perfStats_1.perfStats.time('tick.mobs', () => this.processMobAggroAndCombat(deltaSeconds, now));
+        let activePlayers = 0;
         for (const player of this.players.values()) {
+            activePlayers += 1;
             this.pruneExpiredSkillEffects(player, now);
             if (player.dead || player.hp <= 0)
                 continue;
@@ -1216,9 +1219,10 @@ class GameController {
             this.processAutoAttack(player, now);
             this.processAutoAttackPlayer(player, now);
         }
+        perfStats_1.perfStats.increment('tick.playersProcessed', activePlayers);
         if (now - this.lastPartySyncAt >= 200) {
             this.lastPartySyncAt = now;
-            this.syncAllPartyStates();
+            perfStats_1.perfStats.time('tick.partySync', () => this.syncAllPartyStates());
         }
         if (now - this.lastAutosaveAt >= AUTOSAVE_MS) {
             this.lastAutosaveAt = now;
@@ -1226,42 +1230,45 @@ class GameController {
         }
     }
     buildWorldSnapshot(mapId = config_1.DEFAULT_MAP_ID, mapKey = config_1.DEFAULT_MAP_KEY) {
-        const mapInstanceId = this.mapInstanceId(mapKey, mapId);
-        const hasTiledCollision = Boolean(this.getMapTiledCollisionSampler(mapKey));
-        const isDungeonMap = String(mapKey || '').startsWith('dng_');
-        const mapMetadata = (0, mapMetadata_1.getMapMetadata)(mapKey);
-        const publicPlayers = {};
-        for (const [id, player] of this.players.entries()) {
-            if (player.mapId !== mapId || player.mapKey !== mapKey)
-                continue;
-            publicPlayers[String(id)] = this.sanitizePublicPlayer(player);
-        }
-        return {
-            type: 'world_state',
-            players: publicPlayers,
-            mobs: this.mobService.getMobsByMap(mapInstanceId),
-            groundItems: this.groundItems.filter((it) => it.mapId === mapInstanceId),
-            mapCode: mapMetadata?.mapCode || (0, config_1.mapCodeFromKey)(mapKey),
-            mapKey,
-            mapTheme: isDungeonMap ? 'undead' : (config_1.MAP_THEMES[mapKey] || 'forest'),
-            mapFeatures: hasTiledCollision ? [] : (config_1.MAP_FEATURES_BY_KEY[mapKey] || []),
-            npcs: this.questService.getNpcsForMap(mapKey, mapId),
-            activeEvents: this.eventService.getActiveEventsForMap(mapKey, mapId),
-            portals: config_1.PORTALS_BY_MAP_KEY[mapKey] || [],
-            mapId,
-            world: mapMetadata?.world || config_1.WORLD,
-            mapTiled: mapMetadata
-                ? {
-                    mapCode: mapMetadata.mapCode,
-                    assetKey: mapMetadata.assetKey,
-                    tmjUrl: mapMetadata.tmjUrl,
-                    tilesBaseUrl: mapMetadata.tilesBaseUrl,
-                    orientation: mapMetadata.orientation,
-                    worldTileSize: mapMetadata.worldTileSize,
-                    worldScale: mapMetadata.worldScale
-                }
-                : null
-        };
+        return perfStats_1.perfStats.time('snapshot.buildWorld', () => {
+            const mapInstanceId = this.mapInstanceId(mapKey, mapId);
+            const hasTiledCollision = Boolean(this.getMapTiledCollisionSampler(mapKey));
+            const isDungeonMap = String(mapKey || '').startsWith('dng_');
+            const mapMetadata = (0, mapMetadata_1.getMapMetadata)(mapKey);
+            const publicPlayers = {};
+            for (const [id, player] of this.players.entries()) {
+                if (player.mapId !== mapId || player.mapKey !== mapKey)
+                    continue;
+                publicPlayers[String(id)] = this.sanitizePublicPlayer(player);
+            }
+            perfStats_1.perfStats.increment('snapshot.playersVisible', Object.keys(publicPlayers).length);
+            return {
+                type: 'world_state',
+                players: publicPlayers,
+                mobs: this.mobService.getMobsByMap(mapInstanceId),
+                groundItems: this.groundItems.filter((it) => it.mapId === mapInstanceId),
+                mapCode: mapMetadata?.mapCode || (0, config_1.mapCodeFromKey)(mapKey),
+                mapKey,
+                mapTheme: isDungeonMap ? 'undead' : (config_1.MAP_THEMES[mapKey] || 'forest'),
+                mapFeatures: hasTiledCollision ? [] : (config_1.MAP_FEATURES_BY_KEY[mapKey] || []),
+                npcs: this.questService.getNpcsForMap(mapKey, mapId),
+                activeEvents: this.eventService.getActiveEventsForMap(mapKey, mapId),
+                portals: config_1.PORTALS_BY_MAP_KEY[mapKey] || [],
+                mapId,
+                world: mapMetadata?.world || config_1.WORLD,
+                mapTiled: mapMetadata
+                    ? {
+                        mapCode: mapMetadata.mapCode,
+                        assetKey: mapMetadata.assetKey,
+                        tmjUrl: mapMetadata.tmjUrl,
+                        tilesBaseUrl: mapMetadata.tilesBaseUrl,
+                        orientation: mapMetadata.orientation,
+                        worldTileSize: mapMetadata.worldTileSize,
+                        worldScale: mapMetadata.worldScale
+                    }
+                    : null
+            };
+        });
     }
     getPlayerByRuntimeId(playerId) {
         return this.players.get(playerId);

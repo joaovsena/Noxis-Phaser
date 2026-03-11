@@ -2356,6 +2356,73 @@ label {
     margin-top: 4px;
     border-radius: 14px;
     background: rgba(9, 7, 5, 0.98);
+    padding: 10px;
+    display: grid;
+    gap: 8px;
+    border: 1px solid rgba(186, 151, 87, 0.32);
+    box-shadow: inset 0 1px 0 rgba(255, 245, 214, 0.06);
+}
+
+.map-coords-label {
+    font-family: 'Marcellus', serif;
+    font-size: 0.82rem;
+    letter-spacing: 0.04em;
+    color: rgba(227, 207, 164, 0.9);
+    text-transform: uppercase;
+}
+
+.map-settings-line.form-check {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 32px;
+    margin: 0;
+    padding: 0;
+}
+
+.map-settings-line .form-check-input {
+    flex: 0 0 18px;
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    border-radius: 5px;
+    border: 1px solid rgba(193, 154, 85, 0.72);
+    background: rgba(8, 6, 4, 0.96);
+    box-shadow: inset 0 1px 0 rgba(255, 245, 214, 0.06);
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    position: relative;
+}
+
+.map-settings-line .form-check-input:checked {
+    background:
+        linear-gradient(45deg,
+            transparent 43%,
+            rgba(223, 188, 117, 0.95) 43%,
+            rgba(223, 188, 117, 0.95) 57%,
+            transparent 57%),
+        linear-gradient(-45deg,
+            transparent 43%,
+            rgba(223, 188, 117, 0.95) 43%,
+            rgba(223, 188, 117, 0.95) 57%,
+            transparent 57%),
+        rgba(42, 29, 12, 0.98);
+    border-color: rgba(223, 188, 117, 0.95);
+}
+
+.map-settings-line .form-check-input:focus {
+    box-shadow: 0 0 0 0.15rem rgba(186, 151, 87, 0.2);
+}
+
+.map-settings-line .form-check-label {
+    flex: 1 1 auto;
+    margin: 0;
+    font-family: 'Marcellus', serif;
+    font-size: 0.9rem;
+    color: rgba(236, 224, 194, 0.92);
+    letter-spacing: 0.03em;
 }
 
 #dungeon-leave-btn {
@@ -2406,6 +2473,51 @@ label {
     border-radius: 10px;
     border: 1px solid rgba(201, 167, 104, 0.5);
     box-shadow: inset 0 1px 0 rgba(255, 248, 219, 0.08);
+    background:
+        linear-gradient(180deg, rgba(83, 61, 30, 0.96), rgba(27, 19, 10, 0.98)),
+        radial-gradient(circle at 50% 32%, rgba(214, 176, 101, 0.16), transparent 54%);
+    position: relative;
+    overflow: hidden;
+}
+
+.skill-slot-btn::before {
+    content: '';
+    position: absolute;
+    inset: 3px;
+    border-radius: 8px;
+    border: 1px solid rgba(229, 202, 145, 0.08);
+    pointer-events: none;
+}
+
+.skill-slot-btn:nth-child(2n),
+.skill-slot-btn:nth-child(3n) {
+    background:
+        linear-gradient(180deg, rgba(83, 61, 30, 0.96), rgba(27, 19, 10, 0.98)),
+        radial-gradient(circle at 50% 32%, rgba(214, 176, 101, 0.16), transparent 54%);
+}
+
+.skill-slot-btn .slot-icon,
+.skill-slot-btn span,
+.skill-slot-btn .slot-key,
+.skill-slot-btn .slot-qty {
+    color: rgba(242, 229, 196, 0.96);
+}
+
+.skill-slot-btn.slot-kind-action .slot-icon {
+    color: #ffe08b;
+}
+
+.skill-slot-btn.hovered {
+    border-color: rgba(239, 199, 110, 0.96);
+    box-shadow:
+        0 0 0 1px rgba(239, 199, 110, 0.2),
+        inset 0 1px 0 rgba(255, 248, 219, 0.12);
+}
+
+.skill-slot-btn.pressed {
+    transform: translateY(1px);
+    filter: brightness(1.08);
+    border-color: rgba(239, 199, 110, 0.96);
 }
 
 .hud-menus {
@@ -2437,6 +2549,32 @@ label {
     border-radius: 16px;
     background: linear-gradient(180deg, rgba(28, 20, 11, 0.96), rgba(10, 7, 4, 0.95));
     border-color: rgba(186, 151, 87, 0.4);
+}
+
+.worldmap-header-main {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.panel-header,
+.worldmap-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.panel-close-btn {
+    min-width: 34px;
+    min-height: 34px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    line-height: 1;
+    border-radius: 10px;
 }
 
 body.hud-compact .hud-menus,
