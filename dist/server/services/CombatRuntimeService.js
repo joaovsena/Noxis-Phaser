@@ -8,11 +8,12 @@ const MOB_DECISION_MS = 500;
 const MOB_ATTACK_WINDUP_MS = 220;
 const MOB_LEASH_REGEN_PER_SEC = 0.10;
 class CombatRuntimeService {
-    constructor(players, mobService, mobsPeacefulMode, mapInstanceId, projectToWalkable, recalculatePathToward, getActiveSkillEffectAggregate, computeHitChance, getMobEvasion, computeMobDamage, applyDamageToMobAndHandleDeath, applyOnHitSkillEffects, sendStatsUpdated, broadcastMobHit, sendRaw, persistPlayer, syncAllPartyStates, tryPlayerAttack, getPvpAttackPermission, isBlockedAt, computeDamageAfterMitigation) {
+    constructor(players, mobService, mobsPeacefulMode, mapInstanceId, getMapWorld, projectToWalkable, recalculatePathToward, getActiveSkillEffectAggregate, computeHitChance, getMobEvasion, computeMobDamage, applyDamageToMobAndHandleDeath, applyOnHitSkillEffects, sendStatsUpdated, broadcastMobHit, sendRaw, persistPlayer, syncAllPartyStates, tryPlayerAttack, getPvpAttackPermission, isBlockedAt, hasLineOfSightFn, computeDamageAfterMitigation) {
         this.players = players;
         this.mobService = mobService;
         this.mobsPeacefulMode = mobsPeacefulMode;
         this.mapInstanceId = mapInstanceId;
+        this.getMapWorld = getMapWorld;
         this.projectToWalkable = projectToWalkable;
         this.recalculatePathToward = recalculatePathToward;
         this.getActiveSkillEffectAggregate = getActiveSkillEffectAggregate;
@@ -29,29 +30,16 @@ class CombatRuntimeService {
         this.tryPlayerAttack = tryPlayerAttack;
         this.getPvpAttackPermission = getPvpAttackPermission;
         this.isBlockedAt = isBlockedAt;
+        this.hasLineOfSightFn = hasLineOfSightFn;
         this.computeDamageAfterMitigation = computeDamageAfterMitigation;
     }
     hasLineOfSight(mapKey, fromX, fromY, toX, toY) {
-        const dx = Number(toX || 0) - Number(fromX || 0);
-        const dy = Number(toY || 0) - Number(fromY || 0);
-        const distanceTotal = Math.sqrt(dx * dx + dy * dy);
-        if (!Number.isFinite(distanceTotal) || distanceTotal <= 1)
-            return true;
-        const step = 18;
-        const samples = Math.max(2, Math.ceil(distanceTotal / step));
-        for (let i = 1; i < samples; i++) {
-            const t = i / samples;
-            const sampleX = Number(fromX || 0) + dx * t;
-            const sampleY = Number(fromY || 0) + dy * t;
-            if (this.isBlockedAt(mapKey, sampleX, sampleY))
-                return false;
-        }
-        return true;
+        return this.hasLineOfSightFn(mapKey, fromX, fromY, toX, toY);
     }
     processAutoAttack(player, now) {
         if (!player.autoAttackActive || !player.attackTargetId)
             return;
-        const mob = this.mobService.getMobs().find((m) => m.id === player.attackTargetId && m.mapId === this.mapInstanceId(player.mapKey, player.mapId));
+        const mob = this.mobService.getMobByIdInMap(String(player.attackTargetId), this.mapInstanceId(player.mapKey, player.mapId));
         if (!mob) {
             player.autoAttackActive = false;
             player.attackTargetId = null;
@@ -67,11 +55,12 @@ class CombatRuntimeService {
         const inRange = edgeDistance <= attackRange;
         const hasLos = this.hasLineOfSight(player.mapKey, player.x, player.y, mob.x, mob.y);
         if (!inRange || !hasLos) {
+            const mapWorld = this.getMapWorld(player.mapKey);
             const desiredDistance = mob.size / 2 + config_1.PLAYER_HALF_SIZE + Math.max(2, attackRange - 4);
             const dx = player.x - mob.x;
             const dy = player.y - mob.y;
             const norm = Math.sqrt(dx * dx + dy * dy) || 1;
-            const projected = this.projectToWalkable(player.mapKey, (0, math_1.clamp)(mob.x + (dx / norm) * desiredDistance, 0, config_1.WORLD.width), (0, math_1.clamp)(mob.y + (dy / norm) * desiredDistance, 0, config_1.WORLD.height));
+            const projected = this.projectToWalkable(player.mapKey, (0, math_1.clamp)(mob.x + (dx / norm) * desiredDistance, 0, mapWorld.width), (0, math_1.clamp)(mob.y + (dy / norm) * desiredDistance, 0, mapWorld.height));
             this.recalculatePathToward(player, projected.x, projected.y, now);
             return;
         }
@@ -124,11 +113,12 @@ class CombatRuntimeService {
         const attackRange = Number(player.stats?.attackRange || 60);
         const hasLos = this.hasLineOfSight(player.mapKey, player.x, player.y, target.x, target.y);
         if (edgeDistance > attackRange || !hasLos) {
+            const mapWorld = this.getMapWorld(player.mapKey);
             const desiredDistance = config_1.PLAYER_HALF_SIZE * 2 + Math.max(2, attackRange - 4);
             const dx = player.x - target.x;
             const dy = player.y - target.y;
             const norm = Math.sqrt(dx * dx + dy * dy) || 1;
-            const projected = this.projectToWalkable(player.mapKey, (0, math_1.clamp)(target.x + (dx / norm) * desiredDistance, 0, config_1.WORLD.width), (0, math_1.clamp)(target.y + (dy / norm) * desiredDistance, 0, config_1.WORLD.height));
+            const projected = this.projectToWalkable(player.mapKey, (0, math_1.clamp)(target.x + (dx / norm) * desiredDistance, 0, mapWorld.width), (0, math_1.clamp)(target.y + (dy / norm) * desiredDistance, 0, mapWorld.height));
             this.recalculatePathToward(player, projected.x, projected.y, now);
             return;
         }
@@ -207,6 +197,8 @@ class CombatRuntimeService {
                     const d = (0, math_1.distance)(mob, p);
                     if (d > Number(template.aggroRange || config_1.MOB_AGGRO_RANGE))
                         continue;
+                    if (!this.hasLineOfSight(mapKey, mob.x, mob.y, p.x, p.y))
+                        continue;
                     if (d < nearestDist) {
                         nearestDist = d;
                         nearest = p;
@@ -220,7 +212,7 @@ class CombatRuntimeService {
                 }
                 else {
                     if (mob.state !== 'wander') {
-                        const wander = this.pickWanderTarget(home.x, home.y, template.wanderRadius);
+                        const wander = this.pickWanderTarget(home.x, home.y, template.wanderRadius, mapKey);
                         mob.wanderTargetX = wander.x;
                         mob.wanderTargetY = wander.y;
                         mob.state = 'wander';
@@ -365,16 +357,18 @@ class CombatRuntimeService {
         const safeMax = Math.floor(Math.max(safeMin, Number(max || safeMin)));
         return safeMin + Math.floor(Math.random() * (safeMax - safeMin + 1));
     }
-    pickWanderTarget(homeX, homeY, radius) {
+    pickWanderTarget(homeX, homeY, radius, mapKey) {
+        const mapWorld = this.getMapWorld(mapKey);
         const r = Math.max(24, Number(radius || 120));
         const angle = Math.random() * Math.PI * 2;
         const dist = Math.random() * r;
         return {
-            x: (0, math_1.clamp)(homeX + Math.cos(angle) * dist, 0, config_1.WORLD.width),
-            y: (0, math_1.clamp)(homeY + Math.sin(angle) * dist, 0, config_1.WORLD.height)
+            x: (0, math_1.clamp)(homeX + Math.cos(angle) * dist, 0, mapWorld.width),
+            y: (0, math_1.clamp)(homeY + Math.sin(angle) * dist, 0, mapWorld.height)
         };
     }
     moveMobToward(mob, targetX, targetY, speed, deltaSeconds, mapKey) {
+        const mapWorld = this.getMapWorld(mapKey);
         const dx = Number(targetX || 0) - Number(mob.x || 0);
         const dy = Number(targetY || 0) - Number(mob.y || 0);
         const dist = Math.sqrt(dx * dx + dy * dy);
@@ -383,15 +377,15 @@ class CombatRuntimeService {
         const step = Math.max(0, Number(speed || 0)) * Math.max(0, Number(deltaSeconds || 0));
         if (step <= 0.0001)
             return false;
-        const nx = (0, math_1.clamp)(Number(mob.x || 0) + (dx / dist) * Math.min(step, dist), 0, config_1.WORLD.width);
-        const ny = (0, math_1.clamp)(Number(mob.y || 0) + (dy / dist) * Math.min(step, dist), 0, config_1.WORLD.height);
+        const nx = (0, math_1.clamp)(Number(mob.x || 0) + (dx / dist) * Math.min(step, dist), 0, mapWorld.width);
+        const ny = (0, math_1.clamp)(Number(mob.y || 0) + (dy / dist) * Math.min(step, dist), 0, mapWorld.height);
         if (!this.isBlockedAt(mapKey, nx, ny)) {
             mob.x = nx;
             mob.y = ny;
         }
         else {
-            const axisX = (0, math_1.clamp)(Number(mob.x || 0) + (dx / dist) * Math.min(step, dist), 0, config_1.WORLD.width);
-            const axisY = (0, math_1.clamp)(Number(mob.y || 0) + (dy / dist) * Math.min(step, dist), 0, config_1.WORLD.height);
+            const axisX = (0, math_1.clamp)(Number(mob.x || 0) + (dx / dist) * Math.min(step, dist), 0, mapWorld.width);
+            const axisY = (0, math_1.clamp)(Number(mob.y || 0) + (dy / dist) * Math.min(step, dist), 0, mapWorld.height);
             if (!this.isBlockedAt(mapKey, axisX, Number(mob.y || 0)))
                 mob.x = axisX;
             else if (!this.isBlockedAt(mapKey, Number(mob.x || 0), axisY))

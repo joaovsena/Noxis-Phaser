@@ -20,6 +20,7 @@ export declare class MovementService {
     private findPathWithNearbyGoals;
     private smoothWorldPath;
     private worldToPathCell;
+    private getPathRequestKey;
     private pathCellToWorld;
     private isPathCellWalkable;
     private findPath;

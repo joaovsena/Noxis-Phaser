@@ -40,6 +40,9 @@ export declare class GameController {
     private lastPersistSignatureByPlayerId;
     private autosaveInFlight;
     private persistStats;
+    private worldSnapshotCache;
+    private publicPlayerCache;
+    private staticWorldSnapshotCache;
     constructor(persistence: PersistenceService, mobService: MobService, lockService: DistributedLockService);
     handleAuth(ws: any, msg: AuthMessage): Promise<void>;
     private handleRegister;
@@ -108,10 +111,14 @@ export declare class GameController {
         players: Record<string, any>;
         mobs: import("../models/types").Mob[];
         groundItems: GroundItem[];
-        mapCode: string;
-        mapKey: string;
-        mapTheme: "forest" | "lava" | "undead";
-        mapFeatures: import("../config").MapFeature[];
+        activeEvents: {
+            id: string;
+            name: string;
+            mapKey: string;
+            mapId: string;
+            startedAt: number;
+            endsAt: number;
+        }[];
         npcs: {
             id: string;
             name: string;
@@ -131,44 +138,29 @@ export declare class GameController {
             };
             interactRange: number;
         }[];
-        activeEvents: {
-            id: string;
-            name: string;
-            mapKey: string;
-            mapId: string;
-            startedAt: number;
-            endsAt: number;
-        }[];
-        portals: {
-            id: string;
-            x: number;
-            y: number;
-            w: number;
-            h: number;
-            toMapKey?: string;
-            toX?: number;
-            toY?: number;
-            dungeonTemplateId?: string;
-        }[];
+        mapKey: string;
         mapId: string;
-        world: {
-            width: number;
-            height: number;
-        };
-        mapTiled: {
-            mapCode: string;
-            assetKey: string;
-            tmjUrl: string;
-            tilesBaseUrl: string;
-            orientation: string;
-            worldTileSize: number;
-            worldScale: number;
-        } | null;
     };
+    buildWorldStaticSnapshot(mapId?: string, mapKey?: string): {
+        mapId: string;
+        type: "world_static";
+        mapCode: string;
+        mapKey: string;
+        mapTheme: string;
+        mapFeatures: any[];
+        portals: any[];
+        world: any;
+        mapTiled: any;
+    };
+    serializeWorldSnapshot(mapId?: string, mapKey?: string): string;
+    serializeWorldStaticSnapshot(mapId?: string, mapKey?: string): string;
     getPlayerByRuntimeId(playerId: number): PlayerRuntime | undefined;
     handleDisconnect(playerId: number): Promise<void>;
+    private computeWorldSnapshotSignature;
     private firstFreeInventorySlot;
     private sanitizePublicPlayer;
+    private computePublicPlayerSignature;
+    private getStaticWorldSnapshot;
     private normalizeHotbarBinding;
     private normalizeHotbarBindings;
     private getPlayerHotbarBindings;
@@ -196,6 +188,8 @@ export declare class GameController {
     private processPortalCollision;
     private mapInstanceId;
     private isBlockedAt;
+    private hasLineOfSight;
+    private getMapWorld;
     private getMapTiledCollisionSampler;
     private projectToWalkable;
     private grantXp;

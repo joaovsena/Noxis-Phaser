@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Noxis Phaser</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;800&family=Marcellus&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+</head>
+<body>
+    <div id="game-root" aria-hidden="true"></div>
+    <div id="ui-container">
+        <div id="auth-screen" class="screen container-fluid px-3 px-md-4">
+            <div class="auth-stage">
+                <div class="auth-hero">
+                    <div class="auth-kicker">MMORPG Isometrico</div>
+                    <div class="auth-crest">N</div>
+                    <h1 class="display-4 fw-bold text-light">Noxis</h1>
+                    <p class="subtitle text-secondary-emphasis">Entre, selecione seu personagem e avance para o mundo com uma interface base organizada e responsiva.</p>
+                </div>
+
+                <div class="auth-panels">
+                    <div id="screen-login-register" class="setup-box card border-0 shadow-lg">
+                        <div class="controls">
+                            <div class="auth-buttons btn-group" role="group" aria-label="Autenticacao">
+                                <button id="tab-login" class="btn btn-outline-light active" type="button">Login</button>
+                                <button id="tab-register" class="btn btn-outline-light" type="button">Registro</button>
+                            </div>
+
+                            <div id="form-login">
+                                <label class="form-label mb-1">Usuario</label>
+                                <input type="text" id="login-username" class="form-control" maxlength="16" placeholder="usuario">
+                                <label class="form-label mb-1">Senha</label>
+                                <input type="password" id="login-password" class="form-control" maxlength="32" placeholder="senha">
+                                <button id="btn-login" class="btn btn-primary" type="button">Entrar</button>
+                            </div>
+
+                            <div id="form-register" class="hidden">
+                                <label class="form-label mb-1">Usuario</label>
+                                <input type="text" id="register-username" class="form-control" maxlength="16" placeholder="usuario">
+                                <label class="form-label mb-1">Senha</label>
+                                <input type="password" id="register-password" class="form-control" maxlength="32" placeholder="senha">
+                                <button id="btn-register" class="btn btn-primary" type="button">Criar conta</button>
+                            </div>
+                        </div>
+                        <div id="preview-box" class="card border-0 shadow-sm">
+                            <div id="class-preview" class="class-avatar preview-avatar class-knight">N</div>
+                            <div class="preview-help">
+                                Registre sua conta e faca login.
+                                A classe do personagem sera escolhida na tela de criacao.
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="screen-character-select" class="setup-box card border-0 shadow-lg hidden">
+                        <div class="controls">
+                            <label class="form-label mb-1">Selecione seu personagem</label>
+                            <div id="character-slot-grid" class="character-slot-grid">
+                                <button id="character-slot-0" class="character-slot" type="button"></button>
+                                <button id="character-slot-1" class="character-slot" type="button"></button>
+                                <button id="character-slot-2" class="character-slot" type="button"></button>
+                            </div>
+                            <div class="character-actions">
+                                <button id="btn-character-enter" class="btn btn-primary" type="button" disabled>Jogar</button>
+                                <button id="btn-character-create-from-select" class="btn btn-outline-light" type="button">Criar personagem</button>
+                                <button id="btn-character-back-login" class="btn btn-outline-secondary" type="button">Voltar</button>
+                            </div>
+                        </div>
+                        <div id="character-summary" class="preview-help card border-0">Nenhum slot selecionado.</div>
+                    </div>
+
+                    <div id="screen-character-create" class="setup-box card border-0 shadow-lg hidden">
+                        <div class="controls">
+                            <label class="form-label mb-1">Nome do personagem</label>
+                            <input type="text" id="create-char-name" class="form-control" maxlength="12" placeholder="3 a 12 caracteres">
+                            <label class="form-label mb-1">Classe</label>
+                            <select id="create-char-class" class="form-select">
+                                <option value="knight">Cavaleiro</option>
+                                <option value="archer">Arqueiro</option>
+                                <option value="druid">Druida</option>
+                                <option value="assassin">Assassino</option>
+                            </select>
+                            <label class="form-label mb-1">Sexo</label>
+                            <select id="create-char-gender" class="form-select">
+                                <option value="male">Masculino</option>
+                                <option value="female">Feminino</option>
+                            </select>
+                            <div class="character-actions">
+                                <button id="btn-character-create" class="btn btn-primary" type="button">Criar</button>
+                                <button id="btn-character-create-back" class="btn btn-outline-secondary" type="button">Voltar</button>
+                            </div>
+                        </div>
+                        <div id="create-char-preview" class="preview-help card border-0">
+                            Escolha classe e sexo para criar seu personagem.
+                        </div>
+                    </div>
+
+                    <p id="auth-status"></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="char-panel" class="panel card shadow hidden">
+        <div id="char-panel-header" class="panel-header card-header">
+            <span>Personagem (arraste)</span>
+            <button id="char-panel-close" class="panel-close-btn btn btn-outline-light btn-sm" type="button" aria-label="Fechar personagem">X</button>
+        </div>
+        <div class="card-body">
+        <div id="char-panel-name">-</div>
+        <div class="char-layout">
+            <div class="equip-col" id="equip-col-left">
+                <div class="equip-slot" data-slot="helmet">Capacete</div>
+                <div class="equip-slot" data-slot="chest">Peitoral</div>
+                <div class="equip-slot" data-slot="pants">Calca</div>
+                <div class="equip-slot" data-slot="gloves">Luva</div>
+            </div>
+            <div class="char-center">
+                <div id="panel-class-chip"></div>
+            </div>
+            <div class="equip-col" id="equip-col-right">
+                <div class="equip-slot" data-slot="boots">Bota</div>
+                <div class="equip-slot" data-slot="ring">Anel</div>
+                <div class="equip-slot" data-slot="weapon">Arma</div>
+                <div class="equip-slot" data-slot="necklace">Colar</div>
+            </div>
+        </div>
+        <div id="panel-body"></div>
+        </div>
+    </div>
+
+    <div id="perf-hud" class="hud-perf hidden">FPS -- | Ping --</div>
+    <div id="afk-status" class="hud-afk hidden">Voce esta no modo AFK</div>
+
+    <div id="player-card" class="hud-card hidden">
+        <div id="player-avatar"></div>
+        <div class="player-meta">
+            <div class="player-name-row">
+                <div id="player-name">-</div>
+                <button id="player-char-select" class="btn btn-outline-light btn-sm" title="Trocar personagem" type="button">Trocar</button>
+                <button id="player-pvp-toggle" class="btn btn-outline-light btn-sm" title="Modo PVP" type="button">Paz</button>
+            </div>
+            <div id="player-pvp-menu" class="player-pvp-menu hidden">
+                <button class="pvp-mode-option btn btn-outline-light btn-sm" data-mode="peace" type="button">Paz</button>
+                <button class="pvp-mode-option btn btn-outline-light btn-sm" data-mode="group" type="button">Grupo</button>
+                <button class="pvp-mode-option btn btn-outline-light btn-sm" data-mode="evil" type="button">Mal</button>
+            </div>
+            <div class="hp-wrap"><div id="player-hp-fill"></div></div>
+            <div id="player-hp-text">HP: -</div>
+        </div>
+    </div>
+
+    <div id="target-player-card" class="hud-target-player hidden">
+        <div class="target-card-top">
+            <div id="target-player-avatar"></div>
+            <div class="target-card-meta">
+                <div class="target-card-name-row">
+                    <span id="target-name-text">-</span>
+                    <button id="target-actions-toggle" class="target-actions-toggle btn btn-outline-light btn-sm" title="Acoes" type="button">&#9662;</button>
+                </div>
+                <div class="hp-wrap"><div id="target-player-hp-fill"></div></div>
+            </div>
+        </div>
+        <div id="target-actions-menu" class="target-actions-menu hidden">
+            <button id="target-attack-btn" class="btn btn-outline-danger btn-sm" type="button">Atacar</button>
+            <button id="target-invite-btn" class="btn btn-outline-light btn-sm" type="button">Convidar para grupo</button>
+            <button id="target-friend-btn" class="btn btn-outline-light btn-sm" type="button">Adicionar amigo</button>
+            <button id="target-clear-btn" class="btn btn-outline-light btn-sm" type="button">Limpar alvo</button>
+        </div>
+    </div>
+
+    <div id="party-frames" class="hud-party-frames hidden"></div>
+
+    <div id="minimap-wrap" class="hud-minimap hidden">
+        <canvas id="minimap-canvas" width="190" height="190"></canvas>
+        <div id="map-code-label">Mapa A1</div>
+        <div id="minimap-coords-label" class="map-coords-label">X: -- | Y: --</div>
+        <div class="minimap-instance-bar">
+            <label for="instance-select" class="form-label mb-0">Instancia</label>
+            <select id="instance-select" class="form-select form-select-sm">
+                <option value="Z1">Z1</option>
+                <option value="Z2">Z2</option>
+            </select>
+        </div>
+        <button id="map-settings-toggle" class="map-settings-toggle btn btn-outline-light btn-sm" title="Configuracoes" type="button">&#9881;</button>
+        <div id="map-settings-panel" class="map-settings-panel hidden">
+            <label class="map-settings-line form-check">
+                <input id="auto-attack-toggle" class="form-check-input" type="checkbox" checked>
+                <span class="form-check-label">Ataque automatico</span>
+            </label>
+            <label id="path-debug-setting" class="map-settings-line form-check hidden">
+                <input id="path-debug-toggle" class="form-check-input" type="checkbox">
+                <span class="form-check-label">Debug Path</span>
+            </label>
+            <label id="hud-debug-setting" class="map-settings-line form-check hidden">
+                <input id="hud-debug-toggle" class="form-check-input" type="checkbox">
+                <span class="form-check-label">Debug HUD</span>
+            </label>
+            <div id="hud-debug-panel" class="hud-debug-panel hidden">
+                <div class="hud-debug-row">
+                    <span>Escala Min</span>
+                    <input id="hud-scale-min" type="range" min="70" max="110" step="1" value="84">
+                    <span id="hud-scale-min-value">84%</span>
+                </div>
+                <div class="hud-debug-row">
+                    <span>Escala Max</span>
+                    <input id="hud-scale-max" type="range" min="90" max="140" step="1" value="106">
+                    <span id="hud-scale-max-value">106%</span>
+                </div>
+                <button id="hud-debug-reset" class="btn btn-outline-light btn-sm" type="button">Reset HUD</button>
+            </div>
+            <label id="mob-peaceful-setting" class="map-settings-line form-check hidden">
+                <input id="mob-peaceful-toggle" class="form-check-input" type="checkbox">
+                <span class="form-check-label">Mobs pacificos</span>
+            </label>
+            <label id="dungeon-debug-setting" class="map-settings-line hidden">
+                <button id="dungeon-debug-btn" class="btn btn-outline-warning btn-sm w-100" type="button">Debug Dungeon</button>
+            </label>
+        </div>
+        <button id="dungeon-leave-btn" class="btn btn-outline-danger btn-sm hidden" type="button">Sair da Dungeon</button>
+    </div>
+
+    <div id="worldmap-panel" class="hud-worldmap card shadow hidden">
+        <div id="worldmap-header" class="worldmap-header card-header">
+            <div class="worldmap-header-main">
+                <div>Mapa Completo (M)</div>
+                <div id="worldmap-coords-label" class="map-coords-label">X: -- | Y: --</div>
+            </div>
+            <button id="worldmap-close" class="panel-close-btn btn btn-outline-light btn-sm" type="button" aria-label="Fechar mapa">X</button>
+        </div>
+        <div class="card-body">
+            <canvas id="worldmap-canvas" width="860" height="560"></canvas>
+        </div>
+    </div>
+
+    <div id="chat-wrap" class="hud-chat hidden">
+        <div class="chat-tabs btn-toolbar">
+            <button class="chat-scope btn btn-outline-light btn-sm active" data-scope="local" type="button">Local</button>
+            <button class="chat-scope btn btn-outline-light btn-sm" data-scope="map" type="button">Mapa</button>
+            <button class="chat-scope btn btn-outline-light btn-sm" data-scope="global" type="button">Global</button>
+            <button id="chat-toggle" class="btn btn-outline-light btn-sm" type="button">Chat</button>
+        </div>
+        <div id="chat-manual-resizer" class="chat-manual-resizer" title="Redimensionar chat"></div>
+        <div id="chat-mode-menu" class="chat-mode-menu hidden">
+            <button class="chat-mode-option btn btn-outline-light btn-sm" data-mode="expanded" type="button">Completo</button>
+            <button class="chat-mode-option btn btn-outline-light btn-sm" data-mode="compact" type="button">Compacto</button>
+            <button class="chat-mode-option btn btn-outline-light btn-sm" data-mode="mini" type="button">Mini</button>
+            <button class="chat-mode-option btn btn-outline-light btn-sm" data-mode="manual" type="button">Manual</button>
+        </div>
+        <div id="chat-log"></div>
+        <input id="chat-input" class="form-control form-control-sm" maxlength="180" placeholder="Digite e pressione Enter">
+    </div>
+
+    <div id="skillbar-wrap" class="hud-skillbar hidden">
+        <div class="skill-row" id="skill-row-top">
+            <button class="skill-slot-btn" data-key="q"><span>Q</span></button>
+            <button class="skill-slot-btn" data-key="w"><span>W</span></button>
+            <button class="skill-slot-btn" data-key="e"><span>E</span></button>
+            <button class="skill-slot-btn" data-key="r"><span>R</span></button>
+            <button class="skill-slot-btn" data-key="a"><span>A</span></button>
+            <button class="skill-slot-btn" data-key="s"><span>S</span></button>
+            <button class="skill-slot-btn" data-key="d"><span>D</span></button>
+            <button class="skill-slot-btn" data-key="f"><span>F</span></button>
+        </div>
+        <div class="skill-row" id="skill-row-bottom">
+            <button class="skill-slot-btn" data-key="1"><span>1</span></button>
+            <button class="skill-slot-btn" data-key="2"><span>2</span></button>
+            <button class="skill-slot-btn" data-key="3"><span>3</span></button>
+            <button class="skill-slot-btn" data-key="4"><span>4</span></button>
+            <button class="skill-slot-btn" data-key="5"><span>5</span></button>
+            <button class="skill-slot-btn" data-key="6"><span>6</span></button>
+            <button class="skill-slot-btn" data-key="7"><span>7</span></button>
+            <button class="skill-slot-btn" data-key="8"><span>8</span></button>
+        </div>
+    </div>
+
+    <div id="menus-wrap" class="hud-menus hidden">
+        <button id="menu-attrs" class="menu-btn btn btn-success" type="button">Personagem (C)</button>
+        <button id="menu-inventory" class="menu-btn btn btn-success" type="button">Inventario (B)</button>
+        <button id="menu-skills" class="menu-btn btn btn-success" type="button">Habilidades (V)</button>
+        <button id="menu-quests" class="menu-btn btn btn-success" type="button">Quests (J)</button>
+        <button id="menu-map" class="menu-btn btn btn-success" type="button">Mapa (M)</button>
+        <button id="menu-party" class="menu-btn btn btn-success" type="button">Grupo (G)</button>
+        <button id="menu-friends" class="menu-btn btn btn-success" type="button">Amigos (O)</button>
+    </div>
+
+    <div id="quest-panel" class="panel card shadow hidden">
+        <div id="quest-header" class="panel-header card-header">
+            <span>Quests Ativas (J)</span>
+            <button id="quest-panel-close" class="panel-close-btn btn btn-outline-light btn-sm" type="button" aria-label="Fechar quests">X</button>
+        </div>
+        <div class="card-body">
+            <div id="quest-list"></div>
+        </div>
+    </div>
+
+    <div id="npc-dialog-panel" class="panel card shadow hidden">
+        <div id="npc-dialog-header" class="panel-header card-header">NPC</div>
+        <div class="card-body">
+        <div id="npc-dialog-body"></div>
+        <div class="confirm-actions">
+            <button id="npc-dialog-close" class="btn btn-outline-light" type="button">Fechar</button>
+        </div>
+        </div>
+    </div>
+
+    <div id="party-panel" class="panel card shadow hidden">
+        <div id="party-header" class="panel-header card-header">
+            <span>Grupo (G)</span>
+            <button id="party-panel-close" class="panel-close-btn btn btn-outline-light btn-sm" type="button" aria-label="Fechar grupo">X</button>
+        </div>
+        <div class="card-body">
+        <div class="party-tabs">
+            <button id="party-tab-area" class="btn btn-outline-light active" type="button">Grupos na Area</button>
+            <button id="party-tab-my" class="btn btn-outline-light" type="button">Meu Grupo</button>
+        </div>
+        <div id="party-view-area">
+            <div id="party-area-list"></div>
+            <div id="party-request-wrap" class="party-actions">
+                <button id="party-request-join-btn" class="btn btn-primary btn-sm" type="button">Solicitar entrada</button>
+            </div>
+            <div id="party-create-wrap">
+                <div class="party-gap"></div>
+                <div class="party-actions">
+                <input id="party-area-search" class="form-control form-control-sm" type="text" maxlength="24" placeholder="Nome do grupo">
+                </div>
+                <div class="party-actions">
+                    <button id="party-create" class="btn btn-outline-light btn-sm w-100" type="button">Criar Grupo</button>
+                </div>
+            </div>
+        </div>
+        <div id="party-view-my" class="hidden">
+            <div id="party-my-meta">Voce nao esta em grupo.</div>
+            <div id="party-my-leave-wrap" class="party-actions">
+                <button id="party-leave" class="btn btn-outline-danger btn-sm" type="button">Sair</button>
+            </div>
+            <div id="party-my-invite-wrap" class="party-actions">
+                <input id="party-invite-name" class="form-control form-control-sm" type="text" maxlength="20" placeholder="Nome do jogador">
+                <button id="party-invite-btn" class="btn btn-outline-light btn-sm" type="button">Convidar nome</button>
+            </div>
+            <div id="party-members"></div>
+        </div>
+        </div>
+    </div>
+
+    <div id="party-notifications" class="hud-party-notify hidden">
+        <div class="party-notify-title">Grupo</div>
+        <div id="party-notifications-list"></div>
+    </div>
+
+    <div id="friends-notifications" class="hud-friend-notify hidden">
+        <div class="party-notify-title">Amizades</div>
+        <div id="friends-notifications-list"></div>
+    </div>
+
+    <div id="dungeon-notifications" class="hud-dungeon-notify hidden">
+        <div class="party-notify-title">Dungeon</div>
+        <div id="dungeon-notifications-list"></div>
+    </div>
+
+    <div id="friends-panel" class="panel card shadow hidden">
+        <div id="friends-header" class="panel-header card-header">
+            <span>Amigos (O)</span>
+            <button id="friends-panel-close" class="panel-close-btn btn btn-outline-light btn-sm" type="button" aria-label="Fechar amigos">X</button>
+        </div>
+        <div class="card-body">
+        <div class="party-tabs">
+            <button id="friends-tab-list" class="btn btn-outline-light active" type="button">Amigos</button>
+            <button id="friends-tab-requests" class="btn btn-outline-light" type="button">Pedidos</button>
+        </div>
+        <div id="friends-view-list">
+            <div class="friends-add-wrap">
+                <input id="friends-add-name" class="form-control form-control-sm" type="text" maxlength="20" placeholder="Nome do jogador">
+                <button id="friends-add-btn" class="btn btn-primary btn-sm" type="button">Adicionar</button>
+            </div>
+            <div id="friends-list"></div>
+        </div>
+        <div id="friends-view-requests" class="hidden">
+            <div id="friends-incoming-list"></div>
+            <div class="party-gap"></div>
+            <div id="friends-outgoing-list"></div>
+        </div>
+        </div>
+    </div>
+
+    <div id="inventory-panel" class="panel card shadow hidden">
+        <div id="inventory-header" class="panel-header card-header">
+            <span>Inventario</span>
+            <button id="inventory-panel-close" class="panel-close-btn btn btn-outline-light btn-sm" type="button" aria-label="Fechar inventario">X</button>
+        </div>
+        <div class="card-body">
+        <div class="inventory-toolbar">
+            <button id="inventory-sort" class="btn btn-outline-light btn-sm" type="button">Ordenar</button>
+            <div id="inventory-equipped-label">Arma equipada: nenhuma</div>
+        </div>
+        <div id="inventory-grid"></div>
+        <div id="inventory-hint">Arraste para inventario/personagem/barra. Solte fora para excluir.</div>
+        </div>
+    </div>
+
+    <div id="skills-panel" class="panel card shadow hidden">
+        <div id="skills-header" class="panel-header card-header">
+            <span>Habilidades (V)</span>
+            <button id="skills-panel-close" class="panel-close-btn btn btn-outline-light btn-sm" type="button" aria-label="Fechar habilidades">X</button>
+        </div>
+        <div class="card-body">
+        <div class="skills-topbar">
+            <button id="skills-tab-holy" class="skills-tab btn btn-outline-light active" type="button">Holy</button>
+            <button id="skills-tab-blood" class="skills-tab btn btn-outline-light" type="button">Blood</button>
+            <div id="skills-points-label">Pont. Hab.: 0</div>
+        </div>
+        <div id="skills-tree-wrap" class="skills-tree-wrap"></div>
+        <div class="skills-bottom-wrap">
+            <div class="skills-auto-box">
+                <div class="skills-box-title">Auto</div>
+                <button id="skills-auto-slot" class="skills-auto-slot btn btn-outline-light" type="button">Atk Basico</button>
+            </div>
+            <div class="skills-modular-box">
+                <div class="skills-box-title">Outras Hab.</div>
+                <div id="skills-modular-grid" class="skills-modular-grid"></div>
+            </div>
+        </div>
+        </div>
+    </div>
+
+    <div id="delete-confirm" class="panel card shadow hidden">
+        <div class="card-body">
+        <div id="delete-confirm-title">deseja excluir o item?</div>
+        <div class="confirm-actions">
+            <button id="delete-confirm-yes" class="btn btn-danger" type="button">Sim</button>
+            <button id="delete-confirm-no" class="btn btn-outline-light" type="button">Nao</button>
+        </div>
+        </div>
+    </div>
+
+    <div id="revive-overlay" class="revive-overlay hidden">
+        <div class="revive-card">
+            <div>Voce morreu.</div>
+            <button id="revive-btn" class="btn btn-primary" type="button">Reviver aqui</button>
+        </div>
+    </div>
+
+    <div id="item-tooltip" class="panel card shadow hidden"></div>
+
+    <div id="admin-panel" class="panel card shadow hidden">
+        <div id="admin-header" class="panel-header card-header">
+            <span>Painel ADM (H)</span>
+            <span class="admin-help-wrap">
+                <button id="admin-help-icon" class="btn btn-outline-light btn-sm" type="button" aria-label="Ajuda de comandos">?</button>
+                <div id="admin-help-popover">
+                    <div class="admin-help-title">Comandos</div>
+                    <ul id="admin-help-list">
+                        <li id="admin-status-help">setstatus {id} {quantia} {jogador?}</li>
+                        <li>setrolelevel {nivel} {jogador?}</li>
+                        <li>gotomap {A1|A2|A3} {jogador?}</li>
+                        <li>teleport {jogador?}</li>
+                        <li>summonplayer {jogador?}</li>
+                        <li>additem {id} {quantia} {jogador?}</li>
+                        <li>addgold {quantia} {moeda} {jogador?}</li>
+                        <li>settag {player|adm} {jogador?}</li>
+                        <li>dungeon.debug</li>
+                    </ul>
+                </div>
+            </span>
+        </div>
+        <div class="card-body">
+            <input id="admin-command" class="form-control form-control-sm" placeholder="setstatus 1 100 sena">
+            <button id="admin-send" class="btn btn-warning btn-sm mt-2" type="button">Executar</button>
+            <div id="admin-result"></div>
+        </div>
+    </div>
+
+    <script defer src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

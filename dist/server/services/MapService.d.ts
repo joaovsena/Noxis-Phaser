@@ -16,6 +16,7 @@ export declare class MapService {
         isBlockedAt: (worldX: number, worldY: number, radiusWorld: number) => boolean;
     } | null;
     isBlockedAt(mapKey: string, x: number, y: number): boolean;
+    hasLineOfSight(mapKey: string, fromX: number, fromY: number, toX: number, toY: number, step?: number): boolean;
     projectToWalkable(mapKey: string, x: number, y: number): {
         x: number;
         y: number;

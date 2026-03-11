@@ -130,6 +130,28 @@ type SkillDef = {
     effectKey?: string;
 };
 
+type WorldSnapshotCacheEntry = {
+    signature: string;
+    serialized: string;
+};
+
+type PublicPlayerCacheEntry = {
+    signature: string;
+    snapshot: any;
+};
+
+type StaticWorldSnapshotEntry = {
+    type: 'world_static';
+    mapCode: string;
+    mapKey: string;
+    mapId?: string;
+    mapTheme: string;
+    mapFeatures: any[];
+    portals: any[];
+    world: any;
+    mapTiled: any;
+};
+
 const SKILL_DEFS: Record<string, SkillDef> = {
     war_bastion_escudo_fe: { id: 'war_bastion_escudo_fe', classId: 'knight', name: 'Escudo da Fe', cooldownMs: 12000, target: 'self', buff: { id: 'escudo_fe', durationMs: 12000, defenseMul: 1.35, magicDefenseMul: 1.35 }, effectKey: 'war_shield' },
     war_bastion_muralha: { id: 'war_bastion_muralha', classId: 'knight', name: 'Muralha', cooldownMs: 14000, target: 'self', buff: { id: 'muralha', durationMs: 8000, reflect: 0.18, damageReduction: 0.15 }, effectKey: 'war_wall' },
@@ -230,6 +252,9 @@ export class GameController {
         failed: 0,
         retried: 0
     };
+    private worldSnapshotCache: Map<string, WorldSnapshotCacheEntry> = new Map();
+    private publicPlayerCache: Map<number, PublicPlayerCacheEntry> = new Map();
+    private staticWorldSnapshotCache: Map<string, StaticWorldSnapshotEntry> = new Map();
 
     constructor(persistence: PersistenceService, mobService: MobService, lockService: DistributedLockService) {
         this.persistence = persistence;
@@ -281,6 +306,7 @@ export class GameController {
         this.eventService = new EventService(
             this.mobService,
             this.broadcastMapInstance.bind(this),
+            this.getMapWorld.bind(this),
             this.projectToWalkable.bind(this)
         );
         this.dungeonService = new DungeonService(
@@ -291,6 +317,7 @@ export class GameController {
             this.persistPlayer.bind(this),
             this.persistPlayerCritical.bind(this),
             this.grantCurrency.bind(this),
+            this.getMapWorld.bind(this),
             this.projectToWalkable.bind(this),
             this.removeGroundItemsByMapInstance.bind(this),
             this.dropTemplateAt.bind(this)
@@ -313,20 +340,22 @@ export class GameController {
             this.getSkillPowerWithLevel.bind(this),
             this.sendStatsUpdated.bind(this),
             this.mapInstanceId.bind(this),
-            () => this.mobService.getMobs(),
+            this.mobService.getMobByIdInMap.bind(this.mobService),
             (mapId) => this.mobService.getMobsByMap(mapId),
             this.assignPathTo.bind(this),
             this.getSkillPrerequisite.bind(this),
             this.normalizeSkillLevels.bind(this),
             this.getAvailableSkillPoints.bind(this),
             this.recomputePlayerStats.bind(this),
-            this.persistPlayer.bind(this)
+            this.persistPlayer.bind(this),
+            (playerId) => this.players.get(playerId)
         );
         this.combatRuntimeService = new CombatRuntimeService(
             this.players,
             this.mobService,
             () => this.mobsPeacefulMode,
             this.mapInstanceId.bind(this),
+            this.getMapWorld.bind(this),
             this.projectToWalkable.bind(this),
             this.recalculatePathToward.bind(this),
             this.getActiveSkillEffectAggregate.bind(this),
@@ -343,6 +372,7 @@ export class GameController {
             this.tryPlayerAttack.bind(this),
             this.getPvpAttackPermission.bind(this),
             this.isBlockedAt.bind(this),
+            this.hasLineOfSight.bind(this),
             this.computeDamageAfterMitigation.bind(this)
         );
         this.combatCoreService = new CombatCoreService(
@@ -365,7 +395,8 @@ export class GameController {
             this.pickRandomWeaponTemplate.bind(this),
             this.dropWeaponAt.bind(this),
             this.dropHpPotionAt.bind(this),
-            this.dropSkillResetHourglassAt.bind(this)
+            this.dropSkillResetHourglassAt.bind(this),
+            this.hasLineOfSight.bind(this)
         );
     }
 
@@ -600,7 +631,7 @@ export class GameController {
             }));
             this.sendInventoryState(player);
             this.questService.sendQuestState(player);
-            ws.send(JSON.stringify(this.buildWorldSnapshot(player.mapId, player.mapKey)));
+            ws.send(this.serializeWorldSnapshot(player.mapId, player.mapKey));
             this.sendPartyStateToPlayer(player, null);
             this.sendPartyAreaList(player);
             if (player.role === 'adm') {
@@ -1557,9 +1588,6 @@ export class GameController {
     buildWorldSnapshot(mapId: string = DEFAULT_MAP_ID, mapKey: string = DEFAULT_MAP_KEY) {
         return perfStats.time('snapshot.buildWorld', () => {
             const mapInstanceId = this.mapInstanceId(mapKey, mapId);
-            const hasTiledCollision = Boolean(this.getMapTiledCollisionSampler(mapKey));
-            const isDungeonMap = String(mapKey || '').startsWith('dng_');
-            const mapMetadata = getMapMetadata(mapKey);
             const publicPlayers: Record<string, any> = {};
             for (const [id, player] of this.players.entries()) {
                 if (player.mapId !== mapId || player.mapKey !== mapKey) continue;
@@ -1571,28 +1599,42 @@ export class GameController {
                 players: publicPlayers,
                 mobs: this.mobService.getMobsByMap(mapInstanceId),
                 groundItems: this.groundItems.filter((it) => it.mapId === mapInstanceId),
-                mapCode: mapMetadata?.mapCode || mapCodeFromKey(mapKey),
-                mapKey,
-                mapTheme: isDungeonMap ? 'undead' : (MAP_THEMES[mapKey] || 'forest'),
-                mapFeatures: hasTiledCollision ? [] : (MAP_FEATURES_BY_KEY[mapKey] || []),
-                npcs: this.questService.getNpcsForMap(mapKey, mapId),
                 activeEvents: this.eventService.getActiveEventsForMap(mapKey, mapId),
-                portals: PORTALS_BY_MAP_KEY[mapKey] || [],
+                npcs: this.questService.getNpcsForMap(mapKey, mapId),
+                mapKey,
                 mapId,
-                world: mapMetadata?.world || WORLD,
-                mapTiled: mapMetadata
-                    ? {
-                        mapCode: mapMetadata.mapCode,
-                        assetKey: mapMetadata.assetKey,
-                        tmjUrl: mapMetadata.tmjUrl,
-                        tilesBaseUrl: mapMetadata.tilesBaseUrl,
-                        orientation: mapMetadata.orientation,
-                        worldTileSize: mapMetadata.worldTileSize,
-                        worldScale: mapMetadata.worldScale
-                    }
-                    : null
             };
         });
+    }
+
+    buildWorldStaticSnapshot(mapId: string = DEFAULT_MAP_ID, mapKey: string = DEFAULT_MAP_KEY) {
+        const staticWorld = this.getStaticWorldSnapshot(mapKey);
+        return {
+            ...staticWorld,
+            mapId
+        };
+    }
+
+    serializeWorldSnapshot(mapId: string = DEFAULT_MAP_ID, mapKey: string = DEFAULT_MAP_KEY) {
+        return perfStats.time('snapshot.serializeWorld', () => {
+            const instanceKey = `${String(mapKey)}::${String(mapId)}`;
+            const signature = this.computeWorldSnapshotSignature(mapId, mapKey);
+            const cached = this.worldSnapshotCache.get(instanceKey);
+            if (cached && cached.signature === signature) {
+                perfStats.increment('snapshot.cache.hit');
+                return cached.serialized;
+            }
+            perfStats.increment('snapshot.cache.miss');
+            const serialized = JSON.stringify(this.buildWorldSnapshot(mapId, mapKey));
+            this.worldSnapshotCache.set(instanceKey, { signature, serialized });
+            return serialized;
+        });
+    }
+
+    serializeWorldStaticSnapshot(mapId: string = DEFAULT_MAP_ID, mapKey: string = DEFAULT_MAP_KEY) {
+        return perfStats.time('snapshot.serializeWorldStatic', () =>
+            JSON.stringify(this.buildWorldStaticSnapshot(mapId, mapKey))
+        );
     }
 
     getPlayerByRuntimeId(playerId: number) {
@@ -1610,9 +1652,71 @@ export class GameController {
         this.dirtyPlayerIds.delete(playerId);
         this.persistRevisionByPlayerId.delete(playerId);
         this.lastPersistSignatureByPlayerId.delete(playerId);
+        this.publicPlayerCache.delete(playerId);
         this.clearPendingInvitesForPlayer(player.id);
         this.clearJoinRequestsForPlayer(player.id);
         this.clearFriendRequestsForPlayer(player.id);
+        this.worldSnapshotCache.delete(`${String(player.mapKey)}::${String(player.mapId)}`);
+    }
+
+    private computeWorldSnapshotSignature(mapId: string, mapKey: string) {
+        return perfStats.time('snapshot.signatureWorld', () => {
+            const mapInstanceId = this.mapInstanceId(mapKey, mapId);
+            const playersSignature = Array.from(this.players.values())
+                .filter((player) => player.mapId === mapId && player.mapKey === mapKey)
+                .sort((a, b) => Number(a.id) - Number(b.id))
+                .map((player) => [
+                    player.id,
+                    Math.round(Number(player.x || 0)),
+                    Math.round(Number(player.y || 0)),
+                    Number(player.hp || 0),
+                    Number(player.maxHp || 0),
+                    player.dead ? 1 : 0,
+                    Number(player.level || 0),
+                    String(player.pvpMode || 'peace'),
+                    String(player.equippedWeaponId || ''),
+                    Number(player.xp || 0),
+                    Number(player.unspentPoints || 0),
+                    player.afkActive ? 1 : 0,
+                    Array.isArray(player.movePath) ? player.movePath.length : 0
+                ].join(':'))
+                .join('|');
+            const mobsSignature = this.mobService.getMobsByMap(mapInstanceId)
+                .sort((a: any, b: any) => String(a.id).localeCompare(String(b.id)))
+                .map((mob: any) => [
+                    String(mob.id),
+                    Math.round(Number(mob.x || 0)),
+                    Math.round(Number(mob.y || 0)),
+                    Number(mob.hp || 0),
+                    Number(mob.maxHp || 0),
+                    String(mob.state || ''),
+                    Number(mob.targetPlayerId || 0)
+                ].join(':'))
+                .join('|');
+            const groundSignature = this.groundItems
+                .filter((item) => item.mapId === mapInstanceId)
+                .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+                .map((item) => [
+                    String(item.id),
+                    Math.round(Number(item.x || 0)),
+                    Math.round(Number(item.y || 0)),
+                    Number(item.quantity || 0),
+                    Number(item.reservedUntil || 0),
+                    Number(item.expiresAt || 0)
+                ].join(':'))
+                .join('|');
+            const activeEvents = JSON.stringify(this.eventService.getActiveEventsForMap(mapKey, mapId));
+            const npcs = JSON.stringify(this.questService.getNpcsForMap(mapKey, mapId));
+            return [
+                mapKey,
+                mapId,
+                playersSignature,
+                mobsSignature,
+                groundSignature,
+                activeEvents,
+                npcs
+            ].join('#');
+        });
     }
 
     private firstFreeInventorySlot(items: any[], ignoreItemIds: Set<string> = new Set()): number {
@@ -1629,9 +1733,12 @@ export class GameController {
     }
 
     private sanitizePublicPlayer(player: PlayerRuntime) {
+        const signature = this.computePublicPlayerSignature(player);
+        const cached = this.publicPlayerCache.get(player.id);
+        if (cached && cached.signature === signature) return cached.snapshot;
         const weapon = Array.isArray(player.inventory) ? player.inventory.find((it: any) => it.id === player.equippedWeaponId) : null;
         const equippedBySlot = this.getEquippedItemsBySlot(player);
-        return {
+        const snapshot = {
             id: player.id,
             username: player.username,
             name: player.name,
@@ -1660,6 +1767,78 @@ export class GameController {
             allocatedStats: this.normalizeAllocatedStats(player.allocatedStats),
             unspentPoints: Number.isInteger(player.unspentPoints) ? player.unspentPoints : 0
         };
+        this.publicPlayerCache.set(player.id, { signature, snapshot });
+        return snapshot;
+    }
+
+    private computePublicPlayerSignature(player: PlayerRuntime) {
+        const movePathSignature = Array.isArray(player.movePath)
+            ? player.movePath.slice(0, 8).map((pt: any) => `${Math.round(Number(pt?.x || 0))},${Math.round(Number(pt?.y || 0))}`).join(';')
+            : '';
+        const effectsSignature = Array.isArray(player.activeSkillEffects)
+            ? player.activeSkillEffects
+                .map((fx: any) => `${String(fx?.id || '')}:${Number(fx?.endsAt || 0)}`)
+                .sort()
+                .join('|')
+            : '';
+        return [
+            player.id,
+            player.username,
+            player.name,
+            player.class,
+            player.gender,
+            Math.round(Number(player.x || 0)),
+            Math.round(Number(player.y || 0)),
+            player.mapKey,
+            player.mapId,
+            player.pvpMode,
+            player.dead ? 1 : 0,
+            player.role || 'player',
+            Number(player.level || 0),
+            Number(player.hp || 0),
+            Number(player.maxHp || 0),
+            player.afkActive ? 1 : 0,
+            String(player.equippedWeaponId || ''),
+            Number(player.xp || 0),
+            Number(player.unspentPoints || 0),
+            JSON.stringify(player.wallet || {}),
+            JSON.stringify(player.stats || {}),
+            JSON.stringify(this.normalizeSkillLevels(player.skillLevels || {})),
+            JSON.stringify(this.normalizeAllocatedStats(player.allocatedStats)),
+            effectsSignature,
+            movePathSignature
+        ].join('#');
+    }
+
+    private getStaticWorldSnapshot(mapKey: string): StaticWorldSnapshotEntry {
+        const cacheKey = String(mapKey || '');
+        const cached = this.staticWorldSnapshotCache.get(cacheKey);
+        if (cached) return cached;
+        const hasTiledCollision = Boolean(this.getMapTiledCollisionSampler(mapKey));
+        const isDungeonMap = String(mapKey || '').startsWith('dng_');
+        const mapMetadata = getMapMetadata(mapKey);
+        const snapshot: StaticWorldSnapshotEntry = {
+            type: 'world_static',
+            mapCode: mapMetadata?.mapCode || mapCodeFromKey(mapKey),
+            mapKey,
+            mapTheme: isDungeonMap ? 'undead' : (MAP_THEMES[mapKey] || 'forest'),
+            mapFeatures: hasTiledCollision ? [] : (MAP_FEATURES_BY_KEY[mapKey] || []),
+            portals: PORTALS_BY_MAP_KEY[mapKey] || [],
+            world: mapMetadata?.world || WORLD,
+            mapTiled: mapMetadata
+                ? {
+                    mapCode: mapMetadata.mapCode,
+                    assetKey: mapMetadata.assetKey,
+                    tmjUrl: mapMetadata.tmjUrl,
+                    tilesBaseUrl: mapMetadata.tilesBaseUrl,
+                    orientation: mapMetadata.orientation,
+                    worldTileSize: mapMetadata.worldTileSize,
+                    worldScale: mapMetadata.worldScale
+                }
+                : null
+        };
+        this.staticWorldSnapshotCache.set(cacheKey, snapshot);
+        return snapshot;
     }
 
     private normalizeHotbarBinding(binding: any) {
@@ -1877,6 +2056,14 @@ export class GameController {
 
     private isBlockedAt(mapKey: string, x: number, y: number) {
         return this.mapService.isBlockedAt(mapKey, x, y);
+    }
+
+    private hasLineOfSight(mapKey: string, fromX: number, fromY: number, toX: number, toY: number) {
+        return this.mapService.hasLineOfSight(mapKey, fromX, fromY, toX, toY);
+    }
+
+    private getMapWorld(mapKey: string) {
+        return this.mapService.getMapWorld(mapKey);
     }
 
     private getMapTiledCollisionSampler(mapKey: string) {

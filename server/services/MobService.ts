@@ -8,6 +8,8 @@ import {
     MAP_FEATURES_BY_KEY
 } from '../config';
 import { randomUUID } from 'crypto';
+import { getMapMetadata } from '../maps/mapMetadata';
+import { getMapTiledCollisionSampler } from '../maps/tiledCollision';
 
 interface MobTemplateRuntime {
     kind: string;
@@ -34,6 +36,8 @@ interface MobTemplateRuntime {
 export class MobService {
     private mobs: Mob[] = [];
     private templateCache: Map<string, MobTemplateRuntime> = new Map();
+    private mobById: Map<string, Mob> = new Map();
+    private mobsByMapId: Map<string, Set<Mob>> = new Map();
 
     constructor() {
         this.loadTemplateCache([]);
@@ -144,6 +148,7 @@ export class MobService {
             mapId: String(overrides.mapId || mapId)
         };
         this.mobs.push(merged);
+        this.indexMob(merged);
         return merged;
     }
 
@@ -154,15 +159,18 @@ export class MobService {
     }
 
     private findValidSpawnPoint(mapInstanceId: string, padding: number) {
-        const fallback = {
-            x: padding + Math.random() * (WORLD.width - padding * 2),
-            y: padding + Math.random() * (WORLD.height - padding * 2)
-        };
         const mapKey = String(mapInstanceId || '').split('::')[0] || 'forest';
+        const mapWorld = getMapMetadata(mapKey)?.world || WORLD;
+        const fallback = {
+            x: padding + Math.random() * Math.max(1, mapWorld.width - padding * 2),
+            y: padding + Math.random() * Math.max(1, mapWorld.height - padding * 2)
+        };
+        const tiledSampler = getMapTiledCollisionSampler(mapKey);
         const features = MAP_FEATURES_BY_KEY[mapKey] || [];
         const radius = 24;
 
         const isBlocked = (x: number, y: number) => {
+            if (tiledSampler) return tiledSampler.isBlockedAt(x, y, radius);
             for (const feature of features) {
                 if (!feature.collision) continue;
                 if (feature.shape === 'rect') {
@@ -179,8 +187,8 @@ export class MobService {
         };
 
         for (let i = 0; i < 120; i++) {
-            const x = padding + Math.random() * (WORLD.width - padding * 2);
-            const y = padding + Math.random() * (WORLD.height - padding * 2);
+            const x = padding + Math.random() * Math.max(1, mapWorld.width - padding * 2);
+            const y = padding + Math.random() * Math.max(1, mapWorld.height - padding * 2);
             if (!isBlocked(x, y)) return { x, y };
         }
         return fallback;
@@ -199,10 +207,12 @@ export class MobService {
     removeMob(mobId: string, options: { skipRespawn?: boolean } = {}): void {
         const index = this.mobs.findIndex((m) => m.id === mobId);
         if (index === -1) return;
-        const kind = this.mobs[index].kind;
-        const mapId = this.mobs[index].mapId;
-        const noRespawn = Boolean(this.mobs[index].noRespawn);
+        const removed = this.mobs[index];
+        const kind = removed.kind;
+        const mapId = removed.mapId;
+        const noRespawn = Boolean(removed.noRespawn);
         this.mobs.splice(index, 1);
+        this.deindexMob(removed);
         if (options.skipRespawn || noRespawn) return;
         setTimeout(() => this.spawnMob(kind, mapId), MOB_RESPAWN_MS);
     }
@@ -212,11 +222,17 @@ export class MobService {
     }
 
     getMobById(mobId: string): Mob | null {
-        return this.mobs.find((m) => m.id === mobId) || null;
+        return this.mobById.get(mobId) || null;
     }
 
     getMobsByMap(mapId: string): Mob[] {
-        return this.mobs.filter((m) => m.mapId === mapId);
+        return Array.from(this.mobsByMapId.get(mapId) || []);
+    }
+
+    getMobByIdInMap(mobId: string, mapId: string): Mob | null {
+        const mob = this.mobById.get(mobId);
+        if (!mob || mob.mapId !== mapId) return null;
+        return mob;
     }
 
     getTemplateByMob(mob: Mob): MobTemplateRuntime {
@@ -247,5 +263,23 @@ export class MobService {
 
     clearTarget(mob: Mob) {
         mob.targetPlayerId = null;
+    }
+
+    private indexMob(mob: Mob) {
+        this.mobById.set(mob.id, mob);
+        let bucket = this.mobsByMapId.get(mob.mapId);
+        if (!bucket) {
+            bucket = new Set<Mob>();
+            this.mobsByMapId.set(mob.mapId, bucket);
+        }
+        bucket.add(mob);
+    }
+
+    private deindexMob(mob: Mob) {
+        this.mobById.delete(mob.id);
+        const bucket = this.mobsByMapId.get(mob.mapId);
+        if (!bucket) return;
+        bucket.delete(mob);
+        if (bucket.size === 0) this.mobsByMapId.delete(mob.mapId);
     }
 }

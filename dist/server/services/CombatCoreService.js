@@ -4,7 +4,7 @@ exports.CombatCoreService = void 0;
 const config_1 = require("../config");
 const math_1 = require("../utils/math");
 class CombatCoreService {
-    constructor(players, mobService, getPvpAttackPermission, sendRaw, getActiveSkillEffectAggregate, computeHitChance, shouldLuckyStrike, computeDamageAfterMitigation, applyOnHitSkillEffects, sendStatsUpdated, persistPlayer, syncAllPartyStates, grantXp, grantMobCurrency, mapInstanceId, computeLootDropPosition, pickRandomWeaponTemplate, dropWeaponAt, dropHpPotionAt, dropSkillResetHourglassAt) {
+    constructor(players, mobService, getPvpAttackPermission, sendRaw, getActiveSkillEffectAggregate, computeHitChance, shouldLuckyStrike, computeDamageAfterMitigation, applyOnHitSkillEffects, sendStatsUpdated, persistPlayer, syncAllPartyStates, grantXp, grantMobCurrency, mapInstanceId, computeLootDropPosition, pickRandomWeaponTemplate, dropWeaponAt, dropHpPotionAt, dropSkillResetHourglassAt, hasLineOfSight) {
         this.players = players;
         this.mobService = mobService;
         this.getPvpAttackPermission = getPvpAttackPermission;
@@ -25,6 +25,7 @@ class CombatCoreService {
         this.dropWeaponAt = dropWeaponAt;
         this.dropHpPotionAt = dropHpPotionAt;
         this.dropSkillResetHourglassAt = dropSkillResetHourglassAt;
+        this.hasLineOfSight = hasLineOfSight;
     }
     computeMobDamage(player, mob, multiplier, forceMagic = false, now = Date.now()) {
         const fx = this.getActiveSkillEffectAggregate(player, now);
@@ -109,6 +110,11 @@ class CombatCoreService {
         if (edgeDistance > attackRange) {
             if (!silent)
                 this.sendRaw(player.ws, { type: 'system_message', text: 'Jogador fora de alcance.' });
+            return;
+        }
+        if (!this.hasLineOfSight(player.mapKey, player.x, player.y, target.x, target.y)) {
+            if (!silent)
+                this.sendRaw(player.ws, { type: 'system_message', text: 'Sem linha de visao para atacar esse alvo.' });
             return;
         }
         const fx = this.getActiveSkillEffectAggregate(player, now);

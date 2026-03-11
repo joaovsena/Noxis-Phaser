@@ -61,6 +61,8 @@ export interface PlayerRuntime {
         issuedAt: number;
         nextAttemptAt?: number;
     } | null;
+    lastPathRequestKey?: string;
+    lastPathRequestAt?: number;
     afkActive?: boolean;
     afkOriginX?: number;
     afkOriginY?: number;

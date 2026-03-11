@@ -26,6 +26,7 @@ type PickWeaponTemplateFn = () => any;
 type DropWeaponFn = (x: number, y: number, mapId: string, template?: any, ownerId?: number | null, ownerPartyId?: string | null, reservedMs?: number) => void;
 type DropPotionFn = (x: number, y: number, mapId: string, ownerId?: number | null, ownerPartyId?: string | null, reservedMs?: number) => void;
 type DropHourglassFn = (x: number, y: number, mapId: string, ownerId?: number | null, ownerPartyId?: string | null, reservedMs?: number) => void;
+type HasLineOfSightFn = (mapKey: string, fromX: number, fromY: number, toX: number, toY: number) => boolean;
 export declare class CombatCoreService {
     private readonly players;
     private readonly mobService;
@@ -47,7 +48,8 @@ export declare class CombatCoreService {
     private readonly dropWeaponAt;
     private readonly dropHpPotionAt;
     private readonly dropSkillResetHourglassAt;
-    constructor(players: Map<number, PlayerRuntime>, mobService: any, getPvpAttackPermission: PermissionFn, sendRaw: SendRawFn, getActiveSkillEffectAggregate: SkillAggregateFn, computeHitChance: HitChanceFn, shouldLuckyStrike: LuckyStrikeFn, computeDamageAfterMitigation: DamageAfterMitigationFn, applyOnHitSkillEffects: OnHitSkillFn, sendStatsUpdated: SendStatsFn, persistPlayer: PersistPlayerFn, syncAllPartyStates: SyncPartyFn, grantXp: GrantXpFn, grantMobCurrency: GrantMobCurrencyFn, mapInstanceId: MapInstanceIdFn, computeLootDropPosition: DropPosFn, pickRandomWeaponTemplate: PickWeaponTemplateFn, dropWeaponAt: DropWeaponFn, dropHpPotionAt: DropPotionFn, dropSkillResetHourglassAt: DropHourglassFn);
+    private readonly hasLineOfSight;
+    constructor(players: Map<number, PlayerRuntime>, mobService: any, getPvpAttackPermission: PermissionFn, sendRaw: SendRawFn, getActiveSkillEffectAggregate: SkillAggregateFn, computeHitChance: HitChanceFn, shouldLuckyStrike: LuckyStrikeFn, computeDamageAfterMitigation: DamageAfterMitigationFn, applyOnHitSkillEffects: OnHitSkillFn, sendStatsUpdated: SendStatsFn, persistPlayer: PersistPlayerFn, syncAllPartyStates: SyncPartyFn, grantXp: GrantXpFn, grantMobCurrency: GrantMobCurrencyFn, mapInstanceId: MapInstanceIdFn, computeLootDropPosition: DropPosFn, pickRandomWeaponTemplate: PickWeaponTemplateFn, dropWeaponAt: DropWeaponFn, dropHpPotionAt: DropPotionFn, dropSkillResetHourglassAt: DropHourglassFn, hasLineOfSight: HasLineOfSightFn);
     computeMobDamage(player: PlayerRuntime, mob: any, multiplier: number, forceMagic?: boolean, now?: number): number;
     applyDamageToMobAndHandleDeath(player: PlayerRuntime, mob: any, damage: number, now: number): boolean;
     tryPlayerAttack(player: PlayerRuntime, targetPlayerId: number, now: number, silent: boolean): void;

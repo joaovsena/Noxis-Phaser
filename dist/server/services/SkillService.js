@@ -4,7 +4,7 @@ exports.SkillService = void 0;
 const config_1 = require("../config");
 const math_1 = require("../utils/math");
 class SkillService {
-    constructor(skillDefs, sendRaw, normalizeClassId, getSkillLevel, pruneExpiredSkillEffects, applyTimedSkillEffect, sendSkillEffect, computeMobDamage, applyDamageToMobAndHandleDeath, broadcastMobHit, applyOnHitSkillEffects, hasActiveSkillEffect, removeSkillEffectById, getSkillPowerWithLevel, sendStatsUpdated, mapInstanceId, getMobs, getMobsByMap, assignPathTo, getSkillPrerequisite, normalizeSkillLevels, getAvailableSkillPoints, recomputePlayerStats, persistPlayer) {
+    constructor(skillDefs, sendRaw, normalizeClassId, getSkillLevel, pruneExpiredSkillEffects, applyTimedSkillEffect, sendSkillEffect, computeMobDamage, applyDamageToMobAndHandleDeath, broadcastMobHit, applyOnHitSkillEffects, hasActiveSkillEffect, removeSkillEffectById, getSkillPowerWithLevel, sendStatsUpdated, mapInstanceId, getMobByIdInMap, getMobsByMap, assignPathTo, getSkillPrerequisite, normalizeSkillLevels, getAvailableSkillPoints, recomputePlayerStats, persistPlayer, getPlayerById) {
         this.skillDefs = skillDefs;
         this.sendRaw = sendRaw;
         this.normalizeClassId = normalizeClassId;
@@ -21,7 +21,7 @@ class SkillService {
         this.getSkillPowerWithLevel = getSkillPowerWithLevel;
         this.sendStatsUpdated = sendStatsUpdated;
         this.mapInstanceId = mapInstanceId;
-        this.getMobs = getMobs;
+        this.getMobByIdInMap = getMobByIdInMap;
         this.getMobsByMap = getMobsByMap;
         this.assignPathTo = assignPathTo;
         this.getSkillPrerequisite = getSkillPrerequisite;
@@ -29,6 +29,7 @@ class SkillService {
         this.getAvailableSkillPoints = getAvailableSkillPoints;
         this.recomputePlayerStats = recomputePlayerStats;
         this.persistPlayer = persistPlayer;
+        this.getPlayerById = getPlayerById;
         this.mobDotTokens = new Map();
     }
     processPendingSkillCast(player, now) {
@@ -90,7 +91,7 @@ class SkillService {
         if (skill.target === 'mob') {
             const targetMobId = String(msg?.targetMobId || player.attackTargetId || '');
             mapInstanceId = this.mapInstanceId(player.mapKey, player.mapId);
-            targetMob = this.getMobs().find((m) => m.id === targetMobId && m.mapId === mapInstanceId);
+            targetMob = this.getMobByIdInMap(targetMobId, mapInstanceId);
             if (!targetMob) {
                 player.pendingSkillCast = null;
                 if (!isAutoRetry)
@@ -195,13 +196,16 @@ class SkillService {
             if (skill.id === 'ass_letal_sentenca') {
                 const delayedDamage = Math.max(1, Math.floor(damage * 0.75));
                 setTimeout(() => {
-                    const liveMob = this.getMobs().find((m) => m.id === targetMob.id && m.mapId === mapInstanceId);
+                    const livePlayer = this.getPlayerById(player.id);
+                    if (!livePlayer || livePlayer.dead || livePlayer.mapKey !== player.mapKey || livePlayer.mapId !== player.mapId)
+                        return;
+                    const liveMob = this.getMobByIdInMap(String(targetMob.id), mapInstanceId);
                     if (!liveMob || liveMob.hp <= 0)
                         return;
-                    this.applyDamageToMobAndHandleDeath(player, liveMob, delayedDamage, Date.now());
-                    this.broadcastMobHit(player, liveMob);
-                    this.sendSkillEffect(player.mapKey, player.mapId, {
-                        sourceId: player.id,
+                    this.applyDamageToMobAndHandleDeath(livePlayer, liveMob, delayedDamage, Date.now());
+                    this.broadcastMobHit(livePlayer, liveMob);
+                    this.sendSkillEffect(livePlayer.mapKey, livePlayer.mapId, {
+                        sourceId: livePlayer.id,
                         targetId: liveMob.id,
                         x: liveMob.x,
                         y: liveMob.y,
@@ -240,13 +244,16 @@ class SkillService {
                 const activeToken = Number(this.mobDotTokens.get(key) || 0);
                 if (activeToken !== token)
                     return;
-                const liveMob = this.getMobs().find((m) => m.id === targetMob.id && m.mapId === mapInstanceId);
+                const livePlayer = this.getPlayerById(player.id);
+                if (!livePlayer || livePlayer.dead || livePlayer.mapKey !== player.mapKey || livePlayer.mapId !== player.mapId)
+                    return;
+                const liveMob = this.getMobByIdInMap(String(targetMob.id), mapInstanceId);
                 if (!liveMob || Number(liveMob.hp || 0) <= 0)
                     return;
-                this.applyDamageToMobAndHandleDeath(player, liveMob, damagePerTick, Date.now());
-                this.broadcastMobHit(player, liveMob);
-                this.sendSkillEffect(player.mapKey, player.mapId, {
-                    sourceId: player.id,
+                this.applyDamageToMobAndHandleDeath(livePlayer, liveMob, damagePerTick, Date.now());
+                this.broadcastMobHit(livePlayer, liveMob);
+                this.sendSkillEffect(livePlayer.mapKey, livePlayer.mapId, {
+                    sourceId: livePlayer.id,
                     targetId: liveMob.id,
                     x: liveMob.x,
                     y: liveMob.y,

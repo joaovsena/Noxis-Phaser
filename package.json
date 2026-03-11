@@ -4,9 +4,12 @@
   "description": "",
   "main": "setup_project.js",
   "scripts": {
-    "build": "tsc",
+    "build": "npm run build:client && npm run build:server",
+    "build:server": "tsc",
+    "build:client": "vite build --config client/vite.config.ts",
     "start": "node dist/server/index.js",
     "dev": "ts-node server/index.ts",
+    "client:dev": "vite --config client/vite.config.ts",
     "docker:up": "docker compose up --build -d",
     "docker:poc:up": "docker compose --profile poc up --build -d engine-go",
     "docker:poc:down": "docker compose --profile poc down",
@@ -28,6 +31,7 @@
     "@prisma/adapter-pg": "^7.4.2",
     "@prisma/client": "^7.4.2",
     "express": "^5.2.1",
+    "phaser": "^3.90.0",
     "pg": "^8.20.0",
     "redis": "^4.7.1",
     "ws": "^8.19.0"
@@ -41,6 +45,7 @@
     "nodemon": "^3.1.14",
     "prisma": "^7.4.2",
     "ts-node": "^10.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "vite": "^7.1.7"
   }
 }

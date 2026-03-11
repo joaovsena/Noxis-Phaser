@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
-import { WORLD } from '../config';
 
 type BroadcastMapFn = (mapKey: string, mapId: string, payload: any) => void;
+type GetMapWorldFn = (mapKey: string) => { width: number; height: number };
 type ProjectToWalkableFn = (mapKey: string, x: number, y: number) => { x: number; y: number };
 type ActiveEventsProvider = () => Array<{ id: string; name: string; mapKey: string; mapId: string; endsAt: number; startedAt: number }>;
 
@@ -74,6 +74,7 @@ export class EventService {
     constructor(
         private readonly mobService: any,
         private readonly broadcastMapInstance: BroadcastMapFn,
+        private readonly getMapWorld: GetMapWorldFn,
         private readonly projectToWalkable: ProjectToWalkableFn
     ) {
         const now = Date.now();
@@ -130,6 +131,7 @@ export class EventService {
         if (this.activeByInstance.has(instanceId)) return;
 
         const spawnedIds: string[] = [];
+        const mapWorld = this.getMapWorld(def.mapKey);
         for (const spawn of def.spawns) {
             const count = Math.max(0, Math.floor(Number(spawn.count || 0)));
             for (let i = 0; i < count; i++) {
@@ -139,8 +141,8 @@ export class EventService {
                 const ty = Number(spawn.centerY) + Math.sin(angle) * r;
                 const projected = this.projectToWalkable(
                     def.mapKey,
-                    Math.max(0, Math.min(WORLD.width, tx)),
-                    Math.max(0, Math.min(WORLD.height, ty))
+                    Math.max(0, Math.min(mapWorld.width, tx)),
+                    Math.max(0, Math.min(mapWorld.height, ty))
                 );
                 const mob = this.mobService.createMobWithOverrides(spawn.kind, instanceId, {
                     id: `evt-${def.id}-${randomUUID()}`,

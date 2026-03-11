@@ -20,6 +20,8 @@ const PATH_PLAN_RADIUS = Math.max(6, PATH_PROBE_RADIUS - 4);
 const PATHFIND_BUDGET_MS = 12;
 const PATHFIND_BUDGET_MS_DUNGEON = 18;
 const MOVE_ACK_PATH_NODE_LIMIT = 80;
+const PATH_REQUEST_REUSE_MS = 180;
+const DIRECT_PATH_SHORTCUT_DISTANCE = 220;
 
 type GetEffectAggregateFn = (player: PlayerRuntime, now: number) => { moveMul?: number };
 
@@ -41,7 +43,21 @@ export class MovementService {
         player.attackTargetPlayerId = null;
         const destinationX = clamp(Number.isFinite(incomingX) ? incomingX : player.x, 0, world.width);
         const destinationY = clamp(Number.isFinite(incomingY) ? incomingY : player.y, 0, world.height);
-        this.assignPathTo(player, destinationX, destinationY);
+        const requestKey = this.getPathRequestKey(player.mapKey, player.x, player.y, destinationX, destinationY);
+        const now = Date.now();
+        const shouldReuseExistingPath = requestKey === String(player.lastPathRequestKey || '')
+            && now - Number(player.lastPathRequestAt || 0) <= PATH_REQUEST_REUSE_MS
+            && (
+                (Array.isArray(player.movePath) && player.movePath.length > 0)
+                || Math.hypot(Number(player.pathDestinationX || player.x) - destinationX, Number(player.pathDestinationY || player.y) - destinationY) <= PATHFIND_CELL_SIZE
+            );
+        if (!shouldReuseExistingPath) {
+            this.assignPathTo(player, destinationX, destinationY);
+            player.lastPathRequestKey = requestKey;
+            player.lastPathRequestAt = now;
+        } else {
+            perfStats.increment('path.handleMove.reused');
+        }
         player.ws.send(JSON.stringify({
             type: 'move_ack',
             reqId: msg.reqId,
@@ -150,9 +166,32 @@ export class MovementService {
         perfStats.increment('path.assign.calls');
         perfStats.time('path.assign.total', () => {
             const projected = this.mapService.projectToWalkable(player.mapKey, destinationX, destinationY);
+            const requestKey = this.getPathRequestKey(player.mapKey, player.x, player.y, projected.x, projected.y);
+            const now = Date.now();
+            if (
+                requestKey === String(player.lastPathRequestKey || '')
+                && now - Number(player.lastPathRequestAt || 0) <= PATH_REQUEST_REUSE_MS
+            ) {
+                perfStats.increment('path.assign.skippedSameRequest');
+                return;
+            }
+            player.lastPathRequestKey = requestKey;
+            player.lastPathRequestAt = now;
             const deadlineMs = Date.now() + this.getPathfindBudgetMs(player.mapKey);
             player.pathDestinationX = projected.x;
             player.pathDestinationY = projected.y;
+            const directDistance = Math.hypot(projected.x - player.x, projected.y - player.y);
+            if (
+                directDistance <= DIRECT_PATH_SHORTCUT_DISTANCE
+                && !this.isPathSegmentBlocked(player.mapKey, player.x, player.y, projected.x, projected.y)
+            ) {
+                perfStats.increment('path.assign.directShortcut');
+                player.movePath = [];
+                player.rawMovePath = [];
+                player.targetX = projected.x;
+                player.targetY = projected.y;
+                return;
+            }
             const rawPath = this.findPathWithNearbyGoals(player.mapKey, player.x, player.y, projected.x, projected.y, deadlineMs);
             player.rawMovePath = rawPath;
             player.movePath = perfStats.time('path.smoothWorldPath', () =>
@@ -337,6 +376,12 @@ export class MovementService {
             cx: clamp(Math.floor(clamp(x, 0, world.width) / Math.max(1, grid.cellWidth)), 0, maxCellX),
             cy: clamp(Math.floor(clamp(y, 0, world.height) / Math.max(1, grid.cellHeight)), 0, maxCellY)
         };
+    }
+
+    private getPathRequestKey(mapKey: string, fromX: number, fromY: number, toX: number, toY: number) {
+        const from = this.worldToPathCell(mapKey, fromX, fromY);
+        const to = this.worldToPathCell(mapKey, toX, toY);
+        return `${String(mapKey)}:${from.cx},${from.cy}->${to.cx},${to.cy}`;
     }
 
     private pathCellToWorld(mapKey: string, cx: number, cy: number) {

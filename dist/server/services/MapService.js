@@ -67,6 +67,22 @@ class MapService {
             return false;
         });
     }
+    hasLineOfSight(mapKey, fromX, fromY, toX, toY, step = 18) {
+        const dx = Number(toX || 0) - Number(fromX || 0);
+        const dy = Number(toY || 0) - Number(fromY || 0);
+        const distanceTotal = Math.sqrt(dx * dx + dy * dy);
+        if (!Number.isFinite(distanceTotal) || distanceTotal <= 1)
+            return true;
+        const samples = Math.max(2, Math.ceil(distanceTotal / Math.max(4, Number(step || 18))));
+        for (let i = 1; i < samples; i++) {
+            const t = i / samples;
+            const sampleX = Number(fromX || 0) + dx * t;
+            const sampleY = Number(fromY || 0) + dy * t;
+            if (this.isBlockedAt(mapKey, sampleX, sampleY))
+                return false;
+        }
+        return true;
+    }
     projectToWalkable(mapKey, x, y) {
         const world = this.getMapWorld(mapKey);
         const px = (0, math_1.clamp)(x, 0, world.width);

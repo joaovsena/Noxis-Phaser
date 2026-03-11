@@ -2,7 +2,6 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.EventService = void 0;
 const crypto_1 = require("crypto");
-const config_1 = require("../config");
 const EVENT_DEFS = [
     {
         id: 'event_forest_rift',
@@ -27,9 +26,10 @@ const EVENT_DEFS = [
     }
 ];
 class EventService {
-    constructor(mobService, broadcastMapInstance, projectToWalkable) {
+    constructor(mobService, broadcastMapInstance, getMapWorld, projectToWalkable) {
         this.mobService = mobService;
         this.broadcastMapInstance = broadcastMapInstance;
+        this.getMapWorld = getMapWorld;
         this.projectToWalkable = projectToWalkable;
         this.activeByInstance = new Map();
         this.nextStartByEvent = new Map();
@@ -84,6 +84,7 @@ class EventService {
         if (this.activeByInstance.has(instanceId))
             return;
         const spawnedIds = [];
+        const mapWorld = this.getMapWorld(def.mapKey);
         for (const spawn of def.spawns) {
             const count = Math.max(0, Math.floor(Number(spawn.count || 0)));
             for (let i = 0; i < count; i++) {
@@ -91,7 +92,7 @@ class EventService {
                 const r = Math.random() * Math.max(1, Number(spawn.radius || 1));
                 const tx = Number(spawn.centerX) + Math.cos(angle) * r;
                 const ty = Number(spawn.centerY) + Math.sin(angle) * r;
-                const projected = this.projectToWalkable(def.mapKey, Math.max(0, Math.min(config_1.WORLD.width, tx)), Math.max(0, Math.min(config_1.WORLD.height, ty)));
+                const projected = this.projectToWalkable(def.mapKey, Math.max(0, Math.min(mapWorld.width, tx)), Math.max(0, Math.min(mapWorld.height, ty)));
                 const mob = this.mobService.createMobWithOverrides(spawn.kind, instanceId, {
                     id: `evt-${def.id}-${(0, crypto_1.randomUUID)()}`,
                     x: projected.x,

@@ -3,10 +3,14 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.MobService = void 0;
 const config_1 = require("../config");
 const crypto_1 = require("crypto");
+const mapMetadata_1 = require("../maps/mapMetadata");
+const tiledCollision_1 = require("../maps/tiledCollision");
 class MobService {
     constructor() {
         this.mobs = [];
         this.templateCache = new Map();
+        this.mobById = new Map();
+        this.mobsByMapId = new Map();
         this.loadTemplateCache([]);
     }
     loadTemplateCache(rawTemplates) {
@@ -107,6 +111,7 @@ class MobService {
             mapId: String(overrides.mapId || mapId)
         };
         this.mobs.push(merged);
+        this.indexMob(merged);
         return merged;
     }
     randomIdleDelay(template) {
@@ -115,14 +120,18 @@ class MobService {
         return min + Math.floor(Math.random() * (max - min + 1));
     }
     findValidSpawnPoint(mapInstanceId, padding) {
-        const fallback = {
-            x: padding + Math.random() * (config_1.WORLD.width - padding * 2),
-            y: padding + Math.random() * (config_1.WORLD.height - padding * 2)
-        };
         const mapKey = String(mapInstanceId || '').split('::')[0] || 'forest';
+        const mapWorld = (0, mapMetadata_1.getMapMetadata)(mapKey)?.world || config_1.WORLD;
+        const fallback = {
+            x: padding + Math.random() * Math.max(1, mapWorld.width - padding * 2),
+            y: padding + Math.random() * Math.max(1, mapWorld.height - padding * 2)
+        };
+        const tiledSampler = (0, tiledCollision_1.getMapTiledCollisionSampler)(mapKey);
         const features = config_1.MAP_FEATURES_BY_KEY[mapKey] || [];
         const radius = 24;
         const isBlocked = (x, y) => {
+            if (tiledSampler)
+                return tiledSampler.isBlockedAt(x, y, radius);
             for (const feature of features) {
                 if (!feature.collision)
                     continue;
@@ -141,8 +150,8 @@ class MobService {
             return false;
         };
         for (let i = 0; i < 120; i++) {
-            const x = padding + Math.random() * (config_1.WORLD.width - padding * 2);
-            const y = padding + Math.random() * (config_1.WORLD.height - padding * 2);
+            const x = padding + Math.random() * Math.max(1, mapWorld.width - padding * 2);
+            const y = padding + Math.random() * Math.max(1, mapWorld.height - padding * 2);
             if (!isBlocked(x, y))
                 return { x, y };
         }
@@ -161,10 +170,12 @@ class MobService {
         const index = this.mobs.findIndex((m) => m.id === mobId);
         if (index === -1)
             return;
-        const kind = this.mobs[index].kind;
-        const mapId = this.mobs[index].mapId;
-        const noRespawn = Boolean(this.mobs[index].noRespawn);
+        const removed = this.mobs[index];
+        const kind = removed.kind;
+        const mapId = removed.mapId;
+        const noRespawn = Boolean(removed.noRespawn);
         this.mobs.splice(index, 1);
+        this.deindexMob(removed);
         if (options.skipRespawn || noRespawn)
             return;
         setTimeout(() => this.spawnMob(kind, mapId), config_1.MOB_RESPAWN_MS);
@@ -173,10 +184,16 @@ class MobService {
         return this.mobs;
     }
     getMobById(mobId) {
-        return this.mobs.find((m) => m.id === mobId) || null;
+        return this.mobById.get(mobId) || null;
     }
     getMobsByMap(mapId) {
-        return this.mobs.filter((m) => m.mapId === mapId);
+        return Array.from(this.mobsByMapId.get(mapId) || []);
+    }
+    getMobByIdInMap(mobId, mapId) {
+        const mob = this.mobById.get(mobId);
+        if (!mob || mob.mapId !== mapId)
+            return null;
+        return mob;
     }
     getTemplateByMob(mob) {
         return this.getTemplate(mob.kind);
@@ -206,6 +223,24 @@ class MobService {
     }
     clearTarget(mob) {
         mob.targetPlayerId = null;
+    }
+    indexMob(mob) {
+        this.mobById.set(mob.id, mob);
+        let bucket = this.mobsByMapId.get(mob.mapId);
+        if (!bucket) {
+            bucket = new Set();
+            this.mobsByMapId.set(mob.mapId, bucket);
+        }
+        bucket.add(mob);
+    }
+    deindexMob(mob) {
+        this.mobById.delete(mob.id);
+        const bucket = this.mobsByMapId.get(mob.mapId);
+        if (!bucket)
+            return;
+        bucket.delete(mob);
+        if (bucket.size === 0)
+            this.mobsByMapId.delete(mob.mapId);
     }
 }
 exports.MobService = MobService;

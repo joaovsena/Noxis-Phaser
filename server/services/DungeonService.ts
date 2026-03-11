@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import { PlayerRuntime } from '../models/types';
 import { DungeonTemplate, DUNGEON_BY_ENTRY_NPC, DUNGEON_BY_ID } from '../content/dungeons';
 import { clamp, distance } from '../utils/math';
-import { WORLD, composeMapInstanceId } from '../config';
+import { composeMapInstanceId } from '../config';
 import { DungeonMap } from './DungeonMap';
 import { generateDungeonLayout } from './ProceduralDungeonGenerator';
 
@@ -11,6 +11,7 @@ type SendStatsUpdatedFn = (player: PlayerRuntime) => void;
 type PersistPlayerFn = (player: PlayerRuntime) => void;
 type PersistPlayerCriticalFn = (player: PlayerRuntime, reason?: string) => void;
 type GrantCurrencyFn = (player: PlayerRuntime, reward: any, sourceLabel: string) => void;
+type GetMapWorldFn = (mapKey: string) => { width: number; height: number };
 type ProjectToWalkableFn = (mapKey: string, x: number, y: number) => { x: number; y: number };
 type RemoveGroundItemsByMapInstanceFn = (mapInstanceId: string) => void;
 type DropTemplateAtFn = (
@@ -46,6 +47,7 @@ export class DungeonService {
         private readonly persistPlayer: PersistPlayerFn,
         private readonly persistPlayerCritical: PersistPlayerCriticalFn,
         private readonly grantCurrency: GrantCurrencyFn,
+        private readonly getMapWorld: GetMapWorldFn,
         private readonly projectToWalkable: ProjectToWalkableFn,
         private readonly removeGroundItemsByMapInstance: RemoveGroundItemsByMapInstanceFn,
         private readonly dropTemplateAt: DropTemplateAtFn
@@ -559,10 +561,11 @@ export class DungeonService {
     private movePlayerToInstance(player: PlayerRuntime, instance: DungeonMap) {
         const spawnBase = instance.entrySpawn || instance.template.entrySpawn;
         const jitter = String(instance.mapKey || '').startsWith('dng_') ? 0 : 20;
+        const mapWorld = this.getMapWorld(instance.mapKey);
         const spawn = this.projectToWalkable(
             instance.mapKey,
-            clamp(Number(spawnBase.x || 0) + (Math.random() * (jitter * 2) - jitter), 0, WORLD.width),
-            clamp(Number(spawnBase.y || 0) + (Math.random() * (jitter * 2) - jitter), 0, WORLD.height)
+            clamp(Number(spawnBase.x || 0) + (Math.random() * (jitter * 2) - jitter), 0, mapWorld.width),
+            clamp(Number(spawnBase.y || 0) + (Math.random() * (jitter * 2) - jitter), 0, mapWorld.height)
         );
         player.mapKey = instance.mapKey;
         player.mapId = instance.mapId;
@@ -583,11 +586,12 @@ export class DungeonService {
     }
 
     private spawnTemplateMobs(instance: DungeonMap, spawns: any[]) {
+        const mapWorld = this.getMapWorld(instance.mapKey);
         for (const def of spawns) {
             const projected = this.projectToWalkable(
                 instance.mapKey,
-                clamp(Number(def.x || 0), 0, WORLD.width),
-                clamp(Number(def.y || 0), 0, WORLD.height)
+                clamp(Number(def.x || 0), 0, mapWorld.width),
+                clamp(Number(def.y || 0), 0, mapWorld.height)
             );
             const spawned = this.mobService.createMobWithOverrides(
                 String(def.kind || 'normal'),
@@ -800,10 +804,11 @@ export class DungeonService {
             y: 500
         };
         const origin = state?.origin || fallback;
+        const mapWorld = this.getMapWorld(origin.mapKey);
         const projected = this.projectToWalkable(
             origin.mapKey,
-            clamp(Number(origin.x || 0), 0, WORLD.width),
-            clamp(Number(origin.y || 0), 0, WORLD.height)
+            clamp(Number(origin.x || 0), 0, mapWorld.width),
+            clamp(Number(origin.y || 0), 0, mapWorld.height)
         );
         player.mapKey = origin.mapKey;
         player.mapId = origin.mapId;

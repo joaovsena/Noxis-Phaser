@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const http_1 = require("http");
 const perf_hooks_1 = require("perf_hooks");
+const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const ws_1 = require("ws");
 const GameController_1 = require("./controllers/GameController");
@@ -21,6 +22,9 @@ const perfStats_1 = require("./utils/perfStats");
 const app = (0, express_1.default)();
 const PORT = Number(process.env.PORT || 3000);
 const HOST = String(process.env.HOST || '0.0.0.0');
+const publicDir = path_1.default.resolve(process.cwd(), 'public');
+const clientDistDir = path_1.default.resolve(process.cwd(), 'client', 'dist');
+const clientIndexPath = path_1.default.resolve(clientDistDir, 'index.html');
 const parsedWorldStateMs = Number(process.env.WORLD_STATE_MS);
 const WORLD_STATE_MS = Number.isFinite(parsedWorldStateMs)
     ? Math.max(40, Math.min(250, Math.floor(parsedWorldStateMs)))
@@ -45,7 +49,21 @@ app.post('/debug/perf/reset', (_req, res) => {
     perfStats_1.perfStats.reset();
     res.status(200).json({ ok: true });
 });
-app.use(express_1.default.static(path_1.default.resolve(process.cwd(), 'public')));
+app.use(express_1.default.static(publicDir, { index: false }));
+if (fs_1.default.existsSync(clientDistDir)) {
+    app.use(express_1.default.static(clientDistDir, { index: false }));
+}
+app.get(/.*/, (req, res, next) => {
+    if (req.path.startsWith('/healthz') || req.path.startsWith('/debug/')) {
+        next();
+        return;
+    }
+    if (!fs_1.default.existsSync(clientIndexPath)) {
+        next();
+        return;
+    }
+    res.sendFile(clientIndexPath);
+});
 const server = (0, http_1.createServer)(app);
 const wss = new ws_1.WebSocketServer({ server });
 async function initializeServer() {
@@ -75,6 +93,7 @@ async function initializeServer() {
         wss.on('connection', (ws) => {
             const extWs = ws;
             extWs.playerId = null;
+            extWs.lastStaticInstanceKey = null;
             (0, logger_1.logEvent)('INFO', 'ws_connected', {});
             extWs.on('message', (raw) => {
                 try {
@@ -122,9 +141,13 @@ async function initializeServer() {
                 if (!player)
                     continue;
                 const instanceKey = `${String(player.mapKey)}::${String(player.mapId)}`;
+                if (extClient.lastStaticInstanceKey !== instanceKey) {
+                    client.send(gameController.serializeWorldStaticSnapshot(player.mapId, player.mapKey));
+                    extClient.lastStaticInstanceKey = instanceKey;
+                }
                 let serialized = serializedSnapshotByInstance.get(instanceKey);
                 if (!serialized) {
-                    serialized = JSON.stringify(gameController.buildWorldSnapshot(player.mapId, player.mapKey));
+                    serialized = gameController.serializeWorldSnapshot(player.mapId, player.mapKey);
                     serializedSnapshotByInstance.set(instanceKey, serialized);
                 }
                 client.send(serialized);

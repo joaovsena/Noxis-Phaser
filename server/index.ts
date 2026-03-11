@@ -1,6 +1,7 @@
 import express from 'express';
 import { createServer } from 'http';
 import { performance } from 'perf_hooks';
+import fs from 'fs';
 import path from 'path';
 import { WebSocket, WebSocketServer } from 'ws';
 import { GameController } from './controllers/GameController';
@@ -17,6 +18,9 @@ import { perfStats } from './utils/perfStats';
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const HOST = String(process.env.HOST || '0.0.0.0');
+const publicDir = path.resolve(process.cwd(), 'public');
+const clientDistDir = path.resolve(process.cwd(), 'client', 'dist');
+const clientIndexPath = path.resolve(clientDistDir, 'index.html');
 const parsedWorldStateMs = Number(process.env.WORLD_STATE_MS);
 const WORLD_STATE_MS = Number.isFinite(parsedWorldStateMs)
     ? Math.max(40, Math.min(250, Math.floor(parsedWorldStateMs)))
@@ -40,13 +44,28 @@ app.post('/debug/perf/reset', (_req, res) => {
     perfStats.reset();
     res.status(200).json({ ok: true });
 });
-app.use(express.static(path.resolve(process.cwd(), 'public')));
+app.use(express.static(publicDir, { index: false }));
+if (fs.existsSync(clientDistDir)) {
+    app.use(express.static(clientDistDir, { index: false }));
+}
+app.get(/.*/, (req, res, next) => {
+    if (req.path.startsWith('/healthz') || req.path.startsWith('/debug/')) {
+        next();
+        return;
+    }
+    if (!fs.existsSync(clientIndexPath)) {
+        next();
+        return;
+    }
+    res.sendFile(clientIndexPath);
+});
 
 const server = createServer(app);
 const wss = new WebSocketServer({ server });
 
 interface ExtendedWebSocket extends WebSocket {
     playerId?: number | null;
+    lastStaticInstanceKey?: string | null;
 }
 
 async function initializeServer() {
@@ -77,6 +96,7 @@ async function initializeServer() {
         wss.on('connection', (ws: WebSocket) => {
             const extWs = ws as ExtendedWebSocket;
             extWs.playerId = null;
+            extWs.lastStaticInstanceKey = null;
             logEvent('INFO', 'ws_connected', {});
 
             extWs.on('message', (raw: Buffer) => {
@@ -122,9 +142,13 @@ async function initializeServer() {
                 const player = gameController.getPlayerByRuntimeId(extClient.playerId);
                 if (!player) continue;
                 const instanceKey = `${String(player.mapKey)}::${String(player.mapId)}`;
+                if (extClient.lastStaticInstanceKey !== instanceKey) {
+                    client.send(gameController.serializeWorldStaticSnapshot(player.mapId, player.mapKey));
+                    extClient.lastStaticInstanceKey = instanceKey;
+                }
                 let serialized = serializedSnapshotByInstance.get(instanceKey);
                 if (!serialized) {
-                    serialized = JSON.stringify(gameController.buildWorldSnapshot(player.mapId, player.mapKey));
+                    serialized = gameController.serializeWorldSnapshot(player.mapId, player.mapKey);
                     serializedSnapshotByInstance.set(instanceKey, serialized);
                 }
                 client.send(serialized);

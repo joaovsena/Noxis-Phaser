@@ -23,6 +23,8 @@ interface MobTemplateRuntime {
 export declare class MobService {
     private mobs;
     private templateCache;
+    private mobById;
+    private mobsByMapId;
     constructor();
     loadTemplateCache(rawTemplates: Array<any>): void;
     private pickNumber;
@@ -42,10 +44,13 @@ export declare class MobService {
     getMobs(): Mob[];
     getMobById(mobId: string): Mob | null;
     getMobsByMap(mapId: string): Mob[];
+    getMobByIdInMap(mobId: string, mapId: string): Mob | null;
     getTemplateByMob(mob: Mob): MobTemplateRuntime;
     addHate(mob: Mob, playerId: number, amount: number): void;
     getTopHateTarget(mob: Mob): number | null;
     clearTarget(mob: Mob): void;
+    private indexMob;
+    private deindexMob;
 }
 export {};
 //# sourceMappingURL=MobService.d.ts.map

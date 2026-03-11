@@ -4,6 +4,10 @@ type SendStatsUpdatedFn = (player: PlayerRuntime) => void;
 type PersistPlayerFn = (player: PlayerRuntime) => void;
 type PersistPlayerCriticalFn = (player: PlayerRuntime, reason?: string) => void;
 type GrantCurrencyFn = (player: PlayerRuntime, reward: any, sourceLabel: string) => void;
+type GetMapWorldFn = (mapKey: string) => {
+    width: number;
+    height: number;
+};
 type ProjectToWalkableFn = (mapKey: string, x: number, y: number) => {
     x: number;
     y: number;
@@ -18,6 +22,7 @@ export declare class DungeonService {
     private readonly persistPlayer;
     private readonly persistPlayerCritical;
     private readonly grantCurrency;
+    private readonly getMapWorld;
     private readonly projectToWalkable;
     private readonly removeGroundItemsByMapInstance;
     private readonly dropTemplateAt;
@@ -27,7 +32,7 @@ export declare class DungeonService {
     private readonly emptySince;
     private readonly readyCheckToInstanceId;
     private readonly pendingTeleportByRequestId;
-    constructor(players: Map<number, PlayerRuntime>, mobService: any, sendRaw: SendRawFn, sendStatsUpdated: SendStatsUpdatedFn, persistPlayer: PersistPlayerFn, persistPlayerCritical: PersistPlayerCriticalFn, grantCurrency: GrantCurrencyFn, projectToWalkable: ProjectToWalkableFn, removeGroundItemsByMapInstance: RemoveGroundItemsByMapInstanceFn, dropTemplateAt: DropTemplateAtFn);
+    constructor(players: Map<number, PlayerRuntime>, mobService: any, sendRaw: SendRawFn, sendStatsUpdated: SendStatsUpdatedFn, persistPlayer: PersistPlayerFn, persistPlayerCritical: PersistPlayerCriticalFn, grantCurrency: GrantCurrencyFn, getMapWorld: GetMapWorldFn, projectToWalkable: ProjectToWalkableFn, removeGroundItemsByMapInstance: RemoveGroundItemsByMapInstanceFn, dropTemplateAt: DropTemplateAtFn);
     getDungeonEntryForNpc(npcId: string): {
         templateId: string;
         name: string;

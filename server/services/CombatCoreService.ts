@@ -20,6 +20,7 @@ type PickWeaponTemplateFn = () => any;
 type DropWeaponFn = (x: number, y: number, mapId: string, template?: any, ownerId?: number | null, ownerPartyId?: string | null, reservedMs?: number) => void;
 type DropPotionFn = (x: number, y: number, mapId: string, ownerId?: number | null, ownerPartyId?: string | null, reservedMs?: number) => void;
 type DropHourglassFn = (x: number, y: number, mapId: string, ownerId?: number | null, ownerPartyId?: string | null, reservedMs?: number) => void;
+type HasLineOfSightFn = (mapKey: string, fromX: number, fromY: number, toX: number, toY: number) => boolean;
 
 export class CombatCoreService {
     constructor(
@@ -42,7 +43,8 @@ export class CombatCoreService {
         private readonly pickRandomWeaponTemplate: PickWeaponTemplateFn,
         private readonly dropWeaponAt: DropWeaponFn,
         private readonly dropHpPotionAt: DropPotionFn,
-        private readonly dropSkillResetHourglassAt: DropHourglassFn
+        private readonly dropSkillResetHourglassAt: DropHourglassFn,
+        private readonly hasLineOfSight: HasLineOfSightFn
     ) {}
 
     computeMobDamage(player: PlayerRuntime, mob: any, multiplier: number, forceMagic: boolean = false, now: number = Date.now()) {
@@ -119,6 +121,10 @@ export class CombatCoreService {
         const attackRange = Number(player.stats?.attackRange || 60);
         if (edgeDistance > attackRange) {
             if (!silent) this.sendRaw(player.ws, { type: 'system_message', text: 'Jogador fora de alcance.' });
+            return;
+        }
+        if (!this.hasLineOfSight(player.mapKey, player.x, player.y, target.x, target.y)) {
+            if (!silent) this.sendRaw(player.ws, { type: 'system_message', text: 'Sem linha de visao para atacar esse alvo.' });
             return;
         }
 

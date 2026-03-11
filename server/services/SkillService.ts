@@ -34,7 +34,7 @@ type RemoveEffectFn = (player: PlayerRuntime, effectId: string) => void;
 type GetSkillPowerWithLevelFn = (skill: SkillDef, level: number) => number;
 type SendStatsUpdatedFn = (player: PlayerRuntime) => void;
 type MapInstanceIdFn = (mapKey: string, mapId: string) => string;
-type GetMobsFn = () => any[];
+type GetMobByIdInMapFn = (mobId: string, mapId: string) => any | null;
 type GetMobsByMapFn = (mapId: string) => any[];
 type AssignPathToFn = (player: PlayerRuntime, destinationX: number, destinationY: number) => void;
 type GetSkillPrerequisiteFn = (skillId: string) => string | null;
@@ -42,6 +42,7 @@ type NormalizeSkillLevelsFn = (input: any) => Record<string, number>;
 type GetAvailableSkillPointsFn = (player: PlayerRuntime) => number;
 type RecomputePlayerStatsFn = (player: PlayerRuntime) => void;
 type PersistPlayerFn = (player: PlayerRuntime) => void;
+type GetPlayerByIdFn = (playerId: number) => PlayerRuntime | undefined;
 
 export class SkillService {
     private readonly mobDotTokens = new Map<string, number>();
@@ -63,14 +64,15 @@ export class SkillService {
         private readonly getSkillPowerWithLevel: GetSkillPowerWithLevelFn,
         private readonly sendStatsUpdated: SendStatsUpdatedFn,
         private readonly mapInstanceId: MapInstanceIdFn,
-        private readonly getMobs: GetMobsFn,
+        private readonly getMobByIdInMap: GetMobByIdInMapFn,
         private readonly getMobsByMap: GetMobsByMapFn,
         private readonly assignPathTo: AssignPathToFn,
         private readonly getSkillPrerequisite: GetSkillPrerequisiteFn,
         private readonly normalizeSkillLevels: NormalizeSkillLevelsFn,
         private readonly getAvailableSkillPoints: GetAvailableSkillPointsFn,
         private readonly recomputePlayerStats: RecomputePlayerStatsFn,
-        private readonly persistPlayer: PersistPlayerFn
+        private readonly persistPlayer: PersistPlayerFn,
+        private readonly getPlayerById: GetPlayerByIdFn
     ) {}
 
     processPendingSkillCast(player: PlayerRuntime, now: number) {
@@ -129,7 +131,7 @@ export class SkillService {
         if (skill.target === 'mob') {
             const targetMobId = String(msg?.targetMobId || player.attackTargetId || '');
             mapInstanceId = this.mapInstanceId(player.mapKey, player.mapId);
-            targetMob = this.getMobs().find((m) => m.id === targetMobId && m.mapId === mapInstanceId);
+            targetMob = this.getMobByIdInMap(targetMobId, mapInstanceId);
             if (!targetMob) {
                 player.pendingSkillCast = null;
                 if (!isAutoRetry) this.sendRaw(player.ws, { type: 'system_message', text: 'Selecione um alvo para usar a habilidade.' });
@@ -238,12 +240,14 @@ export class SkillService {
             if (skill.id === 'ass_letal_sentenca') {
                 const delayedDamage = Math.max(1, Math.floor(damage * 0.75));
                 setTimeout(() => {
-                    const liveMob = this.getMobs().find((m) => m.id === targetMob.id && m.mapId === mapInstanceId);
+                    const livePlayer = this.getPlayerById(player.id);
+                    if (!livePlayer || livePlayer.dead || livePlayer.mapKey !== player.mapKey || livePlayer.mapId !== player.mapId) return;
+                    const liveMob = this.getMobByIdInMap(String(targetMob.id), mapInstanceId);
                     if (!liveMob || liveMob.hp <= 0) return;
-                    this.applyDamageToMobAndHandleDeath(player, liveMob, delayedDamage, Date.now());
-                    this.broadcastMobHit(player, liveMob);
-                    this.sendSkillEffect(player.mapKey, player.mapId, {
-                        sourceId: player.id,
+                    this.applyDamageToMobAndHandleDeath(livePlayer, liveMob, delayedDamage, Date.now());
+                    this.broadcastMobHit(livePlayer, liveMob);
+                    this.sendSkillEffect(livePlayer.mapKey, livePlayer.mapId, {
+                        sourceId: livePlayer.id,
                         targetId: liveMob.id,
                         x: liveMob.x,
                         y: liveMob.y,
@@ -288,12 +292,14 @@ export class SkillService {
             setTimeout(() => {
                 const activeToken = Number(this.mobDotTokens.get(key) || 0);
                 if (activeToken !== token) return;
-                const liveMob = this.getMobs().find((m) => m.id === targetMob.id && m.mapId === mapInstanceId);
+                const livePlayer = this.getPlayerById(player.id);
+                if (!livePlayer || livePlayer.dead || livePlayer.mapKey !== player.mapKey || livePlayer.mapId !== player.mapId) return;
+                const liveMob = this.getMobByIdInMap(String(targetMob.id), mapInstanceId);
                 if (!liveMob || Number(liveMob.hp || 0) <= 0) return;
-                this.applyDamageToMobAndHandleDeath(player, liveMob, damagePerTick, Date.now());
-                this.broadcastMobHit(player, liveMob);
-                this.sendSkillEffect(player.mapKey, player.mapId, {
-                    sourceId: player.id,
+                this.applyDamageToMobAndHandleDeath(livePlayer, liveMob, damagePerTick, Date.now());
+                this.broadcastMobHit(livePlayer, liveMob);
+                this.sendSkillEffect(livePlayer.mapKey, livePlayer.mapId, {
+                    sourceId: livePlayer.id,
                     targetId: liveMob.id,
                     x: liveMob.x,
                     y: liveMob.y,

@@ -1,5 +1,9 @@
 import { PlayerRuntime } from '../models/types';
 type MapInstanceIdFn = (mapKey: string, mapId: string) => string;
+type GetMapWorldFn = (mapKey: string) => {
+    width: number;
+    height: number;
+};
 type ProjectToWalkableFn = (mapKey: string, x: number, y: number) => {
     x: number;
     y: number;
@@ -22,12 +26,14 @@ type GetPvpPermissionFn = (player: PlayerRuntime, target: PlayerRuntime) => {
     reason?: string;
 };
 type IsBlockedAtFn = (mapKey: string, x: number, y: number) => boolean;
+type HasLineOfSightFn = (mapKey: string, fromX: number, fromY: number, toX: number, toY: number) => boolean;
 type ComputeDamageAfterMitigationFn = (rawDamage: number, defense: number, targetLevel: number) => number;
 export declare class CombatRuntimeService {
     private readonly players;
     private readonly mobService;
     private readonly mobsPeacefulMode;
     private readonly mapInstanceId;
+    private readonly getMapWorld;
     private readonly projectToWalkable;
     private readonly recalculatePathToward;
     private readonly getActiveSkillEffectAggregate;
@@ -44,8 +50,9 @@ export declare class CombatRuntimeService {
     private readonly tryPlayerAttack;
     private readonly getPvpAttackPermission;
     private readonly isBlockedAt;
+    private readonly hasLineOfSightFn;
     private readonly computeDamageAfterMitigation;
-    constructor(players: Map<number, PlayerRuntime>, mobService: any, mobsPeacefulMode: () => boolean, mapInstanceId: MapInstanceIdFn, projectToWalkable: ProjectToWalkableFn, recalculatePathToward: RecalcPathFn, getActiveSkillEffectAggregate: SkillAggregateFn, computeHitChance: ComputeHitChanceFn, getMobEvasion: GetMobEvasionFn, computeMobDamage: ComputeMobDamageFn, applyDamageToMobAndHandleDeath: ApplyDamageMobFn, applyOnHitSkillEffects: ApplyOnHitFn, sendStatsUpdated: SendStatsUpdatedFn, broadcastMobHit: BroadcastMobHitFn, sendRaw: SendRawFn, persistPlayer: PersistPlayerFn, syncAllPartyStates: SyncPartyFn, tryPlayerAttack: TryPlayerAttackFn, getPvpAttackPermission: GetPvpPermissionFn, isBlockedAt: IsBlockedAtFn, computeDamageAfterMitigation: ComputeDamageAfterMitigationFn);
+    constructor(players: Map<number, PlayerRuntime>, mobService: any, mobsPeacefulMode: () => boolean, mapInstanceId: MapInstanceIdFn, getMapWorld: GetMapWorldFn, projectToWalkable: ProjectToWalkableFn, recalculatePathToward: RecalcPathFn, getActiveSkillEffectAggregate: SkillAggregateFn, computeHitChance: ComputeHitChanceFn, getMobEvasion: GetMobEvasionFn, computeMobDamage: ComputeMobDamageFn, applyDamageToMobAndHandleDeath: ApplyDamageMobFn, applyOnHitSkillEffects: ApplyOnHitFn, sendStatsUpdated: SendStatsUpdatedFn, broadcastMobHit: BroadcastMobHitFn, sendRaw: SendRawFn, persistPlayer: PersistPlayerFn, syncAllPartyStates: SyncPartyFn, tryPlayerAttack: TryPlayerAttackFn, getPvpAttackPermission: GetPvpPermissionFn, isBlockedAt: IsBlockedAtFn, hasLineOfSightFn: HasLineOfSightFn, computeDamageAfterMitigation: ComputeDamageAfterMitigationFn);
     private hasLineOfSight;
     processAutoAttack(player: PlayerRuntime, now: number): void;
     processAutoAttackPlayer(player: PlayerRuntime, now: number): void;

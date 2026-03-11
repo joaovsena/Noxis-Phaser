@@ -14,7 +14,7 @@ const READY_CHECK_TIMEOUT_MS = 15000;
 const TELEPORT_READY_CHECK_TIMEOUT_MS = 8000;
 const TELEPORT_ACCEPT_DELAY_MS = 10000;
 class DungeonService {
-    constructor(players, mobService, sendRaw, sendStatsUpdated, persistPlayer, persistPlayerCritical, grantCurrency, projectToWalkable, removeGroundItemsByMapInstance, dropTemplateAt) {
+    constructor(players, mobService, sendRaw, sendStatsUpdated, persistPlayer, persistPlayerCritical, grantCurrency, getMapWorld, projectToWalkable, removeGroundItemsByMapInstance, dropTemplateAt) {
         this.players = players;
         this.mobService = mobService;
         this.sendRaw = sendRaw;
@@ -22,6 +22,7 @@ class DungeonService {
         this.persistPlayer = persistPlayer;
         this.persistPlayerCritical = persistPlayerCritical;
         this.grantCurrency = grantCurrency;
+        this.getMapWorld = getMapWorld;
         this.projectToWalkable = projectToWalkable;
         this.removeGroundItemsByMapInstance = removeGroundItemsByMapInstance;
         this.dropTemplateAt = dropTemplateAt;
@@ -547,7 +548,8 @@ class DungeonService {
     movePlayerToInstance(player, instance) {
         const spawnBase = instance.entrySpawn || instance.template.entrySpawn;
         const jitter = String(instance.mapKey || '').startsWith('dng_') ? 0 : 20;
-        const spawn = this.projectToWalkable(instance.mapKey, (0, math_1.clamp)(Number(spawnBase.x || 0) + (Math.random() * (jitter * 2) - jitter), 0, config_1.WORLD.width), (0, math_1.clamp)(Number(spawnBase.y || 0) + (Math.random() * (jitter * 2) - jitter), 0, config_1.WORLD.height));
+        const mapWorld = this.getMapWorld(instance.mapKey);
+        const spawn = this.projectToWalkable(instance.mapKey, (0, math_1.clamp)(Number(spawnBase.x || 0) + (Math.random() * (jitter * 2) - jitter), 0, mapWorld.width), (0, math_1.clamp)(Number(spawnBase.y || 0) + (Math.random() * (jitter * 2) - jitter), 0, mapWorld.height));
         player.mapKey = instance.mapKey;
         player.mapId = instance.mapId;
         player.x = spawn.x;
@@ -566,8 +568,9 @@ class DungeonService {
         this.persistPlayer(player);
     }
     spawnTemplateMobs(instance, spawns) {
+        const mapWorld = this.getMapWorld(instance.mapKey);
         for (const def of spawns) {
-            const projected = this.projectToWalkable(instance.mapKey, (0, math_1.clamp)(Number(def.x || 0), 0, config_1.WORLD.width), (0, math_1.clamp)(Number(def.y || 0), 0, config_1.WORLD.height));
+            const projected = this.projectToWalkable(instance.mapKey, (0, math_1.clamp)(Number(def.x || 0), 0, mapWorld.width), (0, math_1.clamp)(Number(def.y || 0), 0, mapWorld.height));
             const spawned = this.mobService.createMobWithOverrides(String(def.kind || 'normal'), instance.mapInstanceId, {
                 x: projected.x,
                 y: projected.y,
@@ -764,7 +767,8 @@ class DungeonService {
             y: 500
         };
         const origin = state?.origin || fallback;
-        const projected = this.projectToWalkable(origin.mapKey, (0, math_1.clamp)(Number(origin.x || 0), 0, config_1.WORLD.width), (0, math_1.clamp)(Number(origin.y || 0), 0, config_1.WORLD.height));
+        const mapWorld = this.getMapWorld(origin.mapKey);
+        const projected = this.projectToWalkable(origin.mapKey, (0, math_1.clamp)(Number(origin.x || 0), 0, mapWorld.width), (0, math_1.clamp)(Number(origin.y || 0), 0, mapWorld.height));
         player.mapKey = origin.mapKey;
         player.mapId = origin.mapId;
         player.x = projected.x;
