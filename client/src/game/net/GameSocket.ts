@@ -1,10 +1,13 @@
 import type { GameStore } from '../state/GameStore';
 
 const RECONNECT_MS = 2500;
+const PING_INTERVAL_MS = 5000;
 
 export class GameSocket {
   private ws: WebSocket | null = null;
   private reconnectTimer: number | null = null;
+  private pingTimer: number | null = null;
+  private pendingPings = new Map<number, number>();
 
   constructor(private readonly store: GameStore) {}
 
@@ -25,9 +28,12 @@ export class GameSocket {
         connectionPhase: 'auth',
         authMessage: 'Conexao estabelecida.'
       });
+      this.startPingLoop();
     });
 
     this.ws.addEventListener('close', () => {
+      this.stopPingLoop();
+      this.pendingPings.clear();
       this.store.resetForDisconnect('Conexao perdida. Tentando reconectar...');
       this.scheduleReconnect();
     });
@@ -60,9 +66,38 @@ export class GameSocket {
     }, RECONNECT_MS);
   }
 
+  private startPingLoop() {
+    this.stopPingLoop();
+    this.sendPing();
+    this.pingTimer = window.setInterval(() => this.sendPing(), PING_INTERVAL_MS);
+  }
+
+  private stopPingLoop() {
+    if (this.pingTimer !== null) {
+      window.clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
+  }
+
+  private sendPing() {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    const nonce = Date.now() + Math.floor(Math.random() * 1000);
+    this.pendingPings.set(nonce, performance.now());
+    this.send({ type: 'ping', nonce });
+  }
+
   private handleMessage(payload: any) {
     if (!payload || typeof payload !== 'object') return;
     switch (payload.type) {
+      case 'pong': {
+        const nonce = Number(payload.nonce);
+        const sentAt = this.pendingPings.get(nonce);
+        if (Number.isFinite(sentAt)) {
+          this.pendingPings.delete(nonce);
+          this.store.update({ networkPingMs: Math.max(0, Math.round(performance.now() - sentAt)) });
+        }
+        return;
+      }
       case 'auth_ok':
         this.store.update({ authMessage: String(payload.message || 'Conta criada.') });
         return;
@@ -117,6 +152,9 @@ export class GameSocket {
           connectionPhase: this.store.getState().playerId ? 'in_game' : this.store.getState().connectionPhase
         });
         return;
+      case 'move_ack':
+        this.store.update({ lastMoveAck: payload });
+        return;
       case 'system_message':
         this.store.pushChatMessage({
           id: `${Date.now()}-${Math.random()}`,
@@ -146,6 +184,17 @@ export class GameSocket {
       case 'party.areaList':
         this.store.update({ partyAreaList: Array.isArray(payload.parties) ? payload.parties : [] });
         return;
+      case 'party.waypointPing': {
+        const waypointId = String(payload.waypointId || '');
+        if (!waypointId) return;
+        const expiresIn = Math.max(1, Number(payload.expiresIn || 10000));
+        this.store.upsertPartyWaypoint({
+          ...payload,
+          waypointId,
+          expiresAt: Date.now() + expiresIn
+        });
+        return;
+      }
       case 'party.inviteReceived':
         this.store.pushPartyInvite(payload);
         this.store.pushChatMessage({
@@ -194,6 +243,12 @@ export class GameSocket {
       case 'dungeon.readyResolved':
         this.store.update({ dungeonReadyState: payload });
         return;
+      case 'admin_result':
+        this.store.update({ adminResult: payload, authMessage: String(payload.message || this.store.getState().authMessage) });
+        return;
+      case 'admin.mobPeacefulState':
+        this.store.update({ adminMobPeacefulEnabled: Boolean(payload.enabled) });
+        return;
       case 'player.dead':
         this.store.update({ dead: true });
         this.store.pushChatMessage({
@@ -205,8 +260,6 @@ export class GameSocket {
         return;
       case 'combat.mobHitPlayer':
       case 'combat.playerHit':
-        this.store.pushCombatBurst(payload);
-        return;
       case 'combat_hit':
         this.store.pushCombatBurst(payload);
         return;
@@ -256,3 +309,4 @@ export class GameSocket {
     }
   }
 }
+

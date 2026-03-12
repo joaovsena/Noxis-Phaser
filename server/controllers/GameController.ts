@@ -68,8 +68,6 @@ const LEGACY_ALLOC_MAP: Record<string, PrimaryStat> = {
     physicalDefense: 'vit',
     magicDefense: 'dex'
 };
-const SOFT_CAP_THRESHOLD = 150;
-const SOFT_CAP_COST = 2;
 const BASE_POINT_COST = 1;
 const LUCKY_STRIKE_CHANCE = 0.15;
 const AFK_THINK_MS = 260;
@@ -1758,7 +1756,6 @@ export class GameController {
             equippedWeaponName: weapon ? weapon.name : null,
             equippedBySlot,
             wallet: normalizeWallet(player.wallet),
-            pathNodes: Array.isArray(player.movePath) ? player.movePath.slice(0, 40).map((pt: any) => ({ x: Number(pt.x), y: Number(pt.y) })) : [],
             xp: player.xp,
             xpToNext: xpRequired(player.level),
             stats: player.stats,
@@ -2571,9 +2568,7 @@ export class GameController {
         let total = 0;
         for (const key of PRIMARY_STATS) {
             const amount = Math.max(0, Math.floor(Number(allocated[key] || 0)));
-            for (let i = 0; i < amount; i++) {
-                total += i >= SOFT_CAP_THRESHOLD ? SOFT_CAP_COST : BASE_POINT_COST;
-            }
+            total += amount * BASE_POINT_COST;
         }
         return total;
     }
@@ -2581,12 +2576,8 @@ export class GameController {
     private getAllocationCost(current: Record<PrimaryStat, number>, incoming: Record<PrimaryStat, number>) {
         let total = 0;
         for (const key of PRIMARY_STATS) {
-            const start = Math.max(0, Math.floor(Number(current[key] || 0)));
             const add = Math.max(0, Math.floor(Number(incoming[key] || 0)));
-            for (let i = 0; i < add; i++) {
-                const idx = start + i;
-                total += idx >= SOFT_CAP_THRESHOLD ? SOFT_CAP_COST : BASE_POINT_COST;
-            }
+            total += add * BASE_POINT_COST;
         }
         return total;
     }
@@ -2971,3 +2962,4 @@ export class GameController {
         }
     }
 }
+

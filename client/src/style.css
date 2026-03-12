@@ -94,6 +94,28 @@ body {
     align-items: center;
     justify-content: center;
     z-index: 20;
+    pointer-events: none;
+}
+
+#ui-container > *,
+.hud-card,
+.hud-minimap,
+.hud-chat,
+.hud-skillbar,
+.hud-menus,
+.hud-worldmap,
+.hud-party-frames,
+.hud-party-notify,
+.hud-friend-notify,
+.hud-dungeon-notify,
+.hud-target-player,
+.panel,
+#item-tooltip,
+#perf-hud,
+#afk-status,
+#revive-overlay,
+#delete-confirm {
+    pointer-events: auto;
 }
 
 .screen {
@@ -451,6 +473,11 @@ button:not(.btn):hover {
     gap: 6px;
 }
 
+#panel-body .stat-preview-bonus {
+    color: #8ef6b2;
+    font-weight: 700;
+}
+
 #panel-body .stat-add-btn {
     min-width: 28px;
     padding: 2px 8px;
@@ -463,6 +490,12 @@ button:not(.btn):hover {
     margin-top: 8px;
     justify-content: center;
     align-items: center;
+    flex-wrap: wrap;
+}
+
+#panel-body .stat-cost-hint {
+    color: #d9c48a;
+    font-weight: 700;
 }
 
 @media (max-width: 760px) {
@@ -622,7 +655,8 @@ button:not(.btn):hover {
     gap: 8px;
     margin-bottom: 8px;
     max-height: calc(min(78vh, 700px) - 120px);
-    overflow: hidden;
+    overflow-y: auto;
+    padding-right: 2px;
 }
 
 .npc-dialog-quest {
@@ -636,6 +670,7 @@ button:not(.btn):hover {
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
+    align-items: center;
 }
 
 .npc-shop-offer-disabled {
@@ -684,6 +719,8 @@ button:not(.btn):hover {
     border-radius: 8px;
     background: rgba(15, 24, 17, 0.82);
     padding: 8px;
+    display: grid;
+    gap: 8px;
 }
 
 .shop-item-header {
@@ -695,6 +732,13 @@ button:not(.btn):hover {
 
 .shop-item-header .quest-title {
     margin: 0;
+}
+
+.shop-item-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
 }
 
 .shop-item-icon {
@@ -1070,14 +1114,14 @@ button:not(.btn):hover {
 .skill-slot-btn:nth-child(2n) {
     background:
         linear-gradient(180deg, rgba(174, 152, 108, 0.35), rgba(73, 61, 38, 0.72)),
-        radial-gradient(circle at 50% 35%, rgba(191, 151, 255, 0.42), rgba(34, 26, 48, 0.28) 55%),
+        radial-gradient(circle at 35% 30%, rgba(140, 195, 255, 0), rgba(20, 30, 44, 0) 55%),
         #2b2419;
 }
 
 .skill-slot-btn:nth-child(3n) {
     background:
         linear-gradient(180deg, rgba(174, 152, 108, 0.35), rgba(73, 61, 38, 0.72)),
-        radial-gradient(circle at 55% 38%, rgba(120, 255, 196, 0.4), rgba(18, 48, 34, 0.28) 55%),
+        radial-gradient(circle at 35% 30%, rgba(140, 195, 255, 0), rgba(20, 30, 44, 0) 55%),
         #2b2419;
 }
 
@@ -1137,15 +1181,15 @@ button:not(.btn):hover {
 }
 
 .skill-slot-btn.slot-kind-action .slot-icon {
-    color: #ffd369;
+    color: #f6f2df;
 }
 
 .skill-slot-btn.slot-kind-item .slot-icon {
-    color: #b9f9ff;
+    color: #f6f2df;
 }
 
 .skill-slot-btn.slot-icon-potion .slot-icon {
-    color: #7ef6b2;
+    color: #f6f2df;
 }
 
 .skill-slot-btn.slot-ghosted {
@@ -1541,6 +1585,8 @@ body.hud-ultra-compact .menu-btn {
 .wallet-inline {
     display: inline-flex;
     align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
 }
 
 .wallet-chain {
@@ -1580,9 +1626,9 @@ body.hud-ultra-compact .menu-btn {
 }
 
 .coin-amount {
-    min-width: 28px;
+    min-width: 1ch;
     font-weight: 700;
-    letter-spacing: 0.8px;
+    letter-spacing: 0.02em;
     font-variant-numeric: tabular-nums;
     text-align: left;
 }
@@ -2550,7 +2596,7 @@ label {
 }
 
 .skill-slot-btn.slot-kind-action .slot-icon {
-    color: #ffe08b;
+    color: rgba(242, 229, 196, 0.96);
 }
 
 .skill-slot-btn.hovered {

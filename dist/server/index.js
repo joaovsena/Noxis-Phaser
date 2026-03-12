@@ -27,8 +27,8 @@ const clientDistDir = path_1.default.resolve(process.cwd(), 'client', 'dist');
 const clientIndexPath = path_1.default.resolve(clientDistDir, 'index.html');
 const parsedWorldStateMs = Number(process.env.WORLD_STATE_MS);
 const WORLD_STATE_MS = Number.isFinite(parsedWorldStateMs)
-    ? Math.max(40, Math.min(250, Math.floor(parsedWorldStateMs)))
-    : 66;
+    ? Math.max(20, Math.min(250, Math.floor(parsedWorldStateMs)))
+    : 25;
 app.get('/.well-known/appspecific/com.chrome.devtools.json', (_req, res) => {
     res.type('application/json').send('{}');
 });

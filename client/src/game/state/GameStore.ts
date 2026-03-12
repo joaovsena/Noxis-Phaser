@@ -41,6 +41,14 @@ export type WorldStaticState = {
 } | null;
 
 export type ResolvedWorldState = (NonNullable<WorldStaticState> & Partial<NonNullable<WorldState>>) | null;
+export type MoveAckState = {
+  reqId: number;
+  targetX?: number;
+  targetY?: number;
+  projectedX?: number;
+  projectedY?: number;
+  pathNodes?: Array<{ x: number; y: number }>;
+} | null;
 
 export type ConnectionPhase =
   | 'connecting'
@@ -80,6 +88,13 @@ export type GameState = {
   partyJoinRequests: any[];
   skillEffects: any[];
   combatBursts: any[];
+  lastMoveAck: MoveAckState;
+  adminResult: any | null;
+  adminMobPeacefulEnabled: boolean;
+  partyWaypoints: any[];
+  networkPingMs: number | null;
+  pathDebugEnabled: boolean;
+  interactionDebugEnabled: boolean;
 };
 
 const INITIAL_STATE: GameState = {
@@ -110,7 +125,14 @@ const INITIAL_STATE: GameState = {
   partyInvites: [],
   partyJoinRequests: [],
   skillEffects: [],
-  combatBursts: []
+  combatBursts: [],
+  lastMoveAck: null,
+  adminResult: null,
+  adminMobPeacefulEnabled: false,
+  partyWaypoints: [],
+  networkPingMs: null,
+  pathDebugEnabled: false,
+  interactionDebugEnabled: false
 };
 
 export class GameStore extends EventTarget {
@@ -125,20 +147,8 @@ export class GameStore extends EventTarget {
       ...this.state,
       ...patch
     };
-    const worldStateMapKey = String(nextState.worldState?.mapKey || '');
-    const worldStateMapId = String(nextState.worldState?.mapId || '');
-    const worldStaticMapKey = String(nextState.worldStatic?.mapKey || '');
-    const worldStaticMapId = String(nextState.worldStatic?.mapId || '');
-    if (
-      nextState.worldState
-      && nextState.worldStatic
-      && worldStateMapKey
-      && worldStateMapId
-      && (worldStateMapKey !== worldStaticMapKey || worldStateMapId !== worldStaticMapId)
-    ) {
-      nextState.worldStatic = null;
-    }
     nextState.resolvedWorld = this.resolveWorld(nextState.worldStatic, nextState.worldState);
+    nextState.partyWaypoints = (nextState.partyWaypoints || []).filter((entry: any) => Number(entry?.expiresAt || 0) > Date.now());
     this.state = nextState;
     this.dispatchEvent(new CustomEvent<GameState>('change', { detail: this.state }));
   }
@@ -205,4 +215,15 @@ export class GameStore extends EventTarget {
     const next = [...this.state.combatBursts, { ...event, __clientId: `${Date.now()}-${Math.random()}` }].slice(-maxEntries);
     this.update({ combatBursts: next, lastCombatEvent: event });
   }
+
+  upsertPartyWaypoint(waypoint: any, maxEntries = 10) {
+    const next = [
+      ...this.state.partyWaypoints.filter((entry: any) => String(entry?.waypointId || '') !== String(waypoint?.waypointId || '')),
+      waypoint
+    ]
+      .filter((entry: any) => Number(entry?.expiresAt || 0) > Date.now())
+      .slice(-maxEntries);
+    this.update({ partyWaypoints: next });
+  }
 }
+

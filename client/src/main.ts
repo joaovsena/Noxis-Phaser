@@ -23,6 +23,7 @@ const game = new Phaser.Game({
   type: Phaser.AUTO,
   parent: 'game-root',
   backgroundColor: '#08111b',
+  fps: { target: 60, min: 30, smoothStep: false },
   scale: { mode: Phaser.Scale.RESIZE, autoCenter: Phaser.Scale.CENTER_BOTH, width: innerWidth, height: innerHeight },
   scene: [new BootScene(), new WorldScene({ store, socket })]
 });
@@ -43,7 +44,15 @@ let targetCycleIndex = -1;
 let chatManualSizing = false;
 let chatManualOrigin = { x: 0, y: 0, width: 360, height: 260 };
 let autoAttackEnabled = true;
+let pathDebugEnabled = false;
+let renderQueued = false;
 let shopQuantities: Record<string, number> = {};
+let shopSelectedClassTab = 'knight';
+let shopNpcDialogNpcId: string | null = null;
+let statAllocationPending = { str: 0, int: 0, dex: 0, vit: 0 };
+let lastStatAllocationBaseKey = '';
+let lastOverlayRenderAt = 0;
+const MINIMAP_CROP_SCALE = 2.7;
 
 function buildSkillTree(): SkillNode[] {
   const defs = {
@@ -74,6 +83,10 @@ function persistSkillState() {
 }
 
 function byId<T extends HTMLElement>(id: string) { return document.getElementById(id) as T | null; }
+function worldScene() {
+  const scene = game.scene.getScene('world');
+  return scene instanceof WorldScene ? scene : null;
+}
 function setHidden(el: Element | null, hidden: boolean) { el?.classList.toggle('hidden', hidden); }
 function esc(v: unknown) { return String(v ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;'); }
 function isTypingTarget(target: EventTarget | null) { const el = target as HTMLElement | null; const tag = String(el?.tagName || '').toLowerCase(); return tag === 'input' || tag === 'textarea' || tag === 'select' || Boolean(el?.isContentEditable); }
@@ -82,7 +95,24 @@ function classIcon(classId: string) { const n = String(classId || '').toLowerCas
 function skillClass(classId: string) { const n = String(classId || '').toLowerCase(); if (n === 'bandit') return 'assassin'; if (n === 'shifter') return 'druid'; return n || 'knight'; }
 function normStats(raw: any) { const s = raw && typeof raw === 'object' ? raw : {}; const toInt = (v: unknown) => Number.isFinite(Number(v)) ? Math.max(0, Math.floor(Number(v))) : 0; return { str: toInt(s.str ?? s.for), int: toInt(s.int), dex: toInt(s.dex ?? s.des), vit: toInt(s.vit) }; }
 function walletLabel(wallet: any) { const w = wallet && typeof wallet === 'object' ? wallet : {}; return [`${Number(w.diamond || 0)}d`, `${Number(w.gold || 0)}g`, `${Number(w.silver || 0)}s`, `${Number(w.copper || 0)}c`].filter((entry) => !entry.startsWith('0')).join(' ') || '0c'; }
+function normalizeWallet(wallet: any) { const w = wallet && typeof wallet === 'object' ? wallet : {}; return { diamond: Math.max(0, Math.floor(Number(w.diamond || 0))), gold: Math.max(0, Math.floor(Number(w.gold || 0))), silver: Math.max(0, Math.floor(Number(w.silver || 0))), copper: Math.max(0, Math.floor(Number(w.copper || 0))) }; }
+function renderWalletTokens(wallet: any, options?: { hideZero?: boolean }) {
+  const safe = normalizeWallet(wallet);
+  let entries = [
+    { amount: safe.diamond, css: 'coin-diamond' },
+    { amount: safe.gold, css: 'coin-gold' },
+    { amount: safe.silver, css: 'coin-silver' },
+    { amount: safe.copper, css: 'coin-copper' }
+  ];
+  if (options?.hideZero) {
+    entries = entries.filter((entry) => entry.amount > 0);
+    if (!entries.length) entries = [{ amount: 0, css: 'coin-copper' }];
+  }
+  return `<span class="wallet-chain">${entries.map((entry) => `<span class="wallet-token"><span class="coin-dot ${entry.css}"></span><span class="coin-amount">${entry.amount}</span></span>`).join('')}</span>`;
+}
 function localPlayer() { const s = store.getState(); return s.playerId ? s.resolvedWorld?.players?.[String(s.playerId)] || null : null; }
+function isAdminPlayer(player = localPlayer()) { return String(player?.role || '').toLowerCase() === 'adm'; }
+function playerDisplayName(player: any) { return `${String(player?.role || '').toLowerCase() === 'adm' ? '[ADM] ' : ''}${String(player?.name || '-')}`; }
 function inventoryItems() { return Array.isArray(store.getState().inventoryState?.inventory) ? store.getState().inventoryState.inventory : []; }
 function equippedBySlot() { return store.getState().inventoryState?.equippedBySlot || {}; }
 function localSkillLevels() { return localPlayer()?.skillLevels && typeof localPlayer()?.skillLevels === 'object' ? localPlayer()!.skillLevels : {}; }
@@ -97,7 +127,52 @@ function inferEquipSlot(item: any) { const slot = String(item?.slot || '').toLow
 function walletToCopper(wallet: any) { const w = wallet && typeof wallet === 'object' ? wallet : {}; return (Number(w.diamond || 0) * 1000000) + (Number(w.gold || 0) * 10000) + (Number(w.silver || 0) * 100) + Number(w.copper || 0); }
 function getShopQuantity(offerId: string) { return Math.max(1, Math.min(99, Number(shopQuantities[offerId] || 1))); }
 function setShopQuantity(offerId: string, nextValue: number) { shopQuantities[offerId] = Math.max(1, Math.min(99, Math.floor(Number(nextValue || 1)))); }
+function resetPendingStatAllocation() { statAllocationPending = { str: 0, int: 0, dex: 0, vit: 0 }; }
+function getPendingStatAllocationTotal() { return Number(statAllocationPending.str || 0) + Number(statAllocationPending.int || 0) + Number(statAllocationPending.dex || 0) + Number(statAllocationPending.vit || 0); }
+function getPendingStatAllocationCost(baseAllocated: any = null) {
+  void baseAllocated;
+  return Number(statAllocationPending.str || 0)
+    + Number(statAllocationPending.int || 0)
+    + Number(statAllocationPending.dex || 0)
+    + Number(statAllocationPending.vit || 0);
+}
+function getShopIconLabel(offer: any) {
+  const type = String(offer?.type || '').toLowerCase();
+  const slot = String(offer?.slot || '').toLowerCase();
+  if (type === 'weapon') return 'ARM';
+  if (type === 'equipment' && slot === 'helmet') return 'CAP';
+  if (type === 'equipment' && slot === 'chest') return 'PEI';
+  if (type === 'equipment' && slot === 'pants') return 'CAL';
+  if (type === 'equipment' && slot === 'gloves') return 'LUV';
+  if (type === 'equipment' && slot === 'boots') return 'BOT';
+  if (type === 'potion_hp') return 'HP';
+  return String(offer?.name || 'IT').replace(/[^A-Za-z0-9]/g, '').slice(0, 3).toUpperCase() || 'IT';
+}
 function showTooltip(html: string, clientX: number, clientY: number) { const el = byId<HTMLElement>('item-tooltip'); if (!el) return; el.innerHTML = html; el.classList.remove('hidden'); const rect = el.getBoundingClientRect(); const left = Math.max(8, Math.min(clientX + 12, innerWidth - rect.width - 8)); const top = Math.max(8, Math.min(clientY + 12, innerHeight - rect.height - 8)); el.style.left = `${left}px`; el.style.top = `${top}px`; }
+function updateHudDebugPanelUI() {
+  const enabled = isAdminPlayer() && Boolean(byId<HTMLInputElement>('hud-debug-toggle')?.checked);
+  setHidden(byId('hud-debug-panel'), !enabled);
+  const minInput = byId<HTMLInputElement>('hud-scale-min');
+  const maxInput = byId<HTMLInputElement>('hud-scale-max');
+  if (byId('hud-scale-min-value') && minInput) byId('hud-scale-min-value')!.textContent = `${minInput.value}%`;
+  if (byId('hud-scale-max-value') && maxInput) byId('hud-scale-max-value')!.textContent = `${maxInput.value}%`;
+  const root = document.documentElement;
+  if (!enabled || !minInput || !maxInput) {
+    root.style.setProperty('--hud-scale', '1');
+    return;
+  }
+  const minValue = Math.max(70, Math.min(110, Number(minInput.value || 84)));
+  const maxValue = Math.max(minValue + 2, Math.min(140, Number(maxInput.value || 106)));
+  root.style.setProperty('--hud-scale', String(((minValue + maxValue) / 2) / 100));
+}
+function sendAdminCommand() {
+  if (!isAdminPlayer()) return;
+  const input = byId<HTMLInputElement>('admin-command');
+  const command = String(input?.value || '').trim();
+  if (!command) return;
+  socket.send({ type: 'admin_command', command });
+  if (input) input.value = '';
+}
 function hideTooltip() { byId('item-tooltip')?.classList.add('hidden'); }
 function itemTooltipHtml(item: any) {
   const quantity = Math.max(1, Math.floor(Number(item?.quantity || 1)));
@@ -174,7 +249,7 @@ function renderInventory() {
     }
     grid.appendChild(slot);
   }
-  if (label) label.innerHTML = `Arma equipada: ${esc(String(equippedBySlot().weapon?.name || 'nenhuma'))} <span class="wallet-inline">${walletLabel(store.getState().inventoryState?.wallet)}</span>`;
+  if (label) label.innerHTML = `Arma equipada: ${esc(String(equippedBySlot().weapon?.name || 'nenhuma'))} <span class="wallet-inline">${renderWalletTokens(store.getState().inventoryState?.wallet, { hideZero: false })}</span>`;
 }
 
 function normalizeHotbar() {
@@ -316,18 +391,64 @@ function renderNpcDialog() {
   const quests = Array.isArray(dialog.quests) ? dialog.quests : [];
   const shopOffers = Array.isArray(dialog.shopOffers) ? dialog.shopOffers : [];
   const walletCopper = walletToCopper(store.getState().inventoryState?.wallet);
-  body.innerHTML = `<div class="preview-help">${esc(dialog.npc?.greeting || '')}</div>${dialog.dungeonEntry ? `<div class="npc-dialog-quest"><div class="quest-title">${esc(dialog.dungeonEntry.name || 'Dungeon')}</div><div class="preview-help">${esc(dialog.dungeonEntry.description || '')}</div><div class="npc-dialog-actions"><button id="npc-dungeon-enter" class="btn btn-primary btn-sm" type="button">Entrar</button></div></div>` : ''}${quests.map((quest: any) => `<div class="npc-dialog-quest"><div class="quest-title">${esc(quest.title || quest.id || 'Quest')}</div><div class="quest-objective">${esc(quest.description || '')}</div>${Array.isArray(quest.objectives) ? quest.objectives.map((objective: any) => `<div class="quest-objective">${esc(objective.text || objective.id || 'Objetivo')} (${Number(objective.required || 1)})</div>`).join('') : ''}<div class="npc-dialog-actions">${availableQuestIds.includes(String(quest.id || '')) ? `<button class="btn btn-outline-light btn-sm npc-quest-accept" data-quest-id="${esc(String(quest.id || ''))}" type="button">Aceitar</button>` : ''}${turnInQuestIds.includes(String(quest.id || '')) ? `<button class="btn btn-outline-success btn-sm npc-quest-complete" data-quest-id="${esc(String(quest.id || ''))}" type="button">Concluir</button>` : ''}</div></div>`).join('')}${shopOffers.length ? `<div class="npc-dialog-quest"><div class="quest-title">Loja</div>${shopOffers.map((offer: any) => { const offerId = String(offer.offerId || ''); const qty = getShopQuantity(offerId); const totalPrice = walletToCopper(offer.price) * qty; const affordable = walletCopper >= totalPrice; return `<div class="friend-row npc-shop-offer${affordable ? '' : ' npc-shop-offer-disabled'}" data-offer-id="${esc(offerId)}"><span class="npc-shop-name">${esc(offer.name || 'Item')}</span><span class="npc-shop-price">${esc(walletLabel(offer.price))} x ${qty}</span><div class="npc-dialog-actions"><button class="btn btn-outline-light btn-sm npc-buy-qty-down" data-offer-id="${esc(offerId)}" type="button">-</button><input class="form-control form-control-sm npc-buy-qty-input" data-offer-id="${esc(offerId)}" type="number" min="1" max="99" value="${qty}"><button class="btn btn-outline-light btn-sm npc-buy-qty-up" data-offer-id="${esc(offerId)}" type="button">+</button><button class="btn btn-primary btn-sm npc-buy" data-offer-id="${esc(offerId)}" type="button"${affordable ? '' : ' disabled'}>Comprar</button></div></div>`; }).join('')}</div>` : ''}`;
+  const party = store.getState().partyState;
+  const partyMemberCount = Array.isArray(party?.members) ? party.members.length : 0;
+  const hasValidParty = Boolean(party && partyMemberCount >= 1);
+  const isLeader = Boolean(party && Number(party.leaderId) === Number(store.getState().playerId));
+  const dungeonEntry = dialog.dungeonEntry && typeof dialog.dungeonEntry === 'object' ? dialog.dungeonEntry : null;
+  const dungeonHtml = dungeonEntry ? (() => {
+    const actions: string[] = [];
+    let hint = '';
+    const opened = Boolean(dungeonEntry.opened);
+    if (!opened) {
+      actions.push(`<button id="npc-dungeon-open" class="btn btn-primary btn-sm" type="button">Abrir Dungeon</button>`);
+    } else if (!hasValidParty) {
+      hint = `<div class="quest-objective">Entrada permitida apenas para quem estiver em grupo.</div>`;
+    } else if (isLeader && partyMemberCount > 1) {
+      actions.push(`<button id="npc-dungeon-enter-solo" class="btn btn-outline-light btn-sm" type="button">Entrar sozinho</button>`);
+      actions.push(`<button id="npc-dungeon-enter-group" class="btn btn-primary btn-sm" type="button">Levar grupo comigo</button>`);
+    } else {
+      actions.push(`<button id="npc-dungeon-enter-solo" class="btn btn-primary btn-sm" type="button">Entrar sozinho</button>`);
+    }
+    return `<div class="npc-dialog-quest"><div class="quest-title">Dungeon: ${esc(dungeonEntry.name || 'Instancia')}</div><div class="quest-objective">${esc(dungeonEntry.description || 'Entre com seu grupo e derrote o boss.')} (Max: ${Math.max(1, Number(dungeonEntry.maxPlayers || 1))})</div>${hint}<div class="npc-dialog-actions">${actions.join('')}</div></div>`;
+  })() : '';
+  const questHtml = quests.map((quest: any) => `<div class="npc-dialog-quest"><div class="quest-title">${esc(quest.title || quest.id || 'Quest')}</div><div class="quest-objective">${esc(quest.description || '')}</div>${Array.isArray(quest.objectives) ? quest.objectives.map((objective: any) => `<div class="quest-objective">${esc(objective.text || objective.id || 'Objetivo')} (${Number(objective.required || 1)})</div>`).join('') : ''}<div class="npc-dialog-actions">${availableQuestIds.includes(String(quest.id || '')) ? `<button class="btn btn-outline-light btn-sm npc-quest-accept" data-quest-id="${esc(String(quest.id || ''))}" type="button">Aceitar</button>` : ''}${turnInQuestIds.includes(String(quest.id || '')) ? `<button class="btn btn-outline-success btn-sm npc-quest-complete" data-quest-id="${esc(String(quest.id || ''))}" type="button">Concluir</button>` : ''}</div></div>`).join('');
+  let shopHtml = '';
+  if (shopOffers.length) {
+    const classTabs = [
+      { id: 'knight', label: 'Cavaleiro' },
+      { id: 'archer', label: 'Arqueiro' },
+      { id: 'druid', label: 'Druida' },
+      { id: 'assassin', label: 'Assassino' }
+    ];
+    const hasClassOffers = shopOffers.some((offer: any) => String(offer?.requiredClass || '').length > 0);
+    const me = localPlayer();
+    const fallbackTab = hasClassOffers ? String(me?.class || 'knight').toLowerCase() : '';
+    if (String(shopNpcDialogNpcId || '') !== String(dialog.npc?.id || '')) {
+      shopNpcDialogNpcId = String(dialog.npc?.id || '');
+      shopSelectedClassTab = fallbackTab || 'knight';
+    }
+    if (!shopSelectedClassTab || !['knight', 'archer', 'druid', 'assassin'].includes(String(shopSelectedClassTab))) {
+      shopSelectedClassTab = fallbackTab || 'knight';
+    }
+    const filteredOffers = hasClassOffers
+      ? shopOffers.filter((offer: any) => String(offer.requiredClass || '').toLowerCase() === String(shopSelectedClassTab || '').toLowerCase())
+      : shopOffers;
+    shopHtml = `<div class="quest-title">Loja <span class="wallet-inline">${renderWalletTokens(store.getState().inventoryState?.wallet, { hideZero: false })}</span></div>${hasClassOffers ? `<div class="shop-tabs">${classTabs.map((tab) => `<button class="shop-tab-btn${shopSelectedClassTab === tab.id ? ' active' : ''}" data-shop-tab="${tab.id}" type="button">${tab.label}</button>`).join('')}</div>` : ''}<div class="shop-scroll-wrap">${filteredOffers.length ? `<div class="shop-item-grid">${filteredOffers.map((offer: any) => { const offerId = String(offer.offerId || ''); const affordable = walletCopper >= walletToCopper(offer.price); return `<div class="shop-item-card npc-shop-offer${affordable ? '' : ' npc-shop-offer-disabled'}" data-offer-id="${esc(offerId)}"><div class="shop-item-header"><div class="shop-item-icon item-type-${esc(String(offer.type || 'generic'))}">${esc(getShopIconLabel(offer))}</div><div><div class="quest-title">${esc(String(offer.name || 'Item'))}</div>${offer.requiredClass ? `<div class="quest-objective">Classe: ${esc(classLabel(String(offer.requiredClass)))}</div>` : ''}</div></div><div class="quest-objective">Custo: ${renderWalletTokens(offer.price, { hideZero: true })}</div><div class="shop-item-controls"><button class="btn btn-primary btn-sm npc-buy" data-offer-id="${esc(offerId)}" type="button"${affordable ? '' : ' disabled'}>Comprar</button></div></div>`; }).join('')}</div>` : `<div class="quest-objective">Sem equipamentos para esta classe.</div>`}</div>`;
+  }
+  body.innerHTML = `<div class="preview-help">${esc(dialog.npc?.greeting || '')}</div>${dungeonHtml}${questHtml}${shopHtml}`;
   panel.classList.remove('hidden');
-  byId('npc-dungeon-enter')?.addEventListener('click', () => socket.send({ type: 'dungeon.enter', npcId: dialog.npc?.id, mode: 'solo' }));
+  byId('npc-dungeon-open')?.addEventListener('click', () => { panel.classList.add('hidden'); socket.send({ type: 'dungeon.enter', npcId: dialog.npc?.id, mode: 'open' }); });
+  byId('npc-dungeon-enter-solo')?.addEventListener('click', () => { panel.classList.add('hidden'); socket.send({ type: 'dungeon.enter', npcId: dialog.npc?.id, mode: 'solo' }); });
+  byId('npc-dungeon-enter-group')?.addEventListener('click', () => { panel.classList.add('hidden'); socket.send({ type: 'dungeon.enter', npcId: dialog.npc?.id, mode: 'group' }); });
+  body.querySelectorAll<HTMLElement>('[data-shop-tab]').forEach((button) => button.onclick = () => { shopSelectedClassTab = String(button.dataset.shopTab || 'knight'); renderNpcDialog(); });
   body.querySelectorAll<HTMLElement>('.npc-quest-accept').forEach((button) => button.onclick = () => socket.send({ type: 'quest.accept', questId: button.dataset.questId }));
   body.querySelectorAll<HTMLElement>('.npc-quest-complete').forEach((button) => button.onclick = () => socket.send({ type: 'quest.complete', questId: button.dataset.questId }));
-  body.querySelectorAll<HTMLElement>('.npc-buy-qty-down').forEach((button) => button.onclick = () => { const offerId = String(button.dataset.offerId || ''); setShopQuantity(offerId, getShopQuantity(offerId) - 1); renderNpcDialog(); });
-  body.querySelectorAll<HTMLElement>('.npc-buy-qty-up').forEach((button) => button.onclick = () => { const offerId = String(button.dataset.offerId || ''); setShopQuantity(offerId, getShopQuantity(offerId) + 1); renderNpcDialog(); });
-  body.querySelectorAll<HTMLInputElement>('.npc-buy-qty-input').forEach((input) => input.onchange = () => { const offerId = String(input.dataset.offerId || ''); setShopQuantity(offerId, Number(input.value || 1)); renderNpcDialog(); });
-  body.querySelectorAll<HTMLElement>('.npc-buy').forEach((button) => button.onclick = () => { const offerId = String(button.dataset.offerId || ''); socket.send({ type: 'npc.buy', npcId: String(dialog.npc?.id || ''), offerId, quantity: getShopQuantity(offerId) }); });
-  body.querySelectorAll<HTMLElement>('.npc-shop-offer').forEach((row, index) => {
-    const offer = shopOffers[index];
-    row.onmousemove = (event) => offer && showTooltip(itemTooltipHtml({ ...offer, quantity: getShopQuantity(String(offer.offerId || '')) }), event.clientX, event.clientY);
+  body.querySelectorAll<HTMLElement>('.npc-buy').forEach((button) => button.onclick = () => { const offerId = String(button.dataset.offerId || ''); socket.send({ type: 'npc.buy', npcId: String(dialog.npc?.id || ''), offerId, quantity: 1 }); });
+  const visibleShopOffers = body.querySelectorAll<HTMLElement>('.npc-shop-offer');
+  visibleShopOffers.forEach((row) => {
+    const offer = shopOffers.find((entry: any) => String(entry.offerId || '') === String(row.dataset.offerId || ''));
+    row.onmousemove = (event) => offer && showTooltip(itemTooltipHtml({ ...offer, quantity: 1 }), event.clientX, event.clientY);
     row.onmouseleave = () => hideTooltip();
   });
 }
@@ -357,7 +478,7 @@ function renderTargetCard() {
   }
   byId('target-player-avatar')!.className = `class-avatar class-${esc(skillClass(String(player?.class || 'knight')))}`;
   byId('target-player-avatar')!.textContent = classIcon(String(player?.class || 'knight'));
-  byId('target-name-text')!.textContent = `${esc(player?.name || 'Player')} Lv.${Number(player?.level || 1)}`;
+  byId('target-name-text')!.textContent = `${esc(playerDisplayName(player))} Lv.${Number(player?.level || 1)}`;
   (byId('target-player-hp-fill') as HTMLElement).style.width = `${Math.max(0, Math.min(100, (Number(player?.hp || 0) / Math.max(1, Number(player?.maxHp || 1))) * 100))}%`;
   setHidden(byId('target-actions-toggle'), false);
   setHidden(attackButton, !isHostilePlayer(player));
@@ -383,6 +504,11 @@ function renderCharacterPanel() {
   const p = localPlayer();
   const body = byId<HTMLElement>('panel-body');
   if (!p || !body) return;
+  const statBaseKey = JSON.stringify({ id: p.id, allocated: normStats(p.allocatedStats), unspent: Number(p.unspentPoints || 0) });
+  if (statBaseKey !== lastStatAllocationBaseKey) {
+    lastStatAllocationBaseKey = statBaseKey;
+    resetPendingStatAllocation();
+  }
   byId('char-panel-name')!.textContent = `${esc(p.name)} - ${classLabel(String(p.class || 'knight'))}`;
   byId('panel-class-chip')!.textContent = classLabel(String(p.class || 'knight'));
   const slotLabels: Record<string, string> = { helmet: 'Capacete', chest: 'Peitoral', pants: 'Calca', gloves: 'Luva', boots: 'Bota', ring: 'Anel', weapon: 'Arma', necklace: 'Colar' };
@@ -401,8 +527,63 @@ function renderCharacterPanel() {
   });
   const base = normStats(p.allocatedStats);
   const stats = p.stats && typeof p.stats === 'object' ? p.stats : {};
-  body.innerHTML = `<div class="char-summary-grid"><div class="line">Nivel: ${Number(p.level || 1)}</div><div class="line">XP: ${Number(p.xp || 0)}/${Number(p.xpToNext || 0)}</div><div class="line">HP: ${Number(p.hp || 0)}/${Number(p.maxHp || 0)}</div></div><div class="line wallet-line">Moedas: ${walletLabel(store.getState().inventoryState?.wallet || p.wallet)}</div><div class="line stat-points-line">Pontos disponiveis: ${Number(p.unspentPoints || 0)}</div><div class="char-stats-layout"><div class="char-stats-col char-stats-col-base"><div class="line stat-col-title">Atributos Base</div><div class="line">FOR: ${base.str}</div><div class="line">INT: ${base.int}</div><div class="line">DES: ${base.dex}</div><div class="line">VIT: ${base.vit}</div></div><div class="char-stats-col char-stats-col-combat"><div class="line stat-col-title">Atributos de Combate</div><div class="line">PATK: ${Math.floor(Number(stats.physicalAttack || 0))}</div><div class="line">MATK: ${Math.floor(Number(stats.magicAttack || 0))}</div><div class="line">PDEF: ${Number(stats.physicalDefense || 0).toFixed(1)}</div><div class="line">MDEF: ${Number(stats.magicDefense || 0).toFixed(1)}</div><div class="line">ACC: ${Number(stats.accuracy || 0).toFixed(1)}</div><div class="line">EVA: ${Number(stats.evasion || 0).toFixed(1)}</div><div class="line">MSPD: ${Number(stats.moveSpeed || 0)}</div><div class="line">ASPD: ${Number(stats.attackSpeed || 0)}%</div></div></div><div class="line stat-actions"><button class="btn btn-outline-light btn-sm stat-add" data-key="str" type="button">+ FOR</button><button class="btn btn-outline-light btn-sm stat-add" data-key="int" type="button">+ INT</button><button class="btn btn-outline-light btn-sm stat-add" data-key="dex" type="button">+ DES</button><button class="btn btn-outline-light btn-sm stat-add" data-key="vit" type="button">+ VIT</button></div>`;
-  body.querySelectorAll<HTMLElement>('.stat-add').forEach((button) => button.onclick = () => Number(p.unspentPoints || 0) > 0 ? socket.send({ type: 'stats.allocate', allocation: { [String(button.dataset.key || '')]: 1 } }) : systemMessage('Sem pontos de atributo disponiveis.'));
+  const pendingCost = getPendingStatAllocationCost(p.allocatedStats);
+  const remainingPoints = Math.max(0, Number(p.unspentPoints || 0) - pendingCost);
+  const pending = statAllocationPending;
+  const previewCombat = {
+    physicalAttack: Number(stats.physicalAttack || 0) + Number(pending.str || 0) * 2,
+    magicAttack: Number(stats.magicAttack || 0) + Number(pending.int || 0) * 3,
+    physicalDefense: Number(stats.physicalDefense || 0) + Number(pending.str || 0) * 0.5 + Number(pending.vit || 0) * 1.2,
+    magicDefense: Number(stats.magicDefense || 0) + Number(pending.int || 0) * 0.8 + Number(pending.vit || 0) * 0.5,
+    accuracy: Number(stats.accuracy || 0) + Number(pending.dex || 0) * 1.5,
+    evasion: Number(stats.evasion || 0) + Number(pending.dex || 0) * 0.8,
+    moveSpeed: Number(stats.moveSpeed || 0),
+    attackSpeed: Number(stats.attackSpeed || 0)
+  };
+  const statRow = (key: 'str' | 'int' | 'dex' | 'vit', label: string, value: number) => `<div class="line stat-row"><span>${label}: ${value + Number(pending[key] || 0)}${Number(pending[key] || 0) > 0 ? ` <span class="stat-preview-bonus">(+${Number(pending[key] || 0)})</span>` : ''}</span><div class="stat-controls"><button class="btn btn-outline-light btn-sm stat-add-btn stat-max" data-key="${key}" type="button">^</button><button class="btn btn-outline-light btn-sm stat-add-btn stat-plus" data-key="${key}" type="button">+</button><button class="btn btn-outline-light btn-sm stat-add-btn stat-minus" data-key="${key}" type="button">-</button></div></div>`;
+  body.innerHTML = `<div class="char-summary-grid"><div class="line">Nivel: ${Number(p.level || 1)}</div><div class="line">XP: ${Number(p.xp || 0)}/${Number(p.xpToNext || 0)}</div><div class="line">HP: ${Number(p.hp || 0)}/${Number(p.maxHp || 0)}</div></div><div class="line wallet-line">Moedas: ${renderWalletTokens(store.getState().inventoryState?.wallet || p.wallet, { hideZero: false })}</div><div class="line stat-points-line">Pontos disponiveis: ${remainingPoints}</div><div class="char-stats-layout"><div class="char-stats-col char-stats-col-base"><div class="line stat-col-title">Atributos Base</div>${statRow('str', 'FOR', base.str)}${statRow('int', 'INT', base.int)}${statRow('dex', 'DES', base.dex)}${statRow('vit', 'VIT', base.vit)}</div><div class="char-stats-col char-stats-col-combat"><div class="line stat-col-title">Atributos de Combate</div><div class="line">PATK: ${Math.floor(previewCombat.physicalAttack)}</div><div class="line">MATK: ${Math.floor(previewCombat.magicAttack)}</div><div class="line">PDEF: ${previewCombat.physicalDefense.toFixed(1)}</div><div class="line">MDEF: ${previewCombat.magicDefense.toFixed(1)}</div><div class="line">ACC: ${previewCombat.accuracy.toFixed(1)}</div><div class="line">EVA: ${previewCombat.evasion.toFixed(1)}</div><div class="line">MSPD: ${previewCombat.moveSpeed}</div><div class="line">ASPD: ${previewCombat.attackSpeed}%</div></div></div><div class="line stat-actions"><button class="btn btn-primary btn-sm stat-apply" type="button"${getPendingStatAllocationTotal() <= 0 ? ' disabled' : ''}>Aplicar</button><button class="btn btn-outline-light btn-sm stat-clear" type="button"${getPendingStatAllocationTotal() <= 0 ? ' disabled' : ''}>Limpar</button>${getPendingStatAllocationTotal() > 0 ? `<span class="stat-cost-hint">Custo: ${pendingCost}</span>` : ''}</div>`;
+  const allocateOne = (key: 'str' | 'int' | 'dex' | 'vit') => {
+    const currentRemaining = Math.max(0, Number(p.unspentPoints || 0) - getPendingStatAllocationCost(p.allocatedStats));
+    if (currentRemaining <= 0) return;
+    const pendingValue = Number(statAllocationPending[key] || 0);
+    if (currentRemaining < 1) return;
+    statAllocationPending[key] = pendingValue + 1;
+    renderCharacterPanel();
+  };
+  body.querySelectorAll<HTMLElement>('.stat-plus').forEach((button) => button.onpointerdown = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    allocateOne(String(button.dataset.key || 'str') as 'str' | 'int' | 'dex' | 'vit');
+  });
+  body.querySelectorAll<HTMLElement>('.stat-minus').forEach((button) => button.onpointerdown = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const key = String(button.dataset.key || 'str') as 'str' | 'int' | 'dex' | 'vit';
+    statAllocationPending[key] = Math.max(0, Number(statAllocationPending[key] || 0) - 1);
+    renderCharacterPanel();
+  });
+  body.querySelectorAll<HTMLElement>('.stat-max').forEach((button) => button.onpointerdown = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const key = String(button.dataset.key || 'str') as 'str' | 'int' | 'dex' | 'vit';
+    for (let i = 0; i < 500; i += 1) {
+      const before = Number(statAllocationPending[key] || 0);
+      allocateOne(key);
+      if (Number(statAllocationPending[key] || 0) === before) break;
+    }
+  });
+  body.querySelector<HTMLElement>('.stat-apply')!.onpointerdown = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (getPendingStatAllocationTotal() <= 0) return;
+    socket.send({ type: 'stats.allocate', allocation: { ...statAllocationPending } });
+  };
+  body.querySelector<HTMLElement>('.stat-clear')!.onpointerdown = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    resetPendingStatAllocation();
+    renderCharacterPanel();
+  };
 }
 
 function renderSkillsPanel() {
@@ -446,9 +627,215 @@ function renderSkillsPanel() {
 }
 
 function renderMinimap() {
-  const world = store.getState().resolvedWorld; const p = localPlayer(); const bounds = world?.world; const mini = byId<HTMLCanvasElement>('minimap-canvas'); const full = byId<HTMLCanvasElement>('worldmap-canvas'); if (!mini || !full || !bounds) return;
-  const draw = (canvas: HTMLCanvasElement, small: boolean) => { const ctx = canvas.getContext('2d'); if (!ctx) return; ctx.clearRect(0, 0, canvas.width, canvas.height); const sx = canvas.width / Math.max(1, Number(bounds.width || 1)); const sy = canvas.height / Math.max(1, Number(bounds.height || 1)); const selectedMobId = String(store.getState().selectedMobId || ''); const selectedPlayerId = Number(store.getState().selectedPlayerId || 0); ctx.fillStyle = '#071019'; ctx.fillRect(0, 0, canvas.width, canvas.height); ctx.strokeStyle = 'rgba(104,160,194,0.12)'; ctx.lineWidth = 1; for (let x = 0; x < canvas.width; x += Math.max(18, Math.round(canvas.width / 12))) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke(); } for (let y = 0; y < canvas.height; y += Math.max(18, Math.round(canvas.height / 12))) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke(); } (world?.portals || []).forEach((portal: any) => { ctx.fillStyle = '#8f78ff'; ctx.fillRect(Number(portal.x || 0) * sx - 2, Number(portal.y || 0) * sy - 2, small ? 4 : 6, small ? 4 : 6); }); (world?.activeEvents || []).forEach((evt: any) => { ctx.fillStyle = '#ffd166'; ctx.beginPath(); ctx.arc(Number(evt.x || 0) * sx, Number(evt.y || 0) * sy, small ? 2 : 5, 0, Math.PI * 2); ctx.fill(); }); (world?.mobs || []).forEach((mob: any) => { const selected = String(mob.id || '') === selectedMobId; ctx.fillStyle = selected ? '#ffef87' : '#cf4444'; ctx.beginPath(); ctx.arc(Number(mob.x || 0) * sx, Number(mob.y || 0) * sy, small ? 2 : 4, 0, Math.PI * 2); ctx.fill(); if (selected) { ctx.strokeStyle = '#fff7b2'; ctx.strokeRect(Number(mob.x || 0) * sx - (small ? 3 : 5), Number(mob.y || 0) * sy - (small ? 3 : 5), small ? 6 : 10, small ? 6 : 10); } }); (world?.npcs || []).forEach((npc: any) => { ctx.fillStyle = '#4fd09a'; ctx.fillRect(Number(npc.x || 0) * sx - 2, Number(npc.y || 0) * sy - 2, small ? 3 : 5, small ? 3 : 5); }); Object.values(world?.players || {}).forEach((entry: any) => { const hostile = isHostilePlayer(entry); const mine = Number(entry.id || 0) === Number(store.getState().playerId); const selected = Number(entry.id || 0) === selectedPlayerId; ctx.fillStyle = mine ? '#5bbcff' : hostile ? '#ff7b7b' : '#d8dfe8'; ctx.beginPath(); ctx.arc(Number(entry.x || 0) * sx, Number(entry.y || 0) * sy, small ? 2 : 4, 0, Math.PI * 2); ctx.fill(); if (selected) { ctx.strokeStyle = '#fff7b2'; ctx.strokeRect(Number(entry.x || 0) * sx - (small ? 3 : 5), Number(entry.y || 0) * sy - (small ? 3 : 5), small ? 6 : 10, small ? 6 : 10); } }); if (p) { ctx.strokeStyle = '#ffe082'; ctx.strokeRect(Number(p.x || 0) * sx - (small ? 2 : 4), Number(p.y || 0) * sy - (small ? 2 : 4), small ? 4 : 8, small ? 4 : 8); } };
-  draw(mini, true); draw(full, false);
+  const world = store.getState().resolvedWorld;
+  const p = localPlayer();
+  const bounds = world?.world;
+  const mini = byId<HTMLCanvasElement>('minimap-canvas');
+  const full = byId<HTMLCanvasElement>('worldmap-canvas');
+  if (!mini || !full || !bounds) return;
+
+  const worldWidth = Math.max(1, Number(bounds.width || 1));
+  const worldHeight = Math.max(1, Number(bounds.height || 1));
+  const selectedMobId = String(store.getState().selectedMobId || '');
+  const selectedPlayerId = Number(store.getState().selectedPlayerId || 0);
+  const projectIso = (x: number, y: number, tileW: number, tileH: number) => {
+    const nx = x / worldWidth;
+    const ny = y / worldHeight;
+    return {
+      x: (nx - ny) * tileW * 0.5,
+      y: (nx + ny) * tileH * 0.5
+    };
+  };
+
+  const drawDiamond = (ctx: CanvasRenderingContext2D, cx: number, cy: number, w: number, h: number, fill: string, alpha = 1) => {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = fill;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - h / 2);
+    ctx.lineTo(cx + w / 2, cy);
+    ctx.lineTo(cx, cy + h / 2);
+    ctx.lineTo(cx - w / 2, cy);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  };
+
+  const drawMini = (canvas: HTMLCanvasElement) => {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const mapCode = String(world?.mapCode || '').toUpperCase();
+    const palette = mapCode === 'A2'
+      ? { base: '#c4a36a', accent: '#a78553', line: 'rgba(110, 77, 34, 0.28)' }
+      : mapCode === 'DNG'
+        ? { base: '#b8aa8d', accent: '#9b8a70', line: 'rgba(72, 56, 33, 0.24)' }
+        : { base: '#a7c85f', accent: '#8fb04a', line: 'rgba(76, 109, 34, 0.24)' };
+    const scene = worldScene();
+    const playerX = Number(p?.x || 0);
+    const playerY = Number(p?.y || 0);
+    const offset = ((playerX + playerY) / 22) % 18;
+    ctx.fillStyle = palette.base;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = palette.line;
+    ctx.lineWidth = 1;
+    for (let x = -canvas.height; x < canvas.width + canvas.height; x += 18) {
+      ctx.beginPath();
+      ctx.moveTo(x + offset, 0);
+      ctx.lineTo(x + canvas.height + offset, canvas.height);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x - offset, 0);
+      ctx.lineTo(x - canvas.height - offset, canvas.height);
+      ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    for (let y = 0; y < canvas.height; y += 36) {
+      ctx.fillRect(0, y, canvas.width, 1);
+    }
+    ctx.fillStyle = `rgba(0,0,0,0.06)`;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    if (scene) {
+      const gameWidth = game.scale.width || 1;
+      const gameHeight = game.scale.height || 1;
+      const drawViewportDot = (worldX: number, worldY: number, color: string, radius: number, stroke = '') => {
+        const point = scene.viewportPointFromWorld(worldX, worldY);
+        const miniX = (point.x / Math.max(1, gameWidth)) * canvas.width;
+        const miniY = (point.y / Math.max(1, gameHeight)) * canvas.height;
+        if (miniX < -radius || miniX > canvas.width + radius || miniY < -radius || miniY > canvas.height + radius) return;
+        ctx.beginPath();
+        ctx.fillStyle = color;
+        ctx.arc(miniX, miniY, radius, 0, Math.PI * 2);
+        ctx.fill();
+        if (stroke) {
+          ctx.strokeStyle = stroke;
+          ctx.lineWidth = 1.25;
+          ctx.stroke();
+        }
+      };
+      (world?.mobs || []).forEach((mob: any) => drawViewportDot(Number(mob.x || 0), Number(mob.y || 0), '#e24b4b', 2.6));
+      Object.values(world?.players || {}).forEach((entry: any) => {
+        const mine = Number(entry.id || 0) === Number(store.getState().playerId);
+        drawViewportDot(Number(entry.x || 0), Number(entry.y || 0), '#4ea3ff', mine ? 3 : 2.4, mine ? '#ffe082' : '');
+      });
+    }
+    ctx.strokeStyle = 'rgba(255, 226, 130, 0.38)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(6, 6, canvas.width - 12, canvas.height - 12);
+  };
+
+  const drawWorldMap = (canvas: HTMLCanvasElement) => {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const tileW = 18;
+    const tileH = 9;
+    const offsetX = canvas.width / 2;
+    const offsetY = 24;
+    ctx.fillStyle = '#071019';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    drawDiamond(ctx, offsetX, offsetY + canvas.height * 0.36, canvas.width * 0.86, canvas.height * 0.72, '#10263b', 0.96);
+
+    const drawPoint = (x: number, y: number, color: string, size: number, stroke = '') => {
+      const point = projectIso(x, y, tileW, tileH);
+      const px = point.x + offsetX;
+      const py = point.y + offsetY + canvas.height * 0.18;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(px, py, size, 0, Math.PI * 2);
+      ctx.fill();
+      if (stroke) {
+        ctx.strokeStyle = stroke;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+    };
+
+    (world?.portals || []).forEach((portal: any) => drawPoint(Number(portal.x || 0), Number(portal.y || 0), '#8f78ff', 4));
+    (world?.activeEvents || []).forEach((evt: any) => drawPoint(Number(evt.x || 0), Number(evt.y || 0), '#ffd166', 5));
+    (world?.mobs || []).forEach((mob: any) => {
+      const selected = String(mob.id || '') === selectedMobId;
+      drawPoint(Number(mob.x || 0), Number(mob.y || 0), selected ? '#ffef87' : '#cf4444', 4, selected ? '#fff7b2' : '');
+    });
+    (world?.npcs || []).forEach((npc: any) => drawPoint(Number(npc.x || 0), Number(npc.y || 0), '#4fd09a', 4));
+    Object.values(world?.players || {}).forEach((entry: any) => {
+      const hostile = isHostilePlayer(entry);
+      const mine = Number(entry.id || 0) === Number(store.getState().playerId);
+      const selected = Number(entry.id || 0) === selectedPlayerId;
+      drawPoint(Number(entry.x || 0), Number(entry.y || 0), mine ? '#5bbcff' : hostile ? '#ff7b7b' : '#d8dfe8', 4, selected ? '#fff7b2' : '');
+    });
+
+    if (p) {
+      const point = projectIso(Number(p.x || 0), Number(p.y || 0), tileW, tileH);
+      const px = point.x + offsetX;
+      const py = point.y + offsetY + canvas.height * 0.18;
+      ctx.strokeStyle = '#ffe082';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(px - 5, py - 5, 10, 10);
+    }
+  };
+
+  drawMini(mini);
+  drawWorldMap(full);
+}
+
+function queueMoveFromMinimapClick(canvas: HTMLCanvasElement, clientX: number, clientY: number) {
+  const scene = worldScene();
+  const gameCanvas = document.querySelector<HTMLCanvasElement>('#game-root canvas');
+  if (!scene || !gameCanvas) return false;
+  const miniRect = canvas.getBoundingClientRect();
+  const gameRect = gameCanvas.getBoundingClientRect();
+  if (clientX < miniRect.left || clientX > miniRect.right || clientY < miniRect.top || clientY > miniRect.bottom) return false;
+  const nx = (clientX - miniRect.left) / Math.max(1, miniRect.width);
+  const ny = (clientY - miniRect.top) / Math.max(1, miniRect.height);
+  const cropWidth = gameRect.width / MINIMAP_CROP_SCALE;
+  const cropHeight = gameRect.height / MINIMAP_CROP_SCALE;
+  const viewportClientX = gameRect.left + gameRect.width / 2 + ((nx - 0.5) * cropWidth);
+  const viewportClientY = gameRect.top + gameRect.height / 2 + ((ny - 0.5) * cropHeight);
+  return scene.queueMoveFromClientPoint(viewportClientX, viewportClientY);
+}
+
+function worldPointFromMinimapClick(canvas: HTMLCanvasElement, clientX: number, clientY: number) {
+  const scene = worldScene();
+  const gameCanvas = document.querySelector<HTMLCanvasElement>('#game-root canvas');
+  if (!scene || !gameCanvas) return null;
+  const miniRect = canvas.getBoundingClientRect();
+  const gameRect = gameCanvas.getBoundingClientRect();
+  if (clientX < miniRect.left || clientX > miniRect.right || clientY < miniRect.top || clientY > miniRect.bottom) return null;
+  const nx = (clientX - miniRect.left) / Math.max(1, miniRect.width);
+  const ny = (clientY - miniRect.top) / Math.max(1, miniRect.height);
+  const cropWidth = gameRect.width / MINIMAP_CROP_SCALE;
+  const cropHeight = gameRect.height / MINIMAP_CROP_SCALE;
+  const viewportClientX = gameRect.left + gameRect.width / 2 + ((nx - 0.5) * cropWidth);
+  const viewportClientY = gameRect.top + gameRect.height / 2 + ((ny - 0.5) * cropHeight);
+  return scene.worldFromClientPoint(viewportClientX, viewportClientY);
+}
+
+function worldPointFromIsoMapClick(canvas: HTMLCanvasElement, clientX: number, clientY: number) {
+  const world = store.getState().resolvedWorld;
+  const p = localPlayer();
+  const bounds = world?.world;
+  if (!bounds) return null;
+  const worldWidth = Math.max(1, Number(bounds.width || 1));
+  const worldHeight = Math.max(1, Number(bounds.height || 1));
+  const small = canvas.id === 'minimap-canvas';
+  const tileW = small ? 22 : 18;
+  const tileH = small ? 11 : 9;
+  const centerWorldX = small && p ? Number(p.x || 0) : worldWidth / 2;
+  const centerWorldY = small && p ? Number(p.y || 0) : worldHeight / 2;
+  const centerIsoX = ((centerWorldX / worldWidth) - (centerWorldY / worldHeight)) * tileW * 0.5;
+  const centerIsoY = ((centerWorldX / worldWidth) + (centerWorldY / worldHeight)) * tileH * 0.5;
+  const offsetX = canvas.width / 2 - centerIsoX;
+  const offsetY = canvas.height / 2 - centerIsoY + (small ? 12 : 18);
+  const rect = canvas.getBoundingClientRect();
+  const px = ((clientX - rect.left) / Math.max(1, rect.width)) * canvas.width - offsetX;
+  const py = ((clientY - rect.top) / Math.max(1, rect.height)) * canvas.height - offsetY;
+  const nx = (py / Math.max(1, tileH)) + (px / Math.max(1, tileW));
+  const ny = (py / Math.max(1, tileH)) - (px / Math.max(1, tileW));
+  return {
+    x: Math.max(0, Math.min(worldWidth, nx * worldWidth)),
+    y: Math.max(0, Math.min(worldHeight, ny * worldHeight))
+  };
 }
 
 // BINDINGS
@@ -490,11 +877,55 @@ function bindUi() {
   byId('dungeon-leave-btn')?.addEventListener('click', () => socket.send({ type: 'dungeon.leave' }));
   byId('map-settings-toggle')?.addEventListener('click', () => byId('map-settings-panel')?.classList.toggle('hidden'));
   byId<HTMLInputElement>('auto-attack-toggle')?.addEventListener('change', (event) => { autoAttackEnabled = Boolean((event.currentTarget as HTMLInputElement).checked); });
+  byId<HTMLInputElement>('path-debug-toggle')?.addEventListener('change', (event) => {
+    if (!isAdminPlayer()) {
+      (event.currentTarget as HTMLInputElement).checked = false;
+      pathDebugEnabled = false;
+      store.update({ pathDebugEnabled: false });
+      return;
+    }
+    pathDebugEnabled = Boolean((event.currentTarget as HTMLInputElement).checked);
+    store.update({ pathDebugEnabled });
+    renderMinimap();
+  });
+  byId<HTMLInputElement>('interaction-debug-toggle')?.addEventListener('change', (event) => {
+    if (!isAdminPlayer()) {
+      (event.currentTarget as HTMLInputElement).checked = false;
+      store.update({ interactionDebugEnabled: false });
+      return;
+    }
+    store.update({ interactionDebugEnabled: Boolean((event.currentTarget as HTMLInputElement).checked) });
+  });
+  byId<HTMLInputElement>('hud-debug-toggle')?.addEventListener('change', (event) => {
+    if (!isAdminPlayer()) {
+      (event.currentTarget as HTMLInputElement).checked = false;
+      return;
+    }
+    updateHudDebugPanelUI();
+  });
+  byId<HTMLInputElement>('hud-scale-min')?.addEventListener('input', updateHudDebugPanelUI);
+  byId<HTMLInputElement>('hud-scale-max')?.addEventListener('input', updateHudDebugPanelUI);
+  byId('hud-debug-reset')?.addEventListener('click', () => {
+    if (byId<HTMLInputElement>('hud-scale-min')) byId<HTMLInputElement>('hud-scale-min')!.value = '84';
+    if (byId<HTMLInputElement>('hud-scale-max')) byId<HTMLInputElement>('hud-scale-max')!.value = '106';
+    if (byId<HTMLInputElement>('hud-debug-toggle')) byId<HTMLInputElement>('hud-debug-toggle')!.checked = false;
+    updateHudDebugPanelUI();
+  });
+  byId<HTMLInputElement>('mob-peaceful-toggle')?.addEventListener('change', (event) => {
+    if (!isAdminPlayer()) {
+      (event.currentTarget as HTMLInputElement).checked = false;
+      return;
+    }
+    socket.send({ type: 'admin.setMobPeaceful', enabled: Boolean((event.currentTarget as HTMLInputElement).checked) });
+  });
+  byId('dungeon-debug-btn')?.addEventListener('click', () => isAdminPlayer() && socket.send({ type: 'admin_command', command: 'dungeon.debug' }));
+  byId('admin-send')?.addEventListener('click', sendAdminCommand);
+  byId<HTMLInputElement>('admin-command')?.addEventListener('keydown', (event) => { if (event.key === 'Enter') sendAdminCommand(); });
   byId('player-pvp-toggle')?.addEventListener('click', () => byId('player-pvp-menu')?.classList.toggle('hidden'));
   document.querySelectorAll<HTMLElement>('.pvp-mode-option').forEach((button) => button.addEventListener('click', () => { socket.send({ type: 'player.setPvpMode', mode: String(button.dataset.mode || 'peace') }); byId('player-pvp-menu')?.classList.add('hidden'); }));
   byId<HTMLSelectElement>('instance-select')?.addEventListener('change', (event) => socket.send({ type: 'switch_instance', mapId: String((event.currentTarget as HTMLSelectElement).value || '') }));
   [['menu-attrs', 'char-panel', 'char-panel-close'], ['menu-inventory', 'inventory-panel', 'inventory-panel-close'], ['menu-skills', 'skills-panel', 'skills-panel-close'], ['menu-quests', 'quest-panel', 'quest-panel-close'], ['menu-map', 'worldmap-panel', 'worldmap-close'], ['menu-party', 'party-panel', 'party-panel-close'], ['menu-friends', 'friends-panel', 'friends-panel-close']].forEach(([buttonId, panelId, closeId]) => { byId(buttonId)?.addEventListener('click', () => byId(panelId)?.classList.toggle('hidden')); byId(closeId)?.addEventListener('click', () => byId(panelId)?.classList.add('hidden')); });
-  [['char-panel', 'char-panel-header'], ['inventory-panel', 'inventory-header'], ['skills-panel', 'skills-header'], ['party-panel', 'party-header'], ['friends-panel', 'friends-header'], ['worldmap-panel', 'worldmap-header']].forEach(([panelId, headerId]) => { const panel = byId<HTMLElement>(panelId); const header = byId<HTMLElement>(headerId); if (!panel || !header) return; let dragging = false, ox = 0, oy = 0; header.addEventListener('pointerdown', (event) => { dragging = true; const rect = panel.getBoundingClientRect(); panel.style.left = `${rect.left}px`; panel.style.top = `${rect.top}px`; panel.style.right = 'auto'; panel.style.bottom = 'auto'; ox = event.clientX - rect.left; oy = event.clientY - rect.top; }); window.addEventListener('pointermove', (event) => { if (!dragging) return; panel.style.left = `${Math.max(8, event.clientX - ox)}px`; panel.style.top = `${Math.max(8, event.clientY - oy)}px`; }); window.addEventListener('pointerup', () => { dragging = false; }); });
+  [['char-panel', 'char-panel-header'], ['inventory-panel', 'inventory-header'], ['skills-panel', 'skills-header'], ['party-panel', 'party-header'], ['friends-panel', 'friends-header'], ['worldmap-panel', 'worldmap-header'], ['admin-panel', 'admin-header']].forEach(([panelId, headerId]) => { const panel = byId<HTMLElement>(panelId); const header = byId<HTMLElement>(headerId); if (!panel || !header) return; let dragging = false, ox = 0, oy = 0; header.addEventListener('pointerdown', (event) => { dragging = true; const rect = panel.getBoundingClientRect(); panel.style.left = `${rect.left}px`; panel.style.top = `${rect.top}px`; panel.style.right = 'auto'; panel.style.bottom = 'auto'; ox = event.clientX - rect.left; oy = event.clientY - rect.top; }); window.addEventListener('pointermove', (event) => { if (!dragging) return; panel.style.left = `${Math.max(8, event.clientX - ox)}px`; panel.style.top = `${Math.max(8, event.clientY - oy)}px`; }); window.addEventListener('pointerup', () => { dragging = false; }); });
   for (let i = 0; i < 3; i += 1) byId<HTMLButtonElement>(`character-slot-${i}`)?.addEventListener('click', () => store.getState().characterSlots[i] && store.update({ selectedCharacterSlot: i }));
   document.querySelectorAll<HTMLElement>('.chat-scope').forEach((button) => button.addEventListener('click', () => { chatScope = String(button.dataset.scope || 'local') as 'local' | 'map' | 'global'; document.querySelectorAll('.chat-scope').forEach((entry) => entry.classList.remove('active')); button.classList.add('active'); }));
   byId<HTMLInputElement>('chat-input')?.addEventListener('keydown', (event) => { if (event.key !== 'Enter') return; const input = event.currentTarget as HTMLInputElement; const text = String(input.value || '').trim(); if (!text) return; socket.send({ type: 'chat_send', scope: chatScope, text }); input.value = ''; });
@@ -543,15 +974,30 @@ function bindUi() {
   byId('target-actions-toggle')?.addEventListener('click', () => byId('target-actions-menu')?.classList.toggle('hidden'));
   byId('target-invite-btn')?.addEventListener('click', () => { const id = store.getState().selectedPlayerId; const target = id ? store.getState().resolvedWorld?.players?.[String(id)] : null; if (target?.name) socket.send({ type: 'party.invite', targetName: target.name }); });
   byId('target-friend-btn')?.addEventListener('click', () => { const id = store.getState().selectedPlayerId; const target = id ? store.getState().resolvedWorld?.players?.[String(id)] : null; if (target?.name) socket.send({ type: 'friend.request', targetName: target.name }); });
-  [byId<HTMLCanvasElement>('minimap-canvas'), byId<HTMLCanvasElement>('worldmap-canvas')].forEach((canvas) => canvas?.addEventListener('click', (event) => {
-    const world = store.getState().resolvedWorld;
-    const bounds = world?.world;
-    if (!canvas || !bounds) return;
-    const rect = canvas.getBoundingClientRect();
-    const ratioX = (event.clientX - rect.left) / Math.max(1, rect.width);
-    const ratioY = (event.clientY - rect.top) / Math.max(1, rect.height);
-    socket.send({ type: 'move', reqId: Date.now(), x: Math.max(0, Math.min(Number(bounds.width || 0), ratioX * Number(bounds.width || 0))), y: Math.max(0, Math.min(Number(bounds.height || 0), ratioY * Number(bounds.height || 0))) });
-  }));
+  [byId<HTMLCanvasElement>('minimap-canvas'), byId<HTMLCanvasElement>('worldmap-canvas')].forEach((canvas) => {
+    canvas?.addEventListener('click', (event) => {
+      if (!canvas) return;
+      if (canvas.id === 'minimap-canvas') {
+        queueMoveFromMinimapClick(canvas, event.clientX, event.clientY);
+        return;
+      }
+      const point = worldPointFromIsoMapClick(canvas, event.clientX, event.clientY);
+      if (!point) return;
+      socket.send({ type: 'move', reqId: Date.now(), x: point.x, y: point.y });
+    });
+    canvas?.addEventListener('auxclick', (event) => {
+      if (event.button !== 1) return;
+      const party = store.getState().partyState;
+      if (!canvas) return;
+      if (!party?.id) return void systemMessage('Voce precisa estar em um grupo para marcar waypoint.');
+      event.preventDefault();
+      const point = canvas.id === 'minimap-canvas'
+        ? worldPointFromMinimapClick(canvas, event.clientX, event.clientY)
+        : worldPointFromIsoMapClick(canvas, event.clientX, event.clientY);
+      if (!point) return;
+      socket.send({ type: 'party.waypointPing', x: point.x, y: point.y });
+    });
+  });
   byId('skills-tab-holy')?.addEventListener('click', () => { skillTreeTab = 'buildA'; renderSkillsPanel(); });
   byId('skills-tab-blood')?.addEventListener('click', () => { skillTreeTab = 'buildB'; renderSkillsPanel(); });
   byId('skills-auto-slot')?.addEventListener('click', () => { const options = availableAutoAttacks(); const idx = options.findIndex((entry) => entry.id === selectedAutoAttackSkillId); selectedAutoAttackSkillId = options[(idx + 1 + options.length) % options.length]?.id || 'class_primary'; persistSkillState(); renderSkillsPanel(); renderHotbar(); });
@@ -567,14 +1013,26 @@ function bindUi() {
     if (store.getState().selectedPlayerId) socket.send({ type: 'combat.targetPlayer', targetPlayerId: store.getState().selectedPlayerId });
   });
   byId('target-clear-btn')?.addEventListener('click', () => { byId('target-actions-menu')?.classList.add('hidden'); store.update({ selectedPlayerId: null, selectedMobId: null }); });
-  window.addEventListener('keydown', (event) => { if (isTypingTarget(event.target)) return; const key = event.key.toLowerCase(); const isQuote = event.code === 'Quote' || event.key === "'" || event.key === '"'; if (isQuote) { event.preventDefault(); selectNearestHostileTarget(event.shiftKey); return; } if (event.key === 'Escape') { Object.values(PANEL_SHORTCUTS).forEach((panelId) => byId(panelId)?.classList.add('hidden')); byId('player-pvp-menu')?.classList.add('hidden'); byId('target-actions-menu')?.classList.add('hidden'); byId('chat-mode-menu')?.classList.add('hidden'); store.update({ selectedPlayerId: null, selectedMobId: null, pendingDeleteItemId: null, npcDialog: null }); hideTooltip(); return; } if (event.key === 'Enter') return void byId<HTMLInputElement>('chat-input')?.focus(); if (PANEL_SHORTCUTS[key]) { event.preventDefault(); byId(PANEL_SHORTCUTS[key])?.classList.toggle('hidden'); if (key === 'g') socket.send({ type: 'party.requestAreaParties' }); if (key === 'o') socket.send({ type: 'friend.list' }); return; } if (HOTBAR_KEYS.includes(key)) { event.preventDefault(); activateHotbar(key); } });
+  window.addEventListener('keydown', (event) => {
+    if (isTypingTarget(event.target)) return;
+    const key = event.key.toLowerCase();
+    const isQuote = event.code === 'Quote' || event.key === "'" || event.key === '"';
+    if (isQuote) { event.preventDefault(); selectNearestHostileTarget(event.shiftKey); return; }
+    if (event.key === '.') { event.preventDefault(); socket.send({ type: 'player.toggleAfk' }); return; }
+    if (key === 'h' && isAdminPlayer()) { event.preventDefault(); byId('admin-panel')?.classList.toggle('hidden'); return; }
+    if (event.key === 'Escape') { Object.values(PANEL_SHORTCUTS).forEach((panelId) => byId(panelId)?.classList.add('hidden')); byId('admin-panel')?.classList.add('hidden'); byId('player-pvp-menu')?.classList.add('hidden'); byId('target-actions-menu')?.classList.add('hidden'); byId('chat-mode-menu')?.classList.add('hidden'); store.update({ selectedPlayerId: null, selectedMobId: null, pendingDeleteItemId: null, npcDialog: null }); hideTooltip(); return; }
+    if (event.key === 'Enter') return void byId<HTMLInputElement>('chat-input')?.focus();
+    if (PANEL_SHORTCUTS[key]) { event.preventDefault(); byId(PANEL_SHORTCUTS[key])?.classList.toggle('hidden'); if (key === 'g') socket.send({ type: 'party.requestAreaParties' }); if (key === 'o') socket.send({ type: 'friend.list' }); return; }
+    if (HOTBAR_KEYS.includes(key)) { event.preventDefault(); activateHotbar(key); }
+  });
+  updateHudDebugPanelUI();
 }
-
 function render() {
   const state = store.getState();
   const world = state.resolvedWorld;
   const p = localPlayer();
   const inGame = state.connectionPhase === 'in_game';
+  const isAdmin = isAdminPlayer(p);
   if (byId('auth-status')) byId('auth-status')!.textContent = state.authMessage || '';
   setHidden(byId('screen-login-register'), !(state.connectionPhase === 'auth' || state.connectionPhase === 'connecting' || state.connectionPhase === 'disconnected'));
   setHidden(byId('screen-character-select'), state.connectionPhase !== 'character_select');
@@ -585,12 +1043,22 @@ function render() {
   ['player-card', 'minimap-wrap', 'chat-wrap', 'skillbar-wrap', 'menus-wrap', 'perf-hud'].forEach((id) => setHidden(byId(id), !inGame));
   setHidden(byId('revive-overlay'), !(inGame && (state.dead || Boolean(p?.dead) || Number(p?.hp || 0) <= 0)));
   setHidden(byId('delete-confirm'), !state.pendingDeleteItemId);
-  if (!inGame) return;
+  setHidden(byId('admin-panel'), !inGame || !isAdmin);
+  setHidden(byId('afk-status'), !(inGame && Boolean(p?.afkActive)));
+  setHidden(byId('path-debug-setting'), !isAdmin);
+  setHidden(byId('interaction-debug-setting'), !isAdmin);
+  setHidden(byId('hud-debug-setting'), !isAdmin);
+  setHidden(byId('mob-peaceful-setting'), !isAdmin);
+  setHidden(byId('dungeon-debug-setting'), !isAdmin);
+  if (!inGame) {
+    requestedInGameState = false;
+    return;
+  }
   if (!requestedInGameState) { requestedInGameState = true; socket.send({ type: 'party.requestAreaParties' }); socket.send({ type: 'friend.list' }); }
   if (p && Number(p.hp || 0) > 0 && state.dead) { store.update({ dead: false }); return; }
   byId('player-avatar')!.textContent = classIcon(String(p?.class || 'knight'));
   byId('player-avatar')!.className = `class-avatar class-${esc(skillClass(String(p?.class || 'knight')))}`;
-  byId('player-name')!.textContent = String(p?.name || '-').toUpperCase();
+  byId('player-name')!.textContent = playerDisplayName(p).toUpperCase();
   byId('player-hp-text')!.textContent = p ? `HP: ${p.hp}/${p.maxHp}` : 'HP: -';
   (byId('player-hp-fill') as HTMLElement).style.width = `${p ? Math.max(0, Math.min(100, (Number(p.hp || 0) / Math.max(1, Number(p.maxHp || 1))) * 100)) : 0}%`;
   byId('player-pvp-toggle')!.textContent = String(p?.pvpMode || 'peace').replace('peace', 'Paz').replace('group', 'Grupo').replace('evil', 'Mal');
@@ -602,12 +1070,65 @@ function render() {
   const currentMapId = String(world?.mapId || 'Z1');
   if (instance) { if (![...instance.options].some((entry) => entry.value === currentMapId)) instance.innerHTML = `<option value="${esc(currentMapId)}">${esc(currentMapId)}</option>`; instance.value = currentMapId; }
   setHidden(byId('dungeon-leave-btn'), !(currentMapId.startsWith('DNG-') || String(world?.mapKey || '').startsWith('dng_')));
-  byId('perf-hud')!.textContent = `Phaser | WS ${state.socketConnected ? 'on' : 'off'} | ${String(world?.mapCode || '-')} / ${currentMapId}`;
-  renderChat(); renderInventory(); renderHotbar(); renderQuests(); renderParty(); renderFriends(); renderPartyFrames(); renderNotifications(); renderNpcDialog(); renderTargetCard(); renderDungeonReady(); renderCharacterPanel(); renderSkillsPanel(); renderMinimap();
+  if (byId<HTMLInputElement>('mob-peaceful-toggle')) byId<HTMLInputElement>('mob-peaceful-toggle')!.checked = Boolean(state.adminMobPeacefulEnabled);
+  if (byId<HTMLElement>('admin-result')) {
+    const adminMessage = String(state.adminResult?.message || '');
+    byId<HTMLElement>('admin-result')!.textContent = adminMessage;
+    byId<HTMLElement>('admin-result')!.className = state.adminResult?.ok === false ? 'text-danger mt-2' : 'mt-2';
+  }
+  const fps = Math.round(Number(game.loop.actualFps || 0));
+  byId('perf-hud')!.textContent = `FPS ${fps > 0 ? fps : '--'} | Ping ${Number.isFinite(Number(state.networkPingMs)) ? `${Math.round(Number(state.networkPingMs))}ms` : '--'} | WS ${state.socketConnected ? 'on' : 'off'} | ${String(world?.mapCode || '-')} / ${currentMapId}`;
+  if (!isAdmin) {
+    pathDebugEnabled = false;
+    if (byId<HTMLInputElement>('path-debug-toggle')) byId<HTMLInputElement>('path-debug-toggle')!.checked = false;
+    if (byId<HTMLInputElement>('interaction-debug-toggle')) byId<HTMLInputElement>('interaction-debug-toggle')!.checked = false;
+    if (state.pathDebugEnabled) store.update({ pathDebugEnabled: false });
+    if (state.interactionDebugEnabled) store.update({ interactionDebugEnabled: false });
+    if (byId<HTMLInputElement>('hud-debug-toggle')) byId<HTMLInputElement>('hud-debug-toggle')!.checked = false;
+  }
+  updateHudDebugPanelUI();
+  if (byId<HTMLInputElement>('path-debug-toggle') && byId<HTMLInputElement>('path-debug-toggle')!.checked !== Boolean(state.pathDebugEnabled) && isAdmin) byId<HTMLInputElement>('path-debug-toggle')!.checked = Boolean(state.pathDebugEnabled);
+  if (byId<HTMLInputElement>('interaction-debug-toggle') && byId<HTMLInputElement>('interaction-debug-toggle')!.checked !== Boolean(state.interactionDebugEnabled) && isAdmin) byId<HTMLInputElement>('interaction-debug-toggle')!.checked = Boolean(state.interactionDebugEnabled);
+  renderChat();
+  renderHotbar();
+  renderPartyFrames();
+  renderNotifications();
+  renderNpcDialog();
+  renderTargetCard();
+  renderDungeonReady();
+  renderMinimap();
+  if (!byId('inventory-panel')?.classList.contains('hidden')) renderInventory();
+  if (!byId('quest-panel')?.classList.contains('hidden')) renderQuests();
+  if (!byId('party-panel')?.classList.contains('hidden')) renderParty();
+  if (!byId('friends-panel')?.classList.contains('hidden')) renderFriends();
+  if (!byId('char-panel')?.classList.contains('hidden')) renderCharacterPanel();
+  if (!byId('skills-panel')?.classList.contains('hidden')) renderSkillsPanel();
+}
+
+function scheduleRender() {
+  if (renderQueued) return;
+  renderQueued = true;
+  requestAnimationFrame(() => {
+    renderQueued = false;
+    render();
+  });
 }
 
 bindUi();
-store.addEventListener('change', render as EventListener);
+store.addEventListener('change', scheduleRender as EventListener);
 render();
 socket.connect();
 window.addEventListener('beforeunload', () => game.destroy(true));
+
+
+
+
+
+
+
+
+
+
+
+
+

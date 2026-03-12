@@ -251,7 +251,7 @@ export declare class GameController {
     flushAllPlayers(reason?: string): Promise<void>;
     processPersistenceQueue(limit?: number): Promise<{
         processed: number;
-        fetched: number;
+        fetched: any;
     }>;
     private flushAutosavePlayers;
     private flushDirtyPlayers;

@@ -12,6 +12,9 @@ export type LoadedMapDocument = {
   tileImages: Record<number, { source: string; width: number; height: number; offsetX: number; offsetY: number; tileWidth: number; tileHeight: number }>;
 };
 
+const mapDocumentCache = new Map<string, Promise<LoadedMapDocument>>();
+const tilesetXmlCache = new Map<string, Promise<string | null>>();
+
 function decodeBase64LayerData(encoded: string): number[] {
   const cleaned = encoded.trim();
   if (!cleaned) return [];
@@ -50,6 +53,15 @@ function resolveTilesetCandidate(mapUrl: string, tilesetUrl: string, source: str
   return new URL(source, `${window.location.origin}${dirname(tilesetUrl)}`).pathname;
 }
 
+async function loadTilesetXml(tilesetUrl: string) {
+  if (!tilesetXmlCache.has(tilesetUrl)) {
+    tilesetXmlCache.set(tilesetUrl, fetch(tilesetUrl)
+      .then((response) => response.ok ? response.text() : null)
+      .catch(() => null));
+  }
+  return tilesetXmlCache.get(tilesetUrl)!;
+}
+
 async function loadTileImages(raw: any, mapUrl: string) {
   const out: Record<number, { source: string; width: number; height: number; offsetX: number; offsetY: number; tileWidth: number; tileHeight: number }> = {};
   const tilesets = Array.isArray(raw?.tilesets) ? raw.tilesets : [];
@@ -57,9 +69,8 @@ async function loadTileImages(raw: any, mapUrl: string) {
     const firstgid = Number(tileset?.firstgid || 1);
     if (tileset?.source) {
       const tilesetUrl = new URL(String(tileset.source), `${window.location.origin}${dirname(mapUrl)}`).pathname;
-      const response = await fetch(tilesetUrl, { cache: 'no-store' });
-      if (!response.ok) continue;
-      const xml = await response.text();
+      const xml = await loadTilesetXml(tilesetUrl);
+      if (!xml) continue;
       const doc = new DOMParser().parseFromString(xml, 'application/xml');
       const tilesetRoot = doc.querySelector('tileset');
       const tileOffsetNode = doc.querySelector('tileoffset');
@@ -105,9 +116,8 @@ async function loadTileImages(raw: any, mapUrl: string) {
   return out;
 }
 
-export async function loadMapDocument(url?: string): Promise<LoadedMapDocument> {
-  const targetUrl = url || DEFAULT_MAP_URL;
-  const response = await fetch(targetUrl, { cache: 'no-store' });
+async function fetchMapDocument(targetUrl: string): Promise<LoadedMapDocument> {
+  const response = await fetch(targetUrl);
   if (!response.ok) {
     throw new Error(`map_load_failed:${response.status}`);
   }
@@ -142,4 +152,15 @@ export async function loadMapDocument(url?: string): Promise<LoadedMapDocument> 
     layers,
     tileImages
   };
+}
+
+export async function loadMapDocument(url?: string): Promise<LoadedMapDocument> {
+  const targetUrl = url || DEFAULT_MAP_URL;
+  if (!mapDocumentCache.has(targetUrl)) {
+    mapDocumentCache.set(targetUrl, fetchMapDocument(targetUrl).catch((error) => {
+      mapDocumentCache.delete(targetUrl);
+      throw error;
+    }));
+  }
+  return mapDocumentCache.get(targetUrl)!;
 }
