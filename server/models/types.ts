@@ -112,6 +112,9 @@ export interface Mob {
 export interface GroundItem {
     id: string;
     templateId?: string;
+    rarity?: string | null;
+    spriteId?: string | null;
+    iconUrl?: string | null;
     type: string;
     name: string;
     slot: string;
@@ -199,6 +202,26 @@ export interface InventorySortMessage {
 export interface InventoryDeleteMessage {
     type: 'inventory_delete';
     itemId: string;
+}
+
+export interface DeleteItemRequestMessage {
+    type: 'delete_item_req';
+    itemId?: string;
+    slotIndex?: number;
+}
+
+export interface SplitItemRequestMessage {
+    type: 'split_item_req';
+    itemId?: string;
+    slotIndex?: number;
+    quantity: number;
+}
+
+export interface SellItemRequestMessage {
+    type: 'sell_item_req';
+    itemId?: string;
+    slotIndex?: number;
+    npcId?: string;
 }
 
 export interface InventoryUnequipToSlotMessage {
@@ -424,6 +447,9 @@ export type WSMessage =
     | InventoryMoveMessage
     | InventorySortMessage
     | InventoryDeleteMessage
+    | DeleteItemRequestMessage
+    | SplitItemRequestMessage
+    | SellItemRequestMessage
     | InventoryUnequipToSlotMessage
     | ItemUseMessage
     | SwitchInstanceMessage

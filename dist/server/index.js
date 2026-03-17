@@ -159,6 +159,22 @@ async function initializeServer() {
                 (0, logger_1.logEvent)('ERROR', 'persistence_queue_error', { error: String(error) });
             });
         }, 1000);
+        const runWithTimeout = async (label, task, timeoutMs) => {
+            let timeoutHandle = null;
+            try {
+                return await Promise.race([
+                    task,
+                    new Promise((_, reject) => {
+                        timeoutHandle = setTimeout(() => reject(new Error(`${label}_timeout`)), timeoutMs);
+                        timeoutHandle.unref?.();
+                    })
+                ]);
+            }
+            finally {
+                if (timeoutHandle)
+                    clearTimeout(timeoutHandle);
+            }
+        };
         let shuttingDown = false;
         const shutdown = async (signal) => {
             if (shuttingDown)
@@ -167,36 +183,61 @@ async function initializeServer() {
             (0, logger_1.logEvent)('INFO', 'server_shutdown_start', { signal });
             clearInterval(tickTimer);
             clearInterval(queueTimer);
+            server.close(() => {
+                (0, logger_1.logEvent)('INFO', 'server_http_closed', { signal });
+            });
+            wss.clients.forEach((client) => {
+                try {
+                    client.close(1001, `shutdown:${signal}`);
+                }
+                catch {
+                    // noop
+                }
+            });
+            const forceTerminateWsTimer = setTimeout(() => {
+                wss.clients.forEach((client) => {
+                    try {
+                        client.terminate();
+                    }
+                    catch {
+                        // noop
+                    }
+                });
+            }, 1000);
+            forceTerminateWsTimer.unref?.();
             try {
-                await gameController.flushAllPlayers(`shutdown:${signal}`);
+                await runWithTimeout('flush_all_players', gameController.flushAllPlayers(`shutdown:${signal}`), 2500);
             }
             catch (error) {
                 (0, logger_1.logEvent)('ERROR', 'server_shutdown_flush_error', { signal, error: String(error) });
             }
             try {
-                await gameController.processPersistenceQueue(200);
+                await runWithTimeout('process_persistence_queue', gameController.processPersistenceQueue(200), 2000);
             }
             catch (error) {
                 (0, logger_1.logEvent)('ERROR', 'server_shutdown_queue_error', { signal, error: String(error) });
             }
             try {
-                await prisma_1.default.$disconnect();
+                await runWithTimeout('prisma_disconnect', prisma_1.default.$disconnect(), 1500);
             }
             catch (error) {
                 (0, logger_1.logEvent)('ERROR', 'server_shutdown_disconnect_error', { signal, error: String(error) });
             }
             if (redis) {
                 try {
-                    await redis.quit();
+                    await runWithTimeout('redis_quit', redis.quit(), 1500);
                 }
                 catch (error) {
                     (0, logger_1.logEvent)('ERROR', 'redis_shutdown_error', { signal, error: String(error) });
                 }
             }
-            server.close(() => {
+            wss.close(() => {
+                (0, logger_1.logEvent)('INFO', 'server_ws_closed', { signal });
+            });
+            setTimeout(() => {
                 (0, logger_1.logEvent)('INFO', 'server_shutdown_done', { signal });
                 process.exit(0);
-            });
+            }, 50).unref();
             setTimeout(() => process.exit(1), 8000).unref();
         };
         process.on('SIGINT', () => { void shutdown('SIGINT'); });

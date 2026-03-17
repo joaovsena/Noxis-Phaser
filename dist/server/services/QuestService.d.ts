@@ -44,6 +44,8 @@ export declare class QuestService {
         npcId: string;
         templateId: string;
         name: string;
+        spriteId: string | null;
+        iconUrl: string;
         type: string;
         slot: string;
         quantity: number;

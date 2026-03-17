@@ -161,6 +161,9 @@ export const WEAPON_TEMPLATE = {
     id: 'weapon_teste',
     type: 'weapon',
     name: 'Arma Teste',
+    rarity: 'common',
+    spriteId: 'weapon_steel',
+    iconUrl: '/assets/ui/items/weapon-steel.svg',
     slot: 'weapon',
     price: { silver: 12 },
     bonuses: {
@@ -174,6 +177,9 @@ export const WEAPON_TEMPLATE_RUBI = {
     id: 'weapon_rubi',
     type: 'weapon',
     name: 'Arma de Rubi',
+    rarity: 'rare',
+    spriteId: 'weapon_ruby',
+    iconUrl: '/assets/ui/items/weapon-ruby.svg',
     slot: 'weapon',
     price: { gold: 2, silver: 50 },
     bonuses: {
@@ -188,20 +194,26 @@ export const HP_POTION_TEMPLATE = {
     id: 'potion_hp',
     type: 'potion_hp',
     name: 'Pocao de HP',
+    rarity: 'common',
+    spriteId: 'potion_hp',
+    iconUrl: '/assets/ui/items/potion-hp.svg',
     slot: 'consumable',
     price: { copper: 45 },
     healPercent: 0.5,
     stackable: true,
-    maxStack: 64
+    maxStack: 250
 };
 export const SKILL_RESET_HOURGLASS_TEMPLATE = {
     id: 'skill_reset_hourglass',
     type: 'skill_reset_hourglass',
     name: 'Ampulheta de Habilidades',
+    rarity: 'epic',
+    spriteId: 'hourglass',
+    iconUrl: '/assets/ui/items/hourglass.svg',
     slot: 'consumable',
     price: { silver: 30 },
     stackable: true,
-    maxStack: 64
+    maxStack: 250
 };
 const CLASS_EQUIPMENT_BASE: Record<'knight' | 'archer' | 'druid' | 'assassin', { name: string; stat: 'physicalDefense' | 'magicDefense' | 'evasion' }> = {
     knight: { name: 'do Cavaleiro', stat: 'physicalDefense' },
@@ -233,6 +245,9 @@ export const CLASS_EQUIPMENT_TEMPLATES = (Object.keys(CLASS_EQUIPMENT_BASE) as A
                 id: `equip_${classId}_${slotDef.slot}`,
                 type: 'equipment',
                 name: `${slotDef.name} ${classDef.name}`,
+                rarity: slotDef.slot === 'ring' || slotDef.slot === 'necklace' ? 'epic' : 'common',
+                spriteId: `equip_${slotDef.slot}`,
+                iconUrl: `/assets/ui/items/${slotDef.slot}.svg`,
                 slot: slotDef.slot,
                 requiredClass: classId,
                 price: slotDef.price,

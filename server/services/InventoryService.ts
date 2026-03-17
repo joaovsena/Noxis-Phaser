@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { HP_POTION_TEMPLATE, INVENTORY_SIZE, ITEM_PICKUP_RANGE } from '../config';
+import { BUILTIN_ITEM_TEMPLATE_BY_ID, HP_POTION_TEMPLATE, INVENTORY_SIZE, ITEM_PICKUP_RANGE } from '../config';
 import { GroundItem, PlayerRuntime } from '../models/types';
 import { clamp, distance } from '../utils/math';
 
@@ -16,6 +16,7 @@ type ItemCollectedFn = (player: PlayerRuntime, templateId: string, quantity: num
 type NormalizeClassIdFn = (rawClass: any) => string;
 
 const EQUIPMENT_SLOTS = new Set(['helmet', 'chest', 'pants', 'gloves', 'boots', 'ring', 'necklace']);
+const GLOBAL_MAX_STACK = 250;
 
 export class InventoryService {
     constructor(
@@ -82,26 +83,48 @@ export class InventoryService {
         if (!player.statusOverrides || typeof player.statusOverrides !== 'object') player.statusOverrides = {};
         player.statusOverrides.__hotbarBindings = normalized;
         this.persistPlayer(player);
+        this.sendRaw(player.ws, { type: 'hotbar.state', bindings: normalized });
+    }
+
+    private commitInventoryEquipTransaction(player: PlayerRuntime, nextInventory: any[], nextEquippedWeaponId: string | null) {
+        player.equippedWeaponId = nextEquippedWeaponId;
+        player.inventory = this.normalizeInventorySlots(nextInventory, nextEquippedWeaponId);
+        this.recomputePlayerStats(player);
+        this.persistPlayer(player);
+        this.sendInventoryState(player);
+    }
+
+    private enrichItemVisuals(item: any) {
+        const templateKey = String(item?.templateId || item?.id || item?.type || '');
+        const template = BUILTIN_ITEM_TEMPLATE_BY_ID[templateKey] || BUILTIN_ITEM_TEMPLATE_BY_ID[String(item?.type || '')] || null;
+        return {
+            ...item,
+            rarity: String(item?.rarity || template?.rarity || 'common'),
+            spriteId: item?.spriteId || item?.sprite_id || template?.spriteId || null,
+            iconUrl: item?.iconUrl || item?.icon_url || template?.iconUrl || '/assets/ui/items/placeholder-transparent.svg',
+            maxStack: this.isStackableItem(item || template) ? GLOBAL_MAX_STACK : Number(item?.maxStack || template?.maxStack || 1)
+        };
     }
 
     handleEquipItem(player: PlayerRuntime, msg: any) {
         const itemId = msg.itemId ? String(msg.itemId) : null;
+        const workingInventory = Array.isArray(player.inventory) ? player.inventory.map((entry: any) => ({ ...entry })) : [];
         if (!itemId) {
             const equipped = player.equippedWeaponId
-                ? player.inventory.find((it: any) => it.id === player.equippedWeaponId && it.type === 'weapon')
+                ? workingInventory.find((it: any) => it.id === player.equippedWeaponId && it.type === 'weapon')
                 : null;
             if (equipped && (!Number.isInteger(equipped.slotIndex) || equipped.slotIndex < 0)) {
-                equipped.slotIndex = this.firstFreeInventorySlot(player.inventory, new Set([equipped.id]));
+                equipped.slotIndex = this.firstFreeInventorySlot(workingInventory, new Set([equipped.id]));
             }
-            player.equippedWeaponId = null;
-            player.inventory = this.normalizeInventorySlots(player.inventory, null);
-            this.recomputePlayerStats(player);
-            this.persistPlayer(player);
-            this.sendInventoryState(player);
+            if (equipped) {
+                equipped.equipped = false;
+                equipped.equippedSlot = null;
+            }
+            this.commitInventoryEquipTransaction(player, workingInventory, null);
             return;
         }
 
-        const found = player.inventory.find((it: any) => it.id === itemId);
+        const found = workingInventory.find((it: any) => it.id === itemId);
         if (!found) return;
         const itemType = String(found.type || '');
         if (itemType !== 'weapon' && !this.isEquippableArmorOrAccessory(found)) return;
@@ -127,15 +150,12 @@ export class InventoryService {
             if (found.equipped === true && String(found.equippedSlot || '') === equipSlot) {
                 found.equipped = false;
                 found.equippedSlot = null;
-                found.slotIndex = this.firstFreeInventorySlot(player.inventory, new Set([String(found.id)]));
-                player.inventory = this.normalizeInventorySlots(player.inventory, player.equippedWeaponId);
-                this.recomputePlayerStats(player);
-                this.persistPlayer(player);
-                this.sendInventoryState(player);
+                found.slotIndex = this.firstFreeInventorySlot(workingInventory, new Set([String(found.id)]));
+                this.commitInventoryEquipTransaction(player, workingInventory, player.equippedWeaponId || null);
                 return;
             }
 
-            const equippedOnSameSlot = player.inventory.find((it: any) =>
+            const equippedOnSameSlot = workingInventory.find((it: any) =>
                 it.id !== found.id
                 && it.equipped === true
                 && String(it.equippedSlot || '') === equipSlot
@@ -143,44 +163,44 @@ export class InventoryService {
             if (equippedOnSameSlot) {
                 equippedOnSameSlot.equipped = false;
                 equippedOnSameSlot.equippedSlot = null;
-                equippedOnSameSlot.slotIndex = this.firstFreeInventorySlot(player.inventory, new Set([String(equippedOnSameSlot.id), String(found.id)]));
+                equippedOnSameSlot.slotIndex = this.firstFreeInventorySlot(workingInventory, new Set([String(equippedOnSameSlot.id), String(found.id)]));
             }
             found.equipped = true;
             found.equippedSlot = equipSlot;
             found.slotIndex = -1;
-            player.inventory = this.normalizeInventorySlots(player.inventory, player.equippedWeaponId);
-            this.recomputePlayerStats(player);
-            this.persistPlayer(player);
-            this.sendInventoryState(player);
+            this.commitInventoryEquipTransaction(player, workingInventory, player.equippedWeaponId || null);
             return;
         }
 
         if (player.equippedWeaponId === found.id) {
-            found.slotIndex = this.firstFreeInventorySlot(player.inventory, new Set([String(found.id)]));
-            player.equippedWeaponId = null;
-            player.inventory = this.normalizeInventorySlots(player.inventory, null);
-            this.recomputePlayerStats(player);
-            this.persistPlayer(player);
-            this.sendInventoryState(player);
+            found.slotIndex = this.firstFreeInventorySlot(workingInventory, new Set([String(found.id)]));
+            found.equipped = false;
+            found.equippedSlot = null;
+            this.commitInventoryEquipTransaction(player, workingInventory, null);
             return;
         }
 
         const previousEquippedId = player.equippedWeaponId && player.equippedWeaponId !== found.id ? player.equippedWeaponId : null;
         if (previousEquippedId) {
-            const oldEquipped = player.inventory.find((it: any) => it.id === previousEquippedId && it.type === 'weapon');
+            const oldEquipped = workingInventory.find((it: any) => it.id === previousEquippedId && it.type === 'weapon');
             if (oldEquipped) {
+                oldEquipped.equipped = false;
+                oldEquipped.equippedSlot = null;
                 oldEquipped.slotIndex = Number.isInteger(found.slotIndex) && found.slotIndex >= 0
                     ? found.slotIndex
-                    : this.firstFreeInventorySlot(player.inventory, new Set([oldEquipped.id, found.id]));
+                    : this.firstFreeInventorySlot(workingInventory, new Set([oldEquipped.id, found.id]));
+            }
+        }
+        for (const entry of workingInventory) {
+            if (String(entry?.type || '') === 'weapon') {
+                entry.equipped = false;
+                entry.equippedSlot = null;
             }
         }
         found.slotIndex = -1;
-
-        player.equippedWeaponId = found.id;
-        player.inventory = this.normalizeInventorySlots(player.inventory, player.equippedWeaponId);
-        this.recomputePlayerStats(player);
-        this.persistPlayer(player);
-        this.sendInventoryState(player);
+        found.equipped = true;
+        found.equippedSlot = 'weapon';
+        this.commitInventoryEquipTransaction(player, workingInventory, found.id);
     }
 
     handleInventoryMove(player: PlayerRuntime, msg: any) {
@@ -266,8 +286,19 @@ export class InventoryService {
 
     handleInventoryDelete(player: PlayerRuntime, msg: any) {
         const itemId = String(msg.itemId || '');
-        const index = player.inventory.findIndex((it: any) => it.id === itemId);
+        const slotIndex = Number(msg.slotIndex);
+        const index = itemId
+            ? player.inventory.findIndex((it: any) => String(it.id || '') === itemId)
+            : (Number.isInteger(slotIndex) ? player.inventory.findIndex((it: any) => Number(it?.slotIndex) === slotIndex) : -1);
         if (index === -1) return;
+        const item = player.inventory[index];
+        if (!this.isItemDestroyable(item)) {
+            this.sendRaw(player.ws, {
+                type: 'system_message',
+                text: 'Este item nao pode ser destruido.'
+            });
+            return;
+        }
         if (player.equippedWeaponId === itemId) {
             player.equippedWeaponId = null;
             this.recomputePlayerStats(player);
@@ -279,6 +310,61 @@ export class InventoryService {
         player.inventory = this.normalizeInventorySlots(player.inventory, player.equippedWeaponId);
         this.persistPlayer(player);
         this.sendInventoryState(player);
+    }
+
+    handleInventorySplit(player: PlayerRuntime, msg: any) {
+        const itemId = String(msg?.itemId || '');
+        const slotIndex = Number(msg?.slotIndex);
+        const splitQuantity = Math.max(1, Math.floor(Number(msg?.quantity || 0)));
+        const index = itemId
+            ? player.inventory.findIndex((it: any) => String(it?.id || '') === itemId)
+            : (Number.isInteger(slotIndex) ? player.inventory.findIndex((it: any) => Number(it?.slotIndex) === slotIndex) : -1);
+        if (index === -1) return;
+        const source = player.inventory[index];
+        if (!this.isStackableItem(source)) return;
+        const sourceQty = Math.max(1, Math.floor(Number(source.quantity || 1)));
+        if (sourceQty <= 1) return;
+        if (splitQuantity >= sourceQty) return;
+        const freeSlot = this.firstFreeInventorySlot(player.inventory, new Set([String(source.id || '')]));
+        if (freeSlot === -1) {
+            this.sendRaw(player.ws, { type: 'system_message', text: 'Inventario cheio.' });
+            return;
+        }
+        const nextInventory = Array.isArray(player.inventory) ? player.inventory.map((entry: any) => ({ ...entry })) : [];
+        const nextSource = nextInventory[index];
+        nextSource.quantity = sourceQty - splitQuantity;
+        nextSource.stackable = true;
+        nextSource.maxStack = GLOBAL_MAX_STACK;
+        nextInventory.push({
+            ...nextSource,
+            id: randomUUID(),
+            quantity: splitQuantity,
+            slotIndex: freeSlot,
+            equipped: false,
+            equippedSlot: null,
+            stackable: true,
+            maxStack: GLOBAL_MAX_STACK
+        });
+        player.inventory = this.normalizeInventorySlots(nextInventory, player.equippedWeaponId);
+        this.persistPlayer(player);
+        this.sendInventoryState(player);
+    }
+
+    private isItemDestroyable(item: any) {
+        if (!item || typeof item !== 'object') return false;
+        if (item.questItem === true) return false;
+        if (item.locked === true) return false;
+        if (item.noDelete === true || item.nonDestructible === true) return false;
+        if (String(item.templateId || '').toLowerCase().startsWith('quest_')) return false;
+        return true;
+    }
+
+    isItemSellable(item: any) {
+        if (!item || typeof item !== 'object') return false;
+        if (!this.isItemDestroyable(item)) return false;
+        if (item.noSell === true || item.nonSellable === true) return false;
+        const typeKey = String(item.templateId || item.type || '');
+        return Boolean(BUILTIN_ITEM_TEMPLATE_BY_ID[typeKey] || item.price);
     }
 
     handleInventoryUnequipToSlot(player: PlayerRuntime, msg: any) {
@@ -354,7 +440,7 @@ export class InventoryService {
         const out = [];
         const used = new Set();
         for (const item of items) {
-            const clone = { ...item };
+            const clone = this.enrichItemVisuals({ ...item });
             if (clone.id === equippedWeaponId) {
                 clone.slotIndex = -1;
                 clone.equipped = true;
@@ -386,11 +472,11 @@ export class InventoryService {
         if (remaining <= 0) return 0;
 
         if (!this.isStackableItem(item)) {
-            while (remaining > 0) {
-                const freeSlot = this.firstFreeInventorySlot(player.inventory);
-                if (freeSlot === -1) break;
-                player.inventory.push({ ...item, id: randomUUID(), quantity: 1, slotIndex: freeSlot });
-                remaining -= 1;
+        while (remaining > 0) {
+            const freeSlot = this.firstFreeInventorySlot(player.inventory);
+            if (freeSlot === -1) break;
+            player.inventory.push({ ...item, id: randomUUID(), quantity: 1, slotIndex: freeSlot });
+            remaining -= 1;
             }
             return remaining;
         }
@@ -403,7 +489,7 @@ export class InventoryService {
             if (current >= max) continue;
             const add = Math.min(max - current, remaining);
             existing.quantity = current + add;
-            existing.maxStack = max;
+            existing.maxStack = GLOBAL_MAX_STACK;
             existing.stackable = true;
             remaining -= add;
         }
@@ -417,7 +503,7 @@ export class InventoryService {
                 id: randomUUID(),
                 quantity: add,
                 stackable: true,
-                maxStack: max,
+                maxStack: GLOBAL_MAX_STACK,
                 slotIndex: freeSlot
             });
             remaining -= add;
@@ -431,8 +517,8 @@ export class InventoryService {
     }
 
     private getItemMaxStack(item: any) {
-        const max = Number(item?.maxStack || 1);
-        return Number.isInteger(max) && max > 1 ? max : 1;
+        if (!this.isStackableItem(item)) return 1;
+        return GLOBAL_MAX_STACK;
     }
 
     private canItemsStack(a: any, b: any) {

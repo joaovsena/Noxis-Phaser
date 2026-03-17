@@ -6,7 +6,7 @@
     <title>Noxis Phaser</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;800&family=Marcellus&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;800&family=Inter:wght@400;500;600;700&family=Marcellus&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
 </head>
 <body>
@@ -131,6 +131,7 @@
         </div>
     </div>
 
+    <div id="hud-root">
     <div id="perf-hud" class="hud-perf hidden">FPS -- | Ping --</div>
     <div id="afk-status" class="hud-afk hidden">Voce esta no modo AFK</div>
 
@@ -258,6 +259,7 @@
     </div>
 
     <div id="skillbar-wrap" class="hud-skillbar hidden">
+        <div class="skillbar-title">Barra de Skills</div>
         <div class="skill-row" id="skill-row-top">
             <button class="skill-slot-btn" data-key="q"><span>Q</span></button>
             <button class="skill-slot-btn" data-key="w"><span>W</span></button>
@@ -281,13 +283,89 @@
     </div>
 
     <div id="menus-wrap" class="hud-menus hidden">
-        <button id="menu-attrs" class="menu-btn btn btn-success" type="button">Personagem (C)</button>
-        <button id="menu-inventory" class="menu-btn btn btn-success" type="button">Inventario (B)</button>
-        <button id="menu-skills" class="menu-btn btn btn-success" type="button">Habilidades (V)</button>
-        <button id="menu-quests" class="menu-btn btn btn-success" type="button">Quests (J)</button>
-        <button id="menu-map" class="menu-btn btn btn-success" type="button">Mapa (M)</button>
-        <button id="menu-party" class="menu-btn btn btn-success" type="button">Grupo (G)</button>
-        <button id="menu-friends" class="menu-btn btn btn-success" type="button">Amigos (O)</button>
+        <button id="menu-attrs" class="menu-btn menu-dock-btn btn btn-success" type="button" aria-label="Abrir Personagem">
+            <span class="menu-icon-frame">
+                <svg class="menu-icon-svg" viewBox="0 0 64 64" aria-hidden="true">
+                    <circle cx="32" cy="18" r="9"></circle>
+                    <path d="M20 48c3-11 8-17 12-17s9 6 12 17"></path>
+                    <path d="M18 52h28"></path>
+                </svg>
+            </span>
+            <span class="menu-btn-label">Personagem (C)</span>
+        </button>
+        <button id="menu-inventory" class="menu-btn menu-dock-btn btn btn-success" type="button" aria-label="Abrir Inventario">
+            <span class="menu-icon-frame">
+                <svg class="menu-icon-svg" viewBox="0 0 64 64" aria-hidden="true">
+                    <rect x="15" y="18" width="34" height="30" rx="4"></rect>
+                    <path d="M24 18v-5h16v5"></path>
+                    <path d="M15 29h34"></path>
+                </svg>
+            </span>
+            <span class="menu-btn-label">Inventario (B)</span>
+        </button>
+        <button id="menu-skills" class="menu-btn menu-dock-btn btn btn-success" type="button" aria-label="Abrir Habilidades">
+            <span class="menu-icon-frame">
+                <svg class="menu-icon-svg" viewBox="0 0 64 64" aria-hidden="true">
+                    <path d="M32 11l5 12 12 5-12 5-5 12-5-12-12-5 12-5 5-12z"></path>
+                    <circle cx="32" cy="28" r="4"></circle>
+                </svg>
+            </span>
+            <span class="menu-btn-label">Habilidades (V)</span>
+        </button>
+        <button id="menu-quests" class="menu-btn menu-dock-btn btn btn-success" type="button" aria-label="Abrir Quests">
+            <span class="menu-icon-frame">
+                <svg class="menu-icon-svg" viewBox="0 0 64 64" aria-hidden="true">
+                    <path d="M21 13h22l6 8v30H15V21z"></path>
+                    <path d="M43 13v9h12"></path>
+                    <path d="M24 31h16"></path>
+                    <path d="M24 39h12"></path>
+                </svg>
+            </span>
+            <span class="menu-btn-label">Quests (J)</span>
+        </button>
+        <button id="menu-map" class="menu-btn menu-dock-btn btn btn-success" type="button" aria-label="Abrir Mapa">
+            <span class="menu-icon-frame">
+                <svg class="menu-icon-svg" viewBox="0 0 64 64" aria-hidden="true">
+                    <path d="M12 18l13-5 14 5 13-5v33l-13 5-14-5-13 5z"></path>
+                    <path d="M25 13v33"></path>
+                    <path d="M39 18v33"></path>
+                </svg>
+            </span>
+            <span class="menu-btn-label">Mapa (M)</span>
+        </button>
+        <button id="menu-friends" class="menu-btn menu-dock-btn btn btn-success" type="button" aria-label="Abrir Amigos">
+            <span class="menu-icon-frame">
+                <svg class="menu-icon-svg" viewBox="0 0 64 64" aria-hidden="true">
+                    <circle cx="24" cy="24" r="7"></circle>
+                    <circle cx="41" cy="22" r="6"></circle>
+                    <path d="M14 49c2-8 7-13 13-13s11 5 13 13"></path>
+                    <path d="M35 49c1-5 4-9 9-10 4 1 6 4 8 10"></path>
+                </svg>
+            </span>
+            <span class="menu-btn-label">Amigos (O)</span>
+        </button>
+        <button id="menu-party" class="menu-btn menu-dock-btn btn btn-success" type="button" aria-label="Abrir Grupo">
+            <span class="menu-icon-frame">
+                <svg class="menu-icon-svg" viewBox="0 0 64 64" aria-hidden="true">
+                    <circle cx="21" cy="22" r="6"></circle>
+                    <circle cx="32" cy="18" r="7"></circle>
+                    <circle cx="43" cy="22" r="6"></circle>
+                    <path d="M13 49c2-8 6-12 10-12"></path>
+                    <path d="M20 49c2-10 7-15 12-15s10 5 12 15"></path>
+                    <path d="M41 37c4 0 8 4 10 12"></path>
+                </svg>
+            </span>
+            <span class="menu-btn-label">Grupo (G)</span>
+        </button>
+        <button id="menu-guild" class="menu-btn menu-dock-btn btn btn-success" type="button" aria-label="Abrir Guilda">
+            <span class="menu-icon-frame">
+                <svg class="menu-icon-svg" viewBox="0 0 64 64" aria-hidden="true">
+                    <path d="M32 10l18 7v13c0 11-7 20-18 24-11-4-18-13-18-24V17z"></path>
+                    <path d="M24 30l5 5 11-11"></path>
+                </svg>
+            </span>
+            <span class="menu-btn-label">Guilda (L)</span>
+        </button>
     </div>
 
     <div id="quest-panel" class="panel card shadow hidden">
@@ -301,7 +379,10 @@
     </div>
 
     <div id="npc-dialog-panel" class="panel card shadow hidden">
-        <div id="npc-dialog-header" class="panel-header card-header">NPC</div>
+        <div id="npc-dialog-header" class="panel-header card-header">
+            <span id="npc-dialog-title">NPC</span>
+            <button id="npc-dialog-panel-close" class="panel-close-btn btn btn-outline-light btn-sm" type="button" aria-label="Fechar dialogo">X</button>
+        </div>
         <div class="card-body">
         <div id="npc-dialog-body"></div>
         <div class="confirm-actions">
@@ -389,6 +470,46 @@
         </div>
     </div>
 
+    <div id="guild-panel" class="panel card shadow hidden">
+        <div id="guild-header" class="panel-header card-header">
+            <span>Guilda (L)</span>
+            <button id="guild-panel-close" class="panel-close-btn btn btn-outline-light btn-sm" type="button" aria-label="Fechar guilda">X</button>
+        </div>
+        <div class="card-body">
+            <div id="guild-panel-body" class="guild-panel-body">
+                <div class="guild-crest">N</div>
+                <div class="guild-title">Ordem de Noxis</div>
+                <div class="guild-subtitle">Painel de gestao de guilda</div>
+                <div class="guild-summary-grid">
+                    <div class="guild-summary-card">
+                        <span class="guild-summary-label">Mestre</span>
+                        <span id="guild-master-name" class="guild-summary-value">-</span>
+                    </div>
+                    <div class="guild-summary-card">
+                        <span class="guild-summary-label">Membros</span>
+                        <span id="guild-member-count" class="guild-summary-value">1</span>
+                    </div>
+                    <div class="guild-summary-card">
+                        <span class="guild-summary-label">Foco</span>
+                        <span class="guild-summary-value">PvE / Exploracao</span>
+                    </div>
+                </div>
+                <div class="guild-section">
+                    <div class="guild-section-title">Mensagem do Dia</div>
+                    <p id="guild-message-text" class="guild-message-text">Recrutamento aberto. Forme grupo, fortaleça sua build e prepare-se para as dungeons.</p>
+                </div>
+                <div class="guild-section">
+                    <div class="guild-section-title">Gestao Rapida</div>
+                    <div class="guild-actions">
+                        <button id="guild-invite-btn" class="btn btn-outline-light btn-sm" type="button">Convidar aliado</button>
+                        <button id="guild-roster-btn" class="btn btn-outline-light btn-sm" type="button">Ver roster</button>
+                    </div>
+                </div>
+                <div id="guild-feedback" class="guild-feedback">Sem backend de guilda ainda. Este painel ja esta integrado ao fluxo da HUD e pronto para evolucao.</div>
+            </div>
+        </div>
+    </div>
+
     <div id="inventory-panel" class="panel card shadow hidden">
         <div id="inventory-header" class="panel-header card-header">
             <span>Inventario</span>
@@ -429,15 +550,7 @@
         </div>
     </div>
 
-    <div id="delete-confirm" class="panel card shadow hidden">
-        <div class="card-body">
-        <div id="delete-confirm-title">deseja excluir o item?</div>
-        <div class="confirm-actions">
-            <button id="delete-confirm-yes" class="btn btn-danger" type="button">Sim</button>
-            <button id="delete-confirm-no" class="btn btn-outline-light" type="button">Nao</button>
-        </div>
-        </div>
-    </div>
+    <div id="confirmation-modal-root" class="confirmation-modal-root"></div>
 
     <div id="revive-overlay" class="revive-overlay hidden">
         <div class="revive-card">
@@ -445,8 +558,6 @@
             <button id="revive-btn" class="btn btn-primary" type="button">Reviver aqui</button>
         </div>
     </div>
-
-    <div id="item-tooltip" class="panel card shadow hidden"></div>
 
     <div id="admin-panel" class="panel card shadow hidden">
         <div id="admin-header" class="panel-header card-header">
@@ -475,6 +586,9 @@
             <div id="admin-result"></div>
         </div>
     </div>
+    </div>
+
+    <div id="item-tooltip" class="panel card shadow hidden"></div>
 
     <script defer src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script type="module" src="/src/main.ts"></script>

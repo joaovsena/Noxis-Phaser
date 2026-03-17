@@ -69,6 +69,7 @@ export declare class GameController {
     handleInventoryMove(player: PlayerRuntime, msg: any): void;
     handleInventorySort(player: PlayerRuntime): void;
     handleInventoryDelete(player: PlayerRuntime, msg: any): void;
+    handleInventorySplit(player: PlayerRuntime, msg: any): void;
     handleInventoryUnequipToSlot(player: PlayerRuntime, msg: any): void;
     handleItemUse(player: PlayerRuntime, msg: any): void;
     handleAdminCommand(player: PlayerRuntime, msg: any): Promise<void>;
@@ -98,6 +99,7 @@ export declare class GameController {
     handleSkillLearn(player: PlayerRuntime, msg: any): void;
     handleNpcInteract(player: PlayerRuntime, msg: any): void;
     handleNpcBuy(player: PlayerRuntime, msg: any): void;
+    handleSellItem(player: PlayerRuntime, msg: any): void;
     handleQuestAccept(player: PlayerRuntime, msg: any): void;
     handleQuestComplete(player: PlayerRuntime, msg: any): void;
     handleDungeonEnter(player: PlayerRuntime, msg: any): void;
@@ -202,6 +204,7 @@ export declare class GameController {
     private addWalletCopper;
     private trySpendCopper;
     private computeTemplatePriceCopper;
+    private computeSellPriceCopper;
     private grantCurrency;
     private grantMobCurrency;
     private computeLootDropPosition;
@@ -251,7 +254,7 @@ export declare class GameController {
     flushAllPlayers(reason?: string): Promise<void>;
     processPersistenceQueue(limit?: number): Promise<{
         processed: number;
-        fetched: any;
+        fetched: number;
     }>;
     private flushAutosavePlayers;
     private flushDirtyPlayers;

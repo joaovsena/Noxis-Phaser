@@ -116,6 +116,9 @@ export interface Mob {
 export interface GroundItem {
     id: string;
     templateId?: string;
+    rarity?: string | null;
+    spriteId?: string | null;
+    iconUrl?: string | null;
     type: string;
     name: string;
     slot: string;
@@ -190,6 +193,23 @@ export interface InventorySortMessage {
 export interface InventoryDeleteMessage {
     type: 'inventory_delete';
     itemId: string;
+}
+export interface DeleteItemRequestMessage {
+    type: 'delete_item_req';
+    itemId?: string;
+    slotIndex?: number;
+}
+export interface SplitItemRequestMessage {
+    type: 'split_item_req';
+    itemId?: string;
+    slotIndex?: number;
+    quantity: number;
+}
+export interface SellItemRequestMessage {
+    type: 'sell_item_req';
+    itemId?: string;
+    slotIndex?: number;
+    npcId?: string;
 }
 export interface InventoryUnequipToSlotMessage {
     type: 'inventory_unequip_to_slot';
@@ -360,5 +380,5 @@ export interface PingMessage {
     type: 'ping';
     nonce?: number;
 }
-export type WSMessage = AuthMessage | CharacterCreateMessage | CharacterEnterMessage | CharacterBackMessage | MoveMessage | TargetMobMessage | ChatMessage | PickupItemMessage | EquipItemMessage | EquipRequestMessage | InventoryMoveMessage | InventorySortMessage | InventoryDeleteMessage | InventoryUnequipToSlotMessage | ItemUseMessage | SwitchInstanceMessage | AdminCommandMessage | AdminSetMobPeacefulMessage | PartyCreateMessage | PartyInviteMessage | PartyAcceptInviteMessage | PartyDeclineInviteMessage | PartyLeaveMessage | PartyKickMessage | PartyPromoteMessage | PartyRequestAreaPartiesMessage | PartyRequestJoinMessage | PartyApproveJoinMessage | PartyWaypointPingMessage | FriendRequestMessage | FriendAcceptMessage | FriendDeclineMessage | FriendRemoveMessage | FriendListMessage | StatsAllocateMessage | PlayerSetPvpModeMessage | CombatAttackMessage | CombatTargetPlayerMessage | CombatClearTargetMessage | PlayerReviveMessage | SkillCastMessage | SkillLearnMessage | NpcInteractMessage | NpcBuyMessage | QuestAcceptMessage | QuestCompleteMessage | DungeonEnterMessage | DungeonReadyMessage | DungeonLeaveMessage | PlayerToggleAfkMessage | HotbarSetMessage | PingMessage;
+export type WSMessage = AuthMessage | CharacterCreateMessage | CharacterEnterMessage | CharacterBackMessage | MoveMessage | TargetMobMessage | ChatMessage | PickupItemMessage | EquipItemMessage | EquipRequestMessage | InventoryMoveMessage | InventorySortMessage | InventoryDeleteMessage | DeleteItemRequestMessage | SplitItemRequestMessage | SellItemRequestMessage | InventoryUnequipToSlotMessage | ItemUseMessage | SwitchInstanceMessage | AdminCommandMessage | AdminSetMobPeacefulMessage | PartyCreateMessage | PartyInviteMessage | PartyAcceptInviteMessage | PartyDeclineInviteMessage | PartyLeaveMessage | PartyKickMessage | PartyPromoteMessage | PartyRequestAreaPartiesMessage | PartyRequestJoinMessage | PartyApproveJoinMessage | PartyWaypointPingMessage | FriendRequestMessage | FriendAcceptMessage | FriendDeclineMessage | FriendRemoveMessage | FriendListMessage | StatsAllocateMessage | PlayerSetPvpModeMessage | CombatAttackMessage | CombatTargetPlayerMessage | CombatClearTargetMessage | PlayerReviveMessage | SkillCastMessage | SkillLearnMessage | NpcInteractMessage | NpcBuyMessage | QuestAcceptMessage | QuestCompleteMessage | DungeonEnterMessage | DungeonReadyMessage | DungeonLeaveMessage | PlayerToggleAfkMessage | HotbarSetMessage | PingMessage;
 //# sourceMappingURL=types.d.ts.map

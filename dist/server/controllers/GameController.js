@@ -594,6 +594,9 @@ class GameController {
     handleInventoryDelete(player, msg) {
         this.inventoryService.handleInventoryDelete(player, msg);
     }
+    handleInventorySplit(player, msg) {
+        this.inventoryService.handleInventorySplit(player, msg);
+    }
     handleInventoryUnequipToSlot(player, msg) {
         this.inventoryService.handleInventoryUnequipToSlot(player, msg);
     }
@@ -781,11 +784,14 @@ class GameController {
                     templateId: String(template.id || template.type || itemId),
                     type: String(template.type || 'misc'),
                     name: template.name,
+                    rarity: String(template.rarity || 'common'),
+                    spriteId: template.spriteId ? String(template.spriteId) : undefined,
+                    iconUrl: template.iconUrl ? String(template.iconUrl) : undefined,
                     slot: template.slot,
                     bonuses: template.bonuses || {},
                     quantity: Number(template.stackable ? 1 : 1),
                     stackable: Boolean(template.stackable),
-                    maxStack: Number(template.maxStack || 1),
+                    maxStack: Number(template.stackable ? 250 : (template.maxStack || 1)),
                     healPercent: Number.isFinite(Number(template.healPercent)) ? Number(template.healPercent) : undefined,
                     slotIndex: slot
                 });
@@ -1075,6 +1081,55 @@ class GameController {
             });
         }
         this.persistPlayerCritical(player, 'npc_buy');
+        this.sendInventoryState(player);
+        this.sendStatsUpdated(player);
+    }
+    handleSellItem(player, msg) {
+        const npcId = String(msg?.npcId || msg?.shopNpcId || '');
+        const itemId = String(msg?.itemId || '');
+        const slotIndex = Number(msg?.slotIndex);
+        if (!npcId)
+            return;
+        const npc = this.questService.getNpcById(npcId);
+        if (!npc) {
+            this.sendRaw(player.ws, { type: 'system_message', text: 'NPC nao encontrado.' });
+            return;
+        }
+        if (String(npc.mapKey || '') !== String(player.mapKey || '') || String(npc.mapId || '') !== String(player.mapId || '')) {
+            this.sendRaw(player.ws, { type: 'system_message', text: 'Esse NPC nao esta neste mapa.' });
+            return;
+        }
+        const range = Math.max(80, Number(npc.interactRange || 170));
+        if ((0, math_1.distance)(player, npc) > range) {
+            this.sendRaw(player.ws, { type: 'system_message', text: 'Aproxime-se do NPC para vender.' });
+            return;
+        }
+        if (!this.questService.getShopOffers(npcId).length) {
+            this.sendRaw(player.ws, { type: 'system_message', text: 'Esse NPC nao compra itens.' });
+            return;
+        }
+        const index = itemId
+            ? player.inventory.findIndex((it) => String(it?.id || '') === itemId)
+            : (Number.isInteger(slotIndex) ? player.inventory.findIndex((it) => Number(it?.slotIndex) === slotIndex) : -1);
+        if (index === -1)
+            return;
+        const item = player.inventory[index];
+        if (!this.inventoryService.isItemSellable(item)) {
+            this.sendRaw(player.ws, { type: 'system_message', text: 'Esse item nao pode ser vendido.' });
+            return;
+        }
+        const sellCopper = this.computeSellPriceCopper(item);
+        if (sellCopper <= 0) {
+            this.sendRaw(player.ws, { type: 'system_message', text: 'Esse item nao possui valor de venda.' });
+            return;
+        }
+        player.inventory.splice(index, 1);
+        if (player.equippedWeaponId === String(item?.id || ''))
+            player.equippedWeaponId = null;
+        this.addWalletCopper(player, sellCopper, 'Venda');
+        player.inventory = this.inventoryService.normalizeInventorySlots(player.inventory, player.equippedWeaponId);
+        this.recomputePlayerStats(player);
+        this.persistPlayerCritical(player, 'npc_sell');
         this.sendInventoryState(player);
         this.sendStatsUpdated(player);
     }
@@ -1517,8 +1572,6 @@ class GameController {
         for (const key of allowedKeys) {
             out[key] = this.normalizeHotbarBinding(source[key]);
         }
-        if (!out['1'])
-            out['1'] = { type: 'action', actionId: 'basic_attack' };
         return out;
     }
     getPlayerHotbarBindings(player) {
@@ -1846,6 +1899,12 @@ class GameController {
         });
         return (0, currency_1.walletToCopper)(asWallet);
     }
+    computeSellPriceCopper(item) {
+        const templateKey = String(item?.templateId || item?.type || '');
+        const template = config_1.BUILTIN_ITEM_TEMPLATE_BY_ID[templateKey] || item;
+        const buyCopper = this.computeTemplatePriceCopper(template);
+        return Math.max(0, Math.floor(buyCopper * 0.35));
+    }
     grantCurrency(player, reward, sourceLabel) {
         const safe = (0, currency_1.normalizeWallet)({
             copper: Number(reward?.copper || 0),
@@ -1898,6 +1957,9 @@ class GameController {
             templateId: String(template.id || template.type || 'weapon_teste'),
             type: String(template.type || 'weapon'),
             name: template.name,
+            rarity: String(template.rarity || 'common'),
+            spriteId: template.spriteId ? String(template.spriteId) : undefined,
+            iconUrl: template.iconUrl ? String(template.iconUrl) : undefined,
             slot: template.slot,
             bonuses: { ...template.bonuses },
             x,
@@ -1916,11 +1978,14 @@ class GameController {
             templateId: String(config_1.HP_POTION_TEMPLATE.id || config_1.HP_POTION_TEMPLATE.type || 'potion_hp'),
             type: String(config_1.HP_POTION_TEMPLATE.type || 'potion_hp'),
             name: config_1.HP_POTION_TEMPLATE.name,
+            rarity: String(config_1.HP_POTION_TEMPLATE.rarity || 'common'),
+            spriteId: config_1.HP_POTION_TEMPLATE.spriteId ? String(config_1.HP_POTION_TEMPLATE.spriteId) : undefined,
+            iconUrl: config_1.HP_POTION_TEMPLATE.iconUrl ? String(config_1.HP_POTION_TEMPLATE.iconUrl) : undefined,
             slot: config_1.HP_POTION_TEMPLATE.slot,
             bonuses: {},
             quantity: 1,
             stackable: Boolean(config_1.HP_POTION_TEMPLATE.stackable ?? true),
-            maxStack: Number(config_1.HP_POTION_TEMPLATE.maxStack || 64),
+            maxStack: Number(config_1.HP_POTION_TEMPLATE.maxStack || 250),
             healPercent: Number(config_1.HP_POTION_TEMPLATE.healPercent || 0.5),
             x,
             y,
@@ -1938,11 +2003,14 @@ class GameController {
             templateId: String(config_1.SKILL_RESET_HOURGLASS_TEMPLATE.id || config_1.SKILL_RESET_HOURGLASS_TEMPLATE.type || 'skill_reset_hourglass'),
             type: config_1.SKILL_RESET_HOURGLASS_TEMPLATE.type,
             name: config_1.SKILL_RESET_HOURGLASS_TEMPLATE.name,
+            rarity: String(config_1.SKILL_RESET_HOURGLASS_TEMPLATE.rarity || 'epic'),
+            spriteId: config_1.SKILL_RESET_HOURGLASS_TEMPLATE.spriteId ? String(config_1.SKILL_RESET_HOURGLASS_TEMPLATE.spriteId) : undefined,
+            iconUrl: config_1.SKILL_RESET_HOURGLASS_TEMPLATE.iconUrl ? String(config_1.SKILL_RESET_HOURGLASS_TEMPLATE.iconUrl) : undefined,
             slot: config_1.SKILL_RESET_HOURGLASS_TEMPLATE.slot,
             bonuses: {},
             quantity: 1,
             stackable: Boolean(config_1.SKILL_RESET_HOURGLASS_TEMPLATE.stackable),
-            maxStack: Number(config_1.SKILL_RESET_HOURGLASS_TEMPLATE.maxStack || 64),
+            maxStack: Number(config_1.SKILL_RESET_HOURGLASS_TEMPLATE.maxStack || 250),
             x,
             y,
             mapId,

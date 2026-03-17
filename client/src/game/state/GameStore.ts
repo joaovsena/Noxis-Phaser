@@ -81,6 +81,7 @@ export type GameState = {
   dead: boolean;
   selectedPlayerId: number | null;
   npcDialog: any | null;
+  npcShopOpen: boolean;
   dungeonReadyState: any | null;
   selectedMobId: string | null;
   pendingDeleteItemId: string | null;
@@ -119,6 +120,7 @@ const INITIAL_STATE: GameState = {
   dead: false,
   selectedPlayerId: null,
   npcDialog: null,
+  npcShopOpen: false,
   dungeonReadyState: null,
   selectedMobId: null,
   pendingDeleteItemId: null,

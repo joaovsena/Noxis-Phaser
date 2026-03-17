@@ -4,6 +4,7 @@ import { BootScene } from './game/scenes/BootScene';
 import { WorldScene } from './game/scenes/WorldScene';
 import { GameStore, type CharacterSlot } from './game/state/GameStore';
 import { GameSocket } from './game/net/GameSocket';
+import { mountHudApp } from './svelte-hud';
 
 type SkillNode = {
   id: string;
@@ -28,15 +29,32 @@ const game = new Phaser.Game({
   scene: [new BootScene(), new WorldScene({ store, socket })]
 });
 
-const PANEL_SHORTCUTS: Record<string, string> = { c: 'char-panel', b: 'inventory-panel', v: 'skills-panel', j: 'quest-panel', m: 'worldmap-panel', g: 'party-panel', o: 'friends-panel' };
+const PANEL_SHORTCUTS: Record<string, string> = { c: 'char-panel', b: 'inventory-panel', v: 'skills-panel', j: 'quest-panel', m: 'worldmap-panel', g: 'party-panel', o: 'friends-panel', l: 'guild-panel' };
 const HOTBAR_KEYS = ['q', 'w', 'e', 'r', 'a', 's', 'd', 'f', '1', '2', '3', '4', '5', '6', '7', '8'];
 const SKILL_STATE_STORAGE_KEY = 'noxis.skillTree.v1';
 const SKILL_TREE: SkillNode[] = buildSkillTree();
+const INITIAL_DEVICE_PIXEL_RATIO = window.devicePixelRatio || 1;
+const SVELTE_AUTH_ENABLED = true;
+const SVELTE_HUD_SCAFFOLD_ENABLED = new URLSearchParams(window.location.search).get('svelteHud') !== '0';
 
 let chatScope: 'local' | 'map' | 'global' = 'local';
 let chatViewMode: 'expanded' | 'compact' | 'mini' | 'manual' = 'expanded';
 let requestedInGameState = false;
 let draggingPayload: any = null;
+let dragPointerState: {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  sourceEl: HTMLElement;
+  payload: any;
+  previewLabel: string;
+  active: boolean;
+} | null = null;
+let dragGhostEl: HTMLElement | null = null;
+let dragHoverEl: HTMLElement | null = null;
+let suppressClickUntil = 0;
+const pointerActivationState = new WeakMap<HTMLElement, { lastAt: number }>();
+const dragPressState = new WeakMap<HTMLElement, { lastDownAt: number; suppressNextDrag: boolean }>();
 let selectedAreaPartyId: string | null = null;
 let skillTreeTab: 'buildA' | 'buildB' = 'buildA';
 let selectedAutoAttackSkillId = loadSkillState();
@@ -50,10 +68,19 @@ let adminPanelOpen = false;
 let shopQuantities: Record<string, number> = {};
 let shopSelectedClassTab = 'knight';
 let shopNpcDialogNpcId: string | null = null;
+let npcDialogRenderKey = '';
+let lastInventoryRenderKey = '';
+let lastInventorySummaryKey = '';
+let lastHotbarRenderKey = '';
+let lastNpcDialogSyncKey = '';
 let statAllocationPending = { str: 0, int: 0, dex: 0, vit: 0 };
 let lastStatAllocationBaseKey = '';
 let lastOverlayRenderAt = 0;
+let nextPanelZIndex = 80;
+const modalActions = new Map<string, (modalEl: HTMLElement) => void>();
 const MINIMAP_CROP_SCALE = 2.7;
+const DRAG_START_DISTANCE_PX = 5;
+const ITEM_ICON_PLACEHOLDER = '/assets/ui/items/placeholder-transparent.svg';
 
 function buildSkillTree(): SkillNode[] {
   const defs = {
@@ -89,6 +116,21 @@ function worldScene() {
   return scene instanceof WorldScene ? scene : null;
 }
 function setHidden(el: Element | null, hidden: boolean) { el?.classList.toggle('hidden', hidden); }
+function closePanelFromButton(button: HTMLElement | null) {
+  if (!button) return;
+  const panel = button.closest('.panel, .hud-worldmap');
+  if (!panel) return;
+  panel.classList.add('hidden');
+}
+function bringPanelToFront(panel: HTMLElement | null) {
+  if (!panel) return;
+  if (panel.id === 'npc-dialog-panel') {
+    panel.style.zIndex = '200';
+    return;
+  }
+  panel.style.zIndex = String(nextPanelZIndex);
+  nextPanelZIndex += 1;
+}
 function esc(v: unknown) { return String(v ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;'); }
 function isTypingTarget(target: EventTarget | null) { const el = target as HTMLElement | null; const tag = String(el?.tagName || '').toLowerCase(); return tag === 'input' || tag === 'textarea' || tag === 'select' || Boolean(el?.isContentEditable); }
 function classLabel(classId: string) { const n = String(classId || '').toLowerCase(); if (n === 'archer') return 'Arqueiro'; if (n === 'druid' || n === 'shifter') return 'Druida'; if (n === 'assassin' || n === 'bandit') return 'Assassino'; return 'Cavaleiro'; }
@@ -116,6 +158,7 @@ function isAdminPlayer(player = localPlayer()) { return String(player?.role || '
 function playerDisplayName(player: any) { return `${String(player?.role || '').toLowerCase() === 'adm' ? '[ADM] ' : ''}${String(player?.name || '-')}`; }
 function inventoryItems() { return Array.isArray(store.getState().inventoryState?.inventory) ? store.getState().inventoryState.inventory : []; }
 function equippedBySlot() { return store.getState().inventoryState?.equippedBySlot || {}; }
+function currentNpcShopId() { return store.getState().npcShopOpen ? String(store.getState().npcDialog?.npc?.id || '') : ''; }
 function localSkillLevels() { return localPlayer()?.skillLevels && typeof localPlayer()?.skillLevels === 'object' ? localPlayer()!.skillLevels : {}; }
 function skillNode(id: string) { return SKILL_TREE.find((node) => node.id === id) || null; }
 function skillLevel(id: string) { return Math.max(0, Math.min(5, Number(localSkillLevels()[id] || 0))); }
@@ -123,6 +166,98 @@ function skillPoints() { return Number.isFinite(Number(localPlayer()?.skillPoint
 function autoAttackDef(id: string) { if (!id || id === 'class_primary') return { id: 'class_primary', label: 'Atk Basico' }; const node = skillNode(id); if (node && skillLevel(id) > 0) return { id, label: node.label }; if (id === 'mod_fire_wing') return { id, label: 'Asa de Fogo' }; return null; }
 function availableAutoAttacks() { const out = [{ id: 'class_primary', label: 'Atk Basico' }]; const cls = skillClass(String(localPlayer()?.class || 'knight')); SKILL_TREE.filter((node) => node.classId === cls && skillLevel(node.id) > 0).forEach((node) => out.push({ id: node.id, label: node.label })); if ([...inventoryItems(), ...Object.values(equippedBySlot())].some((it: any) => String(it?.name || '').toLowerCase().includes('asa de fogo'))) out.push({ id: 'mod_fire_wing', label: 'Asa de Fogo' }); return out; }
 function systemMessage(text: string) { store.pushChatMessage({ id: `${Date.now()}-${Math.random()}`, type: 'system', text, at: Date.now() }); }
+function ensureModalRoot() {
+  return byId<HTMLElement>('confirmation-modal-root');
+}
+function removeModalById(modalId: string) {
+  modalActions.delete(modalId);
+  ensureModalRoot()?.querySelector<HTMLElement>(`[data-modal-id="${modalId}"]`)?.remove();
+}
+function clearAllModals() {
+  modalActions.clear();
+  const root = ensureModalRoot();
+  if (root) root.innerHTML = '';
+}
+function appendModalShell(modalId: string, title: string, bodyHtml: string) {
+  const root = ensureModalRoot();
+  if (!root) return null;
+  const modal = document.createElement('div');
+  modal.className = 'panel card shadow confirmation-modal';
+  modal.dataset.modalId = modalId;
+  modal.innerHTML = `<div class="card-body"><div class="confirmation-modal-title">${esc(title)}</div>${bodyHtml}</div>`;
+  root.appendChild(modal);
+  bringPanelToFront(modal);
+  return modal;
+}
+function handleModalRootInteraction(event: Event) {
+  const target = event.target as HTMLElement | null;
+  if (!target) return;
+  const modalEl = target.closest<HTMLElement>('[data-modal-id]');
+  if (!modalEl) return;
+  event.stopPropagation();
+  const actionEl = target.closest<HTMLElement>('[data-modal-action]');
+  if (!actionEl) return;
+  event.preventDefault();
+  const modalId = String(modalEl.dataset.modalId || '');
+  if (!modalId) return;
+  if (String(actionEl.dataset.modalAction || '') === 'cancel') {
+    removeModalById(modalId);
+    return;
+  }
+  modalActions.get(modalId)?.(modalEl);
+}
+function showConfirmationModal(title: string, message: string, onConfirm: () => void) {
+  const modalId = `confirm-${Date.now()}-${Math.random()}`;
+  modalActions.set(modalId, () => { onConfirm(); removeModalById(modalId); });
+  appendModalShell(
+    modalId,
+    title,
+    `<div class="delete-confirm-message">${esc(message)}</div><div class="confirm-actions"><button class="btn btn-danger" data-modal-action="confirm" type="button">Sim</button><button class="btn btn-outline-light" data-modal-action="cancel" type="button">Nao</button></div>`
+  );
+}
+function hideConfirmationModal() {
+  clearAllModals();
+}
+function showSplitStackModal(item: any) {
+  const max = Math.max(1, Math.min(249, Math.floor(Number(item?.quantity || 1)) - 1));
+  if (max < 1) return;
+  const modalId = `split-${String(item?.id || Date.now())}`;
+  modalActions.set(modalId, (modalEl) => {
+    const input = modalEl.querySelector<HTMLInputElement>('input[data-split-qty]');
+    const quantity = Math.max(1, Math.min(max, Math.floor(Number(input?.value || 1))));
+    socket.send({ type: 'split_item_req', itemId: String(item.id || ''), slotIndex: Number(item.slotIndex ?? -1), quantity });
+    removeModalById(modalId);
+  });
+  appendModalShell(
+    modalId,
+    'Dividir Pilha',
+    `<div class="delete-confirm-message">Informe quantos itens deseja mover para a nova pilha.</div><input class="form-control form-control-sm split-stack-input" data-split-qty type="number" min="1" max="${max}" value="${Math.max(1, Math.floor(max / 2))}" /><div class="confirm-actions"><button class="btn btn-primary" data-modal-action="confirm" type="button">Dividir</button><button class="btn btn-outline-light" data-modal-action="cancel" type="button">Cancelar</button></div>`
+  );
+}
+function setDeleteDropFeedback(active: boolean) {
+  document.body.classList.toggle('delete-drop-active', active);
+}
+function resolveItemRarity(item: any) {
+  const rarity = String(item?.rarity || 'common').toLowerCase();
+  return ['common', 'rare', 'epic', 'legendary'].includes(rarity) ? rarity : 'common';
+}
+function rarityCssClass(item: any) {
+  return `rarity-${resolveItemRarity(item)}`;
+}
+function rarityLabel(item: any) {
+  const rarity = resolveItemRarity(item);
+  if (rarity === 'rare') return 'Raro';
+  if (rarity === 'epic') return 'Epico';
+  if (rarity === 'legendary') return 'Lendario';
+  return 'Comum';
+}
+function goldValueFromCopper(copper: number) {
+  return (Math.max(0, copper) / 10000).toFixed(copper >= 10000 ? 2 : 4);
+}
+function computeSellCopper(item: any) {
+  const priceCopper = walletToCopper(item?.price || {});
+  return Math.max(0, Math.floor(priceCopper * 0.35));
+}
 function closeChatInput() {
   byId<HTMLInputElement>('chat-input')?.blur();
   byId('chat-mode-menu')?.classList.add('hidden');
@@ -150,6 +285,7 @@ function makePanelDraggable(panelId: string, headerId: string) {
   };
   header.addEventListener('pointerdown', (event) => {
     if (event.button !== 0) return;
+    if ((event.target as HTMLElement | null)?.closest('button, input, select, textarea, a')) return;
     const rect = panel.getBoundingClientRect();
     const computed = window.getComputedStyle(panel);
     event.preventDefault();
@@ -203,7 +339,37 @@ function getShopIconLabel(offer: any) {
   if (type === 'potion_hp') return 'HP';
   return String(offer?.name || 'IT').replace(/[^A-Za-z0-9]/g, '').slice(0, 3).toUpperCase() || 'IT';
 }
-function showTooltip(html: string, clientX: number, clientY: number) { const el = byId<HTMLElement>('item-tooltip'); if (!el) return; el.innerHTML = html; el.classList.remove('hidden'); const rect = el.getBoundingClientRect(); const left = Math.max(8, Math.min(clientX + 12, innerWidth - rect.width - 8)); const top = Math.max(8, Math.min(clientY + 12, innerHeight - rect.height - 8)); el.style.left = `${left}px`; el.style.top = `${top}px`; }
+function hudScaleValue() {
+  const raw = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hud-scale') || '1');
+  return Number.isFinite(raw) && raw > 0 ? raw : 1;
+}
+function normalizeHudClientPoint(clientX: number, clientY: number) {
+  const scale = hudScaleValue();
+  return { x: clientX / scale, y: clientY / scale, scale };
+}
+function showTooltip(html: string, clientX: number, clientY: number) {
+  const el = byId<HTMLElement>('item-tooltip');
+  if (!el) return;
+  const cursorGap = 18;
+  const cursorSafeWidth = 28;
+  const cursorSafeHeight = 28;
+  const point = normalizeHudClientPoint(clientX, clientY);
+  el.innerHTML = html;
+  el.classList.remove('hidden');
+  el.style.left = '0px';
+  el.style.top = '0px';
+  const rect = el.getBoundingClientRect();
+  let left = point.x + cursorGap;
+  let top = point.y + cursorGap;
+  if (left < point.x + cursorSafeWidth && left + rect.width > point.x) left = point.x + cursorSafeWidth;
+  if (top < point.y + cursorSafeHeight && top + rect.height > point.y) top = point.y + cursorSafeHeight;
+  if (left + rect.width > innerWidth - 8) left = point.x - rect.width - cursorGap;
+  if (top + rect.height > innerHeight - 8) top = point.y - rect.height - cursorGap;
+  left = Math.max(8, Math.min(left, innerWidth - rect.width - 8));
+  top = Math.max(8, Math.min(top, innerHeight - rect.height - 8));
+  el.style.left = `${left}px`;
+  el.style.top = `${top}px`;
+}
 function updateHudDebugPanelUI() {
   const enabled = isAdminPlayer() && Boolean(byId<HTMLInputElement>('hud-debug-toggle')?.checked);
   setHidden(byId('hud-debug-panel'), !enabled);
@@ -220,6 +386,13 @@ function updateHudDebugPanelUI() {
   const maxValue = Math.max(minValue + 2, Math.min(140, Number(maxInput.value || 106)));
   root.style.setProperty('--hud-scale', String(((minValue + maxValue) / 2) / 100));
 }
+function applyHudBrowserZoomCompensation() {
+  const hudRoot = byId<HTMLElement>('hud-root');
+  if (!hudRoot) return;
+  const currentRatio = window.devicePixelRatio || 1;
+  const compensation = Phaser.Math.Clamp(INITIAL_DEVICE_PIXEL_RATIO / Math.max(0.25, currentRatio), 0.5, 2);
+  hudRoot.style.setProperty('--hud-browser-compensation', String(compensation));
+}
 function sendAdminCommand() {
   if (!isAdminPlayer()) return;
   const input = byId<HTMLInputElement>('admin-command');
@@ -229,17 +402,425 @@ function sendAdminCommand() {
   if (input) input.value = '';
 }
 function hideTooltip() { byId('item-tooltip')?.classList.add('hidden'); }
+function clearUiDragHover() {
+  if (!dragHoverEl) return;
+  dragHoverEl.classList.remove('hovered', 'drag-hovered');
+  dragHoverEl = null;
+}
+function setUiDragHover(target: HTMLElement | null) {
+  if (dragHoverEl === target) return;
+  clearUiDragHover();
+  if (!target) return;
+  target.classList.add('hovered', 'drag-hovered');
+  dragHoverEl = target;
+}
+function ensureDragGhost() {
+  if (dragGhostEl) return dragGhostEl;
+  const ghost = document.createElement('div');
+  ghost.id = 'ui-drag-ghost';
+  ghost.className = 'ui-drag-ghost';
+  document.body.appendChild(ghost);
+  dragGhostEl = ghost;
+  return ghost;
+}
+function createDragGhostVisual(sourceEl: HTMLElement, payload: any, previewLabel: string) {
+  const ghostBody = document.createElement('div');
+  ghostBody.className = 'ui-drag-ghost-copy';
+  const visualSource = sourceEl.querySelector<HTMLElement>('img.inv-item-icon, .slot-icon img, .skill-icon, .inv-item-icon') || (sourceEl.matches('img.inv-item-icon') ? sourceEl : null);
+  if (visualSource) {
+    const clone = visualSource.cloneNode(true) as HTMLElement;
+    clone.classList.add('ui-drag-ghost-icon');
+    if (clone instanceof HTMLImageElement) clone.decoding = 'async';
+    ghostBody.appendChild(clone);
+  }
+  if (!ghostBody.children.length && payload?.source === 'basicattack') {
+    const fallbackIcon = document.createElement('span');
+    fallbackIcon.className = 'ui-drag-ghost-icon ui-drag-ghost-fallback';
+    fallbackIcon.textContent = 'ATK';
+    ghostBody.appendChild(fallbackIcon);
+  }
+  const label = document.createElement('span');
+  label.className = 'ui-drag-ghost-label';
+  label.textContent = previewLabel;
+  ghostBody.appendChild(label);
+  return ghostBody;
+}
+function positionDragGhost(clientX: number, clientY: number) {
+  const ghost = ensureDragGhost();
+  const point = normalizeHudClientPoint(clientX, clientY);
+  ghost.style.left = `${point.x + 18}px`;
+  ghost.style.top = `${point.y + 18}px`;
+}
+function cleanupUiDrag() {
+  const shouldRefreshUi = Boolean(dragPointerState?.active || draggingPayload);
+  dragPointerState?.sourceEl.classList.remove('dragging');
+  dragPointerState = null;
+  draggingPayload = null;
+  clearUiDragHover();
+  if (dragGhostEl) {
+    dragGhostEl.remove();
+    dragGhostEl = null;
+  }
+  document.body.classList.remove('ui-drag-active');
+  setDeleteDropFeedback(false);
+  if (shouldRefreshUi) scheduleRender();
+}
+function bindPointerDoubleActivate(element: HTMLElement | null, callback: () => void) {
+  if (!element) return;
+  element.onpointerup = (event) => {
+    if (event.button !== 0) return;
+    if (dragPointerState?.active) return;
+    const now = Date.now();
+    const entry = pointerActivationState.get(element) || { lastAt: 0 };
+    if (now - entry.lastAt <= 320) {
+      entry.lastAt = 0;
+      pointerActivationState.set(element, entry);
+      event.preventDefault();
+      event.stopPropagation();
+      callback();
+      return;
+    }
+    entry.lastAt = now;
+    pointerActivationState.set(element, entry);
+  };
+}
+function commitHotbarBindings(nextBindings: Record<string, any>) {
+  store.update({ hotbarBindings: nextBindings });
+  socket.send({ type: 'hotbar.set', bindings: nextBindings });
+}
+function resolveItemIconUrl(item: any) {
+  const raw = String(item?.iconUrl || item?.icon_url || '').trim();
+  return raw || ITEM_ICON_PLACEHOLDER;
+}
+function inventoryItemMarkup(item: any) {
+  const label = String(item?.name || item?.templateId || 'Item');
+  return `<img class="inv-item-icon" src="${esc(resolveItemIconUrl(item))}" alt="${esc(label)}" draggable="false" /><span class="inv-item-label">${esc(label)}</span>`;
+}
+function inventoryVisualItems() {
+  return inventoryItems().filter((entry: any) => entry?.equipped !== true);
+}
+function inventoryRenderKey() {
+  return JSON.stringify(inventoryVisualItems().map((item: any) => ({
+    id: String(item?.id || ''),
+    slotIndex: Number(item?.slotIndex ?? -1),
+    quantity: Number(item?.quantity || 1),
+    equipped: Boolean(item?.equipped),
+    type: String(item?.type || ''),
+    slot: String(item?.slot || ''),
+    rarity: resolveItemRarity(item),
+    iconUrl: resolveItemIconUrl(item),
+    name: String(item?.name || item?.templateId || 'Item')
+  })));
+}
+function inventorySummaryKey() {
+  return JSON.stringify({
+    equippedWeaponName: String(equippedBySlot().weapon?.name || 'nenhuma'),
+    wallet: normalizeWallet(store.getState().inventoryState?.wallet)
+  });
+}
+function hotbarRenderKey() {
+  return JSON.stringify({
+    bindings: normalizeHotbar(),
+    items: inventoryItems().map((entry: any) => ({
+      id: String(entry?.id || ''),
+      type: String(entry?.type || ''),
+      quantity: Number(entry?.quantity || 1),
+      rarity: resolveItemRarity(entry),
+      iconUrl: resolveItemIconUrl(entry),
+      equipped: Boolean(entry?.equipped)
+    })),
+    autoAttackSkillId: selectedAutoAttackSkillId
+  });
+}
+function findInventoryItemById(itemId: string) {
+  return inventoryItems().find((entry: any) => String(entry?.id || '') === String(itemId || '')) || null;
+}
+function isUiDropTarget(target: HTMLElement | null) {
+  if (!target) return false;
+  return Boolean(
+    target.closest('.inv-slot')
+    || target.closest('.skill-slot-btn')
+    || target.closest('.equip-slot')
+    || target.closest('#char-panel')
+  );
+}
+function queueDeleteConfirmationForPayload(payload: any) {
+  const itemId = String(payload?.itemId || '');
+  const item = findInventoryItemById(itemId) || Object.values(equippedBySlot()).find((entry: any) => String(entry?.id || '') === itemId);
+  if (!item || !itemId) return;
+  showConfirmationModal(
+    'Destruir Item',
+    'Deseja realmente destruir este item? Esta acao nao pode ser desfeita.',
+    () => {
+      socket.send({ type: 'delete_item_req', itemId, slotIndex: Number(item?.slotIndex ?? -1) });
+      hideConfirmationModal();
+    }
+  );
+}
+function dispatchInventoryItemAction(itemId: string) {
+  const item = findInventoryItemById(itemId);
+  if (!item) return;
+  hideTooltip();
+  socket.send((String(item.type || '') === 'weapon' || String(item.type || '') === 'equipment')
+    ? { type: 'equip_req', itemId: item.id }
+    : { type: 'item.use', itemId: item.id });
+}
+function isInventoryDragActive() {
+  if (!dragPointerState?.active) return false;
+  return Boolean(
+    dragPointerState.sourceEl.closest('#inventory-grid')
+    || draggingPayload?.source === 'inventory'
+    || draggingPayload?.source === 'equipment'
+  );
+}
+function syncNpcDialogRender() {
+  const dialog = store.getState().npcDialog;
+  const nextKey = dialog ? npcDialogSignature(dialog) : 'none';
+  if (nextKey === lastNpcDialogSyncKey) return;
+  lastNpcDialogSyncKey = nextKey;
+  if (!dialog) {
+    byId('npc-dialog-panel')?.classList.add('hidden');
+    npcDialogRenderKey = '';
+    return;
+  }
+  renderNpcDialog({ force: true, focus: false });
+}
+function beginUiPointerDrag(event: PointerEvent, sourceEl: HTMLElement, payload: any, previewLabel: string) {
+  if (event.button !== 0) return;
+  dragPointerState = {
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    sourceEl,
+    payload,
+    previewLabel,
+    active: false
+  };
+}
+function updateUiDragTarget(clientX: number, clientY: number) {
+  if (!draggingPayload) return null;
+  const hit = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
+  if (!hit) return null;
+  if (draggingPayload.source === 'inventory' || draggingPayload.source === 'equipment') {
+    const hotbarSlot = hit.closest('.skill-slot-btn') as HTMLElement | null;
+    if (hotbarSlot) return hotbarSlot;
+    const invSlot = hit.closest('.inv-slot') as HTMLElement | null;
+    if (invSlot) return invSlot;
+    const equipSlot = hit.closest('.equip-slot') as HTMLElement | null;
+    if (equipSlot) return equipSlot;
+    const charPanel = hit.closest('#char-panel') as HTMLElement | null;
+    if (charPanel && draggingPayload.source === 'inventory') return charPanel;
+    return null;
+  }
+  if (draggingPayload.source === 'hotbar' || draggingPayload.source === 'skilltree' || draggingPayload.source === 'basicattack') {
+    return hit.closest('.skill-slot-btn') as HTMLElement | null;
+  }
+  return null;
+}
+function applyHotbarDrop(targetKey: string) {
+  if (!draggingPayload) return;
+  const next = normalizeHotbar();
+  if (draggingPayload.source === 'hotbar') {
+    const fromKey = String(draggingPayload.key || '');
+    const from = next[fromKey];
+    next[fromKey] = next[targetKey];
+    next[targetKey] = from;
+  }
+  if (draggingPayload.source === 'inventory') {
+    const item = inventoryItems().find((entry: any) => String(entry.id) === String(draggingPayload.itemId));
+    if (item) next[targetKey] = { type: 'item', itemId: String(item.id), itemType: String(item.type || ''), itemName: String(item.name || 'Item') };
+  }
+  if (draggingPayload.source === 'skilltree') next[targetKey] = { type: 'action', actionId: 'skill_cast', skillId: String(draggingPayload.skillId), skillName: String(draggingPayload.skillName || 'Habilidade') };
+  if (draggingPayload.source === 'basicattack') next[targetKey] = { type: 'action', actionId: 'basic_attack' };
+  if (draggingPayload.source === 'equipment') {
+    const item = Object.values(equippedBySlot()).find((entry: any) => String(entry?.id || '') === String(draggingPayload.itemId || ''));
+    if (item) next[targetKey] = { type: 'item', itemId: String(item.id), itemType: String(item.type || ''), itemName: String(item.name || 'Item') };
+  }
+  commitHotbarBindings(next);
+}
+function canEquipItemInSlot(item: any, slotKey: string) {
+  if (!item) return false;
+  if (String(item.type || '') === 'weapon') return slotKey === 'weapon';
+  if (String(item.type || '') === 'equipment') {
+    const itemSlot = String(item.slot || '');
+    return !itemSlot || itemSlot === slotKey;
+  }
+  return false;
+}
+function performUiDrop(target: HTMLElement | null, clientX: number, clientY: number) {
+  if (!draggingPayload) return;
+  if (target?.classList.contains('skill-slot-btn')) {
+    applyHotbarDrop(String(target.dataset.key || '').toLowerCase());
+    return;
+  }
+  if (target?.classList.contains('inv-slot')) {
+    const toSlot = Number(target.dataset.slot ?? -1);
+    if (toSlot < 0) return;
+    if (!draggingPayload?.itemId) return;
+    socket.send(draggingPayload.source === 'equipment'
+      ? { type: 'inventory_unequip_to_slot', itemId: draggingPayload.itemId, toSlot }
+      : { type: 'inventory_move', itemId: draggingPayload.itemId, toSlot });
+    return;
+  }
+  if (target?.classList.contains('equip-slot')) {
+    const itemId = String(draggingPayload.itemId || '');
+    const item = inventoryItems().find((entry: any) => String(entry.id) === itemId);
+    const slotKey = String(target.dataset.slot || '');
+    if (canEquipItemInSlot(item, slotKey)) socket.send({ type: 'equip_req', itemId });
+    return;
+  }
+  if (target?.id === 'char-panel') {
+    const itemId = String(draggingPayload.itemId || '');
+    const item = inventoryItems().find((entry: any) => String(entry.id) === itemId);
+    if (!item) return;
+    if (String(item.type || '') === 'weapon' || String(item.type || '') === 'equipment') socket.send({ type: 'equip_req', itemId });
+    return;
+  }
+  if ((draggingPayload.source === 'inventory' || draggingPayload.source === 'equipment') && target?.closest('#npc-dialog-panel') && store.getState().npcShopOpen) {
+    const itemId = String(draggingPayload.itemId || '');
+    const item = findInventoryItemById(itemId) || Object.values(equippedBySlot()).find((entry: any) => String(entry?.id || '') === itemId);
+    if (!item) return;
+    socket.send({ type: 'sell_item_req', itemId, slotIndex: Number(item?.slotIndex ?? -1), npcId: currentNpcShopId() });
+    return;
+  }
+  if (draggingPayload.source === 'hotbar') {
+    const next = normalizeHotbar();
+    next[String(draggingPayload.key || '')] = null;
+    commitHotbarBindings(next);
+    return;
+  }
+  if ((draggingPayload.source === 'inventory' || draggingPayload.source === 'equipment') && !target) {
+    queueDeleteConfirmationForPayload(draggingPayload);
+  }
+}
+function createNativeDragImage(sourceEl: HTMLElement, payload: any, previewLabel: string) {
+  const visualSource = sourceEl.querySelector<HTMLElement>('img.inv-item-icon, .slot-icon img, .skill-icon, .inv-item-icon') || sourceEl;
+  const dragImage = document.createElement('div');
+  dragImage.className = 'ui-drag-ghost-copy native-drag-image';
+  const visualClone = visualSource.cloneNode(true) as HTMLElement;
+  visualClone.classList.add('ui-drag-ghost-icon');
+  dragImage.appendChild(visualClone);
+  const label = document.createElement('span');
+  label.className = 'ui-drag-ghost-label';
+  label.textContent = previewLabel;
+  dragImage.appendChild(label);
+  dragImage.style.position = 'fixed';
+  dragImage.style.left = '-9999px';
+  dragImage.style.top = '-9999px';
+  dragImage.style.pointerEvents = 'none';
+  dragImage.style.opacity = '0.7';
+  document.body.appendChild(dragImage);
+  if (!dragImage.children.length && payload?.source === 'basicattack') {
+    const fallbackIcon = document.createElement('span');
+    fallbackIcon.className = 'ui-drag-ghost-icon ui-drag-ghost-fallback';
+    fallbackIcon.textContent = 'ATK';
+    dragImage.prepend(fallbackIcon);
+  }
+  return dragImage;
+}
+function bindManualDragSource(element: HTMLElement | null, payloadFactory: () => any, previewFactory: () => string) {
+  if (!element) return;
+  element.setAttribute('draggable', 'true');
+  element.onmousedown = (event) => {
+    if (event.button !== 0) return;
+    if ((event.target as HTMLElement | null)?.closest('button.learn-skill')) return;
+    const previous = dragPressState.get(element) || { lastDownAt: 0, suppressNextDrag: false };
+    const now = Date.now();
+    previous.suppressNextDrag = now - previous.lastDownAt < 300;
+    previous.lastDownAt = now;
+    dragPressState.set(element, previous);
+  };
+  element.ondragstart = (event) => {
+    if ((event.target as HTMLElement | null)?.closest('button.learn-skill')) {
+      event.preventDefault();
+      return;
+    }
+    const press = dragPressState.get(element);
+    if (press?.suppressNextDrag) {
+      press.suppressNextDrag = false;
+      dragPressState.set(element, press);
+      event.preventDefault();
+      return;
+    }
+    const payload = payloadFactory();
+    const previewLabel = previewFactory();
+    draggingPayload = payload;
+    element.classList.add('dragging');
+    document.body.classList.add('ui-drag-active');
+    setDeleteDropFeedback(false);
+    const dragImage = createNativeDragImage(element, payload, previewLabel);
+    const point = normalizeHudClientPoint(event.clientX || 0, event.clientY || 0);
+    const firstVisual = dragImage.querySelector<HTMLElement>('.ui-drag-ghost-icon') || dragImage;
+    const width = Number(firstVisual.getBoundingClientRect().width || 24);
+    const height = Number(firstVisual.getBoundingClientRect().height || 24);
+    event.dataTransfer?.setData('text/plain', JSON.stringify(payload));
+    event.dataTransfer?.setDragImage(dragImage, Math.round(width / (2 * point.scale)), Math.round(height / (2 * point.scale)));
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+    window.setTimeout(() => dragImage.remove(), 0);
+  };
+  element.ondragend = () => cleanupUiDrag();
+}
+function handleGlobalUiPointerMove(event: PointerEvent) {
+  if (!dragPointerState || dragPointerState.pointerId !== event.pointerId) return;
+  const dx = event.clientX - dragPointerState.startX;
+  const dy = event.clientY - dragPointerState.startY;
+  if (!dragPointerState.active && Math.hypot(dx, dy) <= DRAG_START_DISTANCE_PX) return;
+  if (!dragPointerState.active) {
+    dragPointerState.active = true;
+    draggingPayload = dragPointerState.payload;
+    hideTooltip();
+    dragPointerState.sourceEl.classList.add('dragging');
+    document.body.classList.add('ui-drag-active');
+    const ghost = ensureDragGhost();
+    ghost.innerHTML = '';
+    ghost.appendChild(createDragGhostVisual(dragPointerState.sourceEl, dragPointerState.payload, dragPointerState.previewLabel));
+  }
+  positionDragGhost(event.clientX, event.clientY);
+  setUiDragHover(updateUiDragTarget(event.clientX, event.clientY));
+  event.preventDefault();
+}
+function handleGlobalUiPointerEnd(event: PointerEvent) {
+  if (!dragPointerState || dragPointerState.pointerId !== event.pointerId) return;
+  const wasActive = dragPointerState.active;
+  if (wasActive) {
+    suppressClickUntil = Date.now() + 120;
+    performUiDrop(updateUiDragTarget(event.clientX, event.clientY), event.clientX, event.clientY);
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  cleanupUiDrag();
+}
 function itemTooltipHtml(item: any) {
   const quantity = Math.max(1, Math.floor(Number(item?.quantity || 1)));
+  const rarity = resolveItemRarity(item);
   const bonusEntries = item?.bonuses && typeof item.bonuses === 'object' ? Object.entries(item.bonuses).filter(([, value]) => Number(value || 0) !== 0) : [];
   const bonuses = bonusEntries.map(([key, value]) => `<div class="${Number(value) >= 0 ? 'tooltip-bonus-pos' : 'tooltip-bonus-neg'}">${esc(String(key).toUpperCase())}: ${Number(value) > 0 ? '+' : ''}${Number(value)}</div>`).join('');
   const requiredClass = item?.requiredClass ? `<div class="tooltip-muted">Classe: ${esc(classLabel(String(item.requiredClass)))}</div>` : '';
+  const sellLine = store.getState().npcShopOpen ? `<div class="tooltip-muted">Venda: ${goldValueFromCopper(computeSellCopper(item))} Gold</div>` : '';
   const equipSlot = inferEquipSlot(item);
   const equipped = equipSlot ? equippedBySlot()[equipSlot] : null;
   const compareEntries = equipped?.bonuses && typeof equipped.bonuses === 'object' ? Object.entries(equipped.bonuses).filter(([, value]) => Number(value || 0) !== 0) : [];
   const compareBlock = equipped ? `<div class="tooltip-section"><div class="tooltip-muted">Equipado: ${esc(String(equipped.name || 'Item'))}</div>${compareEntries.map(([key, value]) => `<div class="${Number(value) >= 0 ? 'tooltip-bonus-pos' : 'tooltip-bonus-neg'}">${esc(String(key).toUpperCase())}: ${Number(value) > 0 ? '+' : ''}${Number(value)}</div>`).join('') || '<div class="tooltip-muted">Sem bonus declarados.</div>'}</div>` : '';
-  if (String(item?.type || '') === 'potion_hp') return `<div class="tooltip-title">${esc(item.name || 'Pocao')}</div><div class="tooltip-muted">Consumivel</div><div>Recupera HP</div><div class="tooltip-muted">Qtd: ${quantity}</div>`;
-  return `<div class="tooltip-title">${esc(item?.name || item?.templateId || 'Item')}</div><div class="tooltip-muted">Tipo: ${esc(item?.type || 'generic')}</div>${requiredClass}${bonuses || '<div class="tooltip-muted">Sem bonus declarados.</div>'}<div class="tooltip-muted">Qtd: ${quantity}</div>${compareBlock}`;
+  const header = `<div class="tooltip-title tooltip-rarity-${rarity}">${esc(item?.name || item?.templateId || 'Item')}</div><div class="tooltip-muted">Raridade: ${rarityLabel(item)}</div><div class="tooltip-divider"></div>`;
+  if (String(item?.type || '') === 'potion_hp') return `${header}<div class="tooltip-muted">Consumivel</div><div>Recupera HP</div><div class="tooltip-muted">Qtd: ${quantity}</div>${sellLine}`;
+  return `${header}<div class="tooltip-muted">Tipo: ${esc(item?.type || 'generic')}</div>${requiredClass}${bonuses || '<div class="tooltip-muted">Sem bonus declarados.</div>'}<div class="tooltip-muted">Qtd: ${quantity}</div>${sellLine}${compareBlock}`;
+}
+function npcDialogSignature(dialog: any) {
+  if (!dialog) return 'none';
+  const wallet = normalizeWallet(store.getState().inventoryState?.wallet);
+  const party = store.getState().partyState;
+  const partySig = party ? `${party.id}:${party.leaderId}:${Array.isArray(party.members) ? party.members.length : 0}` : 'none';
+  return JSON.stringify({
+    npcId: dialog.npc?.id || '',
+    availableQuestIds: dialog.availableQuestIds || [],
+    turnInQuestIds: dialog.turnInQuestIds || [],
+    questIds: Array.isArray(dialog.quests) ? dialog.quests.map((entry: any) => entry?.id || entry?.title || '') : [],
+    shopOffers: Array.isArray(dialog.shopOffers) ? dialog.shopOffers.map((entry: any) => `${entry?.offerId || ''}:${entry?.requiredClass || ''}:${walletToCopper(entry?.price)}`) : [],
+    dungeon: dialog.dungeonEntry ? `${dialog.dungeonEntry.name || ''}:${dialog.dungeonEntry.opened ? 1 : 0}` : '',
+    shopTab: shopSelectedClassTab,
+    wallet,
+    partySig
+  });
 }
 function skillTooltipHtml(skillId: string) { const node = skillNode(skillId); if (!node) return `<div><strong>Habilidade</strong></div>`; return `<div><strong>${esc(node.label)}</strong></div><div>Nivel: ${skillLevel(skillId)}/${node.maxPoints}</div><div>Classe: ${esc(classLabel(node.classId))}</div>`; }
 function selectNearestHostileTarget(reverse = false) { const me = localPlayer(); const world = store.getState().resolvedWorld; if (!me || !world) return; const candidates: Array<{ type: 'mob' | 'player'; id: string; dist: number }> = []; for (const mob of Array.isArray(world.mobs) ? world.mobs : []) { if (!mob || Number(mob.hp || 0) <= 0) continue; candidates.push({ type: 'mob', id: String(mob.id), dist: Math.hypot(Number(mob.x || 0) - Number(me.x || 0), Number(mob.y || 0) - Number(me.y || 0)) }); } for (const player of Object.values(world.players || {})) { const safe = player as any; if (!isHostilePlayer(safe)) continue; candidates.push({ type: 'player', id: String(safe.id), dist: Math.hypot(Number(safe.x || 0) - Number(me.x || 0), Number(safe.y || 0) - Number(me.y || 0)) }); } candidates.sort((a, b) => a.dist - b.dist); if (!candidates.length) { targetCycleIndex = -1; clearCurrentTargetSelection(); systemMessage('Nenhum alvo hostil proximo.'); return; } const currentTargetKey = store.getState().selectedMobId ? `mob:${store.getState().selectedMobId}` : store.getState().selectedPlayerId ? `player:${store.getState().selectedPlayerId}` : ''; const currentIndex = candidates.findIndex((entry) => `${entry.type}:${entry.id}` === currentTargetKey); targetCycleIndex = currentIndex >= 0 ? (currentIndex + (reverse ? -1 : 1) + candidates.length) % candidates.length : 0; const next = candidates[targetCycleIndex]; socket.send({ type: 'combat.clearTarget' }); if (next.type === 'mob') { store.update({ selectedMobId: next.id, selectedPlayerId: null }); return; } store.update({ selectedPlayerId: Number(next.id) || null, selectedMobId: null }); }
@@ -272,87 +853,91 @@ function renderInventory() {
   const grid = byId<HTMLElement>('inventory-grid');
   const label = byId<HTMLElement>('inventory-equipped-label');
   if (!grid) return;
-  grid.innerHTML = '';
-  const items = inventoryItems().filter((entry: any) => entry?.equipped !== true);
+  const nextSummaryKey = inventorySummaryKey();
+  if (label && nextSummaryKey !== lastInventorySummaryKey) {
+    label.innerHTML = `Arma equipada: ${esc(String(equippedBySlot().weapon?.name || 'nenhuma'))} <span class="wallet-inline">${renderWalletTokens(store.getState().inventoryState?.wallet, { hideZero: false })}</span>`;
+    lastInventorySummaryKey = nextSummaryKey;
+  }
+  const nextRenderKey = inventoryRenderKey();
+  if (isInventoryDragActive() && grid.childElementCount > 0) return;
+  if (nextRenderKey === lastInventoryRenderKey && grid.childElementCount > 0) return;
+  lastInventoryRenderKey = nextRenderKey;
+  const items = inventoryVisualItems();
   const bySlotIndex = new Map(items.map((entry: any) => [Number(entry.slotIndex), entry]));
+  const fragment = document.createDocumentFragment();
   for (let i = 0; i < 36; i += 1) {
     const slot = document.createElement('div');
     const item = bySlotIndex.get(i);
     slot.className = 'inv-slot';
-    slot.ondragover = (event) => { event.preventDefault(); slot.classList.add('hovered'); };
-    slot.ondragleave = () => slot.classList.remove('hovered');
-    slot.ondrop = () => {
-      slot.classList.remove('hovered');
-      if (!draggingPayload?.itemId) return;
-      socket.send(draggingPayload.source === 'equipment' ? { type: 'inventory_unequip_to_slot', itemId: draggingPayload.itemId, toSlot: i } : { type: 'inventory_move', itemId: draggingPayload.itemId, toSlot: i });
-      draggingPayload = null;
-    };
+    slot.dataset.slot = String(i);
     if (item) {
       const itemEl = document.createElement('div');
-      itemEl.className = `inv-item item-type-${String(item.type || 'generic')}`;
-      itemEl.textContent = String(item.name || item.templateId || 'Item');
-      itemEl.draggable = true;
-      itemEl.onmousemove = (event) => showTooltip(itemTooltipHtml(item), event.clientX, event.clientY);
-      itemEl.onmouseleave = () => hideTooltip();
-      itemEl.onclick = () => socket.send((String(item.type || '') === 'weapon' || String(item.type || '') === 'equipment') ? { type: 'equip_req', itemId: item.id } : { type: 'item.use', itemId: item.id });
-      itemEl.ondblclick = itemEl.onclick;
-      itemEl.oncontextmenu = (event) => { event.preventDefault(); store.update({ pendingDeleteItemId: String(item.id) }); };
-      itemEl.ondragstart = () => { draggingPayload = { source: 'inventory', itemId: String(item.id) }; };
-      itemEl.ondragend = () => { draggingPayload = null; };
+      itemEl.className = `inv-item item-type-${String(item.type || 'generic')} ${rarityCssClass(item)}`;
+      itemEl.dataset.itemId = String(item.id || '');
+      itemEl.dataset.slotIndex = String(Number(item.slotIndex ?? -1));
+      itemEl.setAttribute('draggable', 'true');
+      itemEl.innerHTML = inventoryItemMarkup(item);
       if (Number(item.quantity || 1) > 1) { const qty = document.createElement('div'); qty.className = 'inv-item-qty'; qty.textContent = String(item.quantity); itemEl.appendChild(qty); }
       slot.appendChild(itemEl);
     }
-    grid.appendChild(slot);
+    fragment.appendChild(slot);
   }
-  if (label) label.innerHTML = `Arma equipada: ${esc(String(equippedBySlot().weapon?.name || 'nenhuma'))} <span class="wallet-inline">${renderWalletTokens(store.getState().inventoryState?.wallet, { hideZero: false })}</span>`;
+  grid.replaceChildren(fragment);
 }
 
 function normalizeHotbar() {
   const src = store.getState().hotbarBindings || {};
   const out: Record<string, any> = {};
   HOTBAR_KEYS.forEach((key) => { out[key] = src[key] || null; });
-  if (!out['1']) out['1'] = { type: 'action', actionId: 'basic_attack' };
   return out;
 }
 
 function renderHotbar() {
+  const nextRenderKey = hotbarRenderKey();
+  if (nextRenderKey === lastHotbarRenderKey) return;
+  lastHotbarRenderKey = nextRenderKey;
   const bindings = normalizeHotbar();
   document.querySelectorAll<HTMLElement>('.skill-slot-btn').forEach((button) => {
     const key = String(button.dataset.key || '').toLowerCase();
     const binding = bindings[key];
     let icon = '', title = String(button.dataset.key || '').toUpperCase(), qty = '', iconClass = 'slot-icon';
-    button.classList.remove('slot-kind-action', 'slot-kind-item', 'slot-kind-empty', 'slot-icon-potion', 'slot-ghosted');
+    button.classList.remove('slot-kind-action', 'slot-kind-item', 'slot-kind-empty', 'slot-icon-potion', 'slot-ghosted', 'rarity-common', 'rarity-rare', 'rarity-epic', 'rarity-legendary');
     if (binding?.type === 'action' && binding.actionId === 'basic_attack') { icon = 'ATK'; title = autoAttackDef(selectedAutoAttackSkillId)?.label || 'Ataque Basico'; button.classList.add('slot-kind-action'); }
     else if (binding?.type === 'action' && binding.actionId === 'skill_cast') { icon = esc(String(binding.skillName || skillNode(String(binding.skillId || ''))?.label || 'Habilidade').slice(0, 18)); title = String(binding.skillName || 'Habilidade'); iconClass = 'slot-icon slot-icon-skill'; button.classList.add('slot-kind-action'); }
     else if (binding?.type === 'item') {
       const item = inventoryItems().find((entry: any) => String(entry.id) === String(binding.itemId || '')) || inventoryItems().find((entry: any) => String(entry.type || '') === String(binding.itemType || ''));
       const itemType = String(binding.itemType || item?.type || '');
-      icon = itemType === 'potion_hp' ? 'HP' : itemType === 'weapon' ? 'WP' : 'IT';
       title = String(binding.itemName || item?.name || 'Item');
       if (itemType === 'potion_hp') { qty = `<span class="slot-qty">${inventoryItems().filter((entry: any) => String(entry.type || '') === 'potion_hp').reduce((sum: number, entry: any) => sum + Math.max(1, Math.floor(Number(entry.quantity || 1))), 0)}</span>`; button.classList.add('slot-icon-potion'); }
       if (!item) button.classList.add('slot-ghosted');
-      button.classList.add('slot-kind-item');
+      icon = `<img src="${esc(resolveItemIconUrl(item || binding))}" alt="${esc(title)}" draggable="false" />`;
+      button.classList.add('slot-kind-item', rarityCssClass(item || binding));
     } else button.classList.add('slot-kind-empty');
     button.title = title;
-    button.draggable = Boolean(binding);
+    button.setAttribute('draggable', binding ? 'true' : 'false');
     button.innerHTML = `<span class="${iconClass}">${icon}</span><span class="slot-key">${esc(String(button.dataset.key || '').toUpperCase())}</span>${qty}`;
     button.onmousemove = (event) => {
-      if (binding?.type === 'item') showTooltip(itemTooltipHtml({ name: binding.itemName || binding.itemType || 'Item', type: binding.itemType || 'generic', quantity: 1 }), event.clientX, event.clientY);
+      if (binding?.type === 'item') {
+        const item = inventoryItems().find((entry: any) => String(entry.id) === String(binding.itemId || '')) || inventoryItems().find((entry: any) => String(entry.type || '') === String(binding.itemType || ''));
+        showTooltip(itemTooltipHtml(item || { name: binding.itemName || binding.itemType || 'Item', type: binding.itemType || 'generic', quantity: 1, rarity: 'common' }), event.clientX, event.clientY);
+      }
       else if (binding?.type === 'action' && binding.actionId === 'skill_cast') showTooltip(skillTooltipHtml(String(binding.skillId || '')), event.clientX, event.clientY);
       else if (binding?.type === 'action' && binding.actionId === 'basic_attack') showTooltip(`<div><strong>${esc(title)}</strong></div><div>Ataque basico/auto ataque.</div>`, event.clientX, event.clientY);
     };
     button.onmouseleave = () => hideTooltip();
-    button.ondragover = (event) => event.preventDefault();
-    button.ondragstart = () => { draggingPayload = binding ? { source: 'hotbar', key } : null; };
-    button.ondragend = () => { draggingPayload = null; };
-    button.ondrop = () => {
-      if (!draggingPayload) return;
+    button.oncontextmenu = (event) => {
+      event.preventDefault();
+      if (!binding) return;
       const next = normalizeHotbar();
-      if (draggingPayload.source === 'hotbar') { const from = next[String(draggingPayload.key || '')]; next[String(draggingPayload.key || '')] = next[key]; next[key] = from; }
-      if (draggingPayload.source === 'inventory') { const item = inventoryItems().find((entry: any) => String(entry.id) === String(draggingPayload.itemId)); if (item) next[key] = { type: 'item', itemId: String(item.id), itemType: String(item.type || ''), itemName: String(item.name || 'Item') }; }
-      if (draggingPayload.source === 'skilltree') next[key] = { type: 'action', actionId: 'skill_cast', skillId: String(draggingPayload.skillId), skillName: String(draggingPayload.skillName || 'Habilidade') };
-      socket.send({ type: 'hotbar.set', bindings: next }); draggingPayload = null;
+      next[key] = null;
+      commitHotbarBindings(next);
     };
+    if (binding) bindManualDragSource(button, () => ({ source: 'hotbar', key }), () => title);
+    else {
+      button.onmousedown = null;
+      button.ondragstart = null;
+      button.ondragend = null;
+    }
   });
 }
 
@@ -402,6 +987,16 @@ function renderFriends() {
   if (outgoing) outgoing.innerHTML = Array.isArray(friendState?.outgoing) && friendState.outgoing.length ? friendState.outgoing.map((entry: any) => `<div class="friend-row">Enviado: ${esc(entry.toName)}</div>`).join('') : '<div class="preview-help">Sem pedidos enviados.</div>';
 }
 
+function renderGuildPanel() {
+  const player = localPlayer();
+  const memberCount = Math.max(1, Array.isArray(store.getState().partyState?.members) ? store.getState().partyState.members.length : 1);
+  if (byId('guild-master-name')) byId('guild-master-name')!.textContent = player ? playerDisplayName(player) : 'Sem mestre';
+  if (byId('guild-member-count')) byId('guild-member-count')!.textContent = String(memberCount);
+  if (byId('guild-message-text')) byId('guild-message-text')!.textContent = player
+    ? `${playerDisplayName(player)} lidera o preparo da ordem. Recrutamento aberto para grupos, quests e exploracao do mapa atual.`
+    : 'Recrutamento aberto. Forme grupo, fortaleça sua build e prepare-se para as dungeons.';
+}
+
 function renderPartyFrames() {
   const frames = byId<HTMLElement>('party-frames');
   const members = Array.isArray(store.getState().partyState?.members) ? store.getState().partyState.members.filter((entry: any) => Number(entry.playerId) !== Number(store.getState().playerId)) : [];
@@ -433,14 +1028,19 @@ function renderNotifications() {
   }
 }
 
-function renderNpcDialog() {
+function renderNpcDialog(options?: { force?: boolean; focus?: boolean }) {
   const dialog = store.getState().npcDialog;
   const panel = byId<HTMLElement>('npc-dialog-panel');
-  const header = byId<HTMLElement>('npc-dialog-header');
+  const title = byId<HTMLElement>('npc-dialog-title');
   const body = byId<HTMLElement>('npc-dialog-body');
-  if (!panel || !header || !body) return;
-  if (!dialog) { panel.classList.add('hidden'); return; }
-  header.textContent = String(dialog.npc?.name || 'NPC');
+  if (!panel || !title || !body) return;
+  if (!dialog) { panel.classList.add('hidden'); npcDialogRenderKey = ''; return; }
+  const shouldFocus = Boolean(options?.focus || panel.classList.contains('hidden'));
+  const nextSignature = npcDialogSignature(dialog);
+  if (!options?.force && nextSignature === npcDialogRenderKey && !panel.classList.contains('hidden')) return;
+  npcDialogRenderKey = nextSignature;
+  lastNpcDialogSyncKey = nextSignature;
+  title.textContent = String(dialog.npc?.name || 'NPC');
   const availableQuestIds = Array.isArray(dialog.availableQuestIds) ? dialog.availableQuestIds : [];
   const turnInQuestIds = Array.isArray(dialog.turnInQuestIds) ? dialog.turnInQuestIds : [];
   const quests = Array.isArray(dialog.quests) ? dialog.quests : [];
@@ -493,10 +1093,12 @@ function renderNpcDialog() {
   }
   body.innerHTML = `<div class="preview-help">${esc(dialog.npc?.greeting || '')}</div>${dungeonHtml}${questHtml}${shopHtml}`;
   panel.classList.remove('hidden');
+  panel.style.zIndex = '100';
+  if (shouldFocus && options?.focus) bringPanelToFront(panel);
   byId('npc-dungeon-open')?.addEventListener('click', () => { panel.classList.add('hidden'); socket.send({ type: 'dungeon.enter', npcId: dialog.npc?.id, mode: 'open' }); });
   byId('npc-dungeon-enter-solo')?.addEventListener('click', () => { panel.classList.add('hidden'); socket.send({ type: 'dungeon.enter', npcId: dialog.npc?.id, mode: 'solo' }); });
   byId('npc-dungeon-enter-group')?.addEventListener('click', () => { panel.classList.add('hidden'); socket.send({ type: 'dungeon.enter', npcId: dialog.npc?.id, mode: 'group' }); });
-  body.querySelectorAll<HTMLElement>('[data-shop-tab]').forEach((button) => button.onclick = () => { shopSelectedClassTab = String(button.dataset.shopTab || 'knight'); renderNpcDialog(); });
+  body.querySelectorAll<HTMLElement>('[data-shop-tab]').forEach((button) => button.onclick = () => { shopSelectedClassTab = String(button.dataset.shopTab || 'knight'); renderNpcDialog({ force: true }); });
   body.querySelectorAll<HTMLElement>('.npc-quest-accept').forEach((button) => button.onclick = () => socket.send({ type: 'quest.accept', questId: button.dataset.questId }));
   body.querySelectorAll<HTMLElement>('.npc-quest-complete').forEach((button) => button.onclick = () => socket.send({ type: 'quest.complete', questId: button.dataset.questId }));
   body.querySelectorAll<HTMLElement>('.npc-buy').forEach((button) => button.onclick = () => { const offerId = String(button.dataset.offerId || ''); socket.send({ type: 'npc.buy', npcId: String(dialog.npc?.id || ''), offerId, quantity: 1 }); });
@@ -572,13 +1174,21 @@ function renderCharacterPanel() {
     const item = equippedBySlot()[key];
     slot.classList.toggle('filled', Boolean(item));
     slot.textContent = item ? String(item.name || slotLabels[key] || key) : (slotLabels[key] || key);
-    slot.draggable = Boolean(item);
-    slot.ondblclick = item ? () => socket.send({ type: 'equip_req', itemId: item.id }) : null;
-    slot.ondragstart = item ? () => { draggingPayload = { source: 'equipment', itemId: String(item.id) }; } : null;
-    slot.ondragend = () => { draggingPayload = null; };
-    slot.ondragover = (event) => { event.preventDefault(); slot.classList.add('hovered'); };
-    slot.ondragleave = () => slot.classList.remove('hovered');
-    slot.ondrop = () => { slot.classList.remove('hovered'); const itemId = String(draggingPayload?.itemId || ''); const inv = inventoryItems().find((entry: any) => String(entry.id) === itemId); if (!inv) return; if (String(inv.type || '') === 'weapon' && key !== 'weapon') return; if (String(inv.type || '') === 'equipment' && String(inv.slot || '') && String(inv.slot || '') !== key) return; socket.send({ type: 'equip_req', itemId }); draggingPayload = null; };
+    if (item) {
+      bindPointerDoubleActivate(slot, () => socket.send({ type: 'equip_req', itemId: item.id }));
+      slot.ondblclick = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        socket.send({ type: 'equip_req', itemId: item.id });
+      };
+      bindManualDragSource(slot, () => ({ source: 'equipment', itemId: String(item.id) }), () => String(item.name || slotLabels[key] || key));
+    } else {
+      slot.onmousedown = null;
+      slot.ondragstart = null;
+      slot.ondragend = null;
+      slot.onpointerup = null;
+      slot.ondblclick = null;
+    }
   });
   const base = normStats(p.allocatedStats);
   const stats = p.stats && typeof p.stats === 'object' ? p.stats : {};
@@ -670,14 +1280,16 @@ function renderSkillsPanel() {
     card.className = `skills-node ${node.buildKey === 'buildA' ? 'build-a' : 'build-b'}${level > 0 ? ' learned' : ''}${!prereqOk ? ' locked' : ''}${prereqOk && skillPoints() > 0 && level < node.maxPoints ? ' available' : ''}`;
     card.style.left = `${pos.get(node.id)?.left || 10}px`;
     card.style.top = `${pos.get(node.id)?.top || 16}px`;
-    card.draggable = level > 0;
     card.innerHTML = `<span class="skill-icon">${esc(node.label.split(/\s+/).map((entry) => entry[0] || '').join('').slice(0, 2).toUpperCase())}</span><span class="skill-name">${esc(node.label)}</span><span class="lvl">${level}/${node.maxPoints}</span><button type="button" class="plus learn-skill" data-id="${esc(node.id)}">+</button>`;
-    card.ondragstart = level > 0 ? () => { draggingPayload = { source: 'skilltree', skillId: node.id, skillName: node.label }; } : null;
-    card.ondragend = () => { draggingPayload = null; };
+    if (level > 0) bindManualDragSource(card, () => ({ source: 'skilltree', skillId: node.id, skillName: node.label }), () => node.label);
+    else card.onpointerdown = null;
     wrap.appendChild(card);
   });
   wrap.querySelectorAll<HTMLElement>('.learn-skill').forEach((button) => button.onclick = (event) => { event.stopPropagation(); const id = String(button.dataset.id || ''); const node = skillNode(id); if (!node) return; if (node.prereq && skillLevel(node.prereq) < 1) return systemMessage('Aprenda o pre-requisito antes desta habilidade.'); if (skillLevel(id) >= node.maxPoints) return systemMessage('Nivel maximo atingido.'); if (skillPoints() <= 0) return systemMessage('Sem pontos de habilidade disponiveis.'); socket.send({ type: 'skill.learn', skillId: id }); });
   autoSlot.textContent = autoAttackDef(selectedAutoAttackSkillId)?.label || 'Atk Basico';
+  autoSlot.onmousemove = (event) => showTooltip(`<div><strong>Ataque Basico</strong></div><div>Arraste para qualquer slot da barra.</div>`, event.clientX, event.clientY);
+  autoSlot.onmouseleave = () => hideTooltip();
+  bindManualDragSource(autoSlot, () => ({ source: 'basicattack', actionId: 'basic_attack', skillName: 'Atk Basico' }), () => autoAttackDef(selectedAutoAttackSkillId)?.label || 'Atk Basico');
   modular.innerHTML = [...Array(12)].map((_, idx) => idx === 0 && availableAutoAttacks().some((entry) => entry.id === 'mod_fire_wing') ? `<div class="skills-mod-slot filled">Asa de Fogo</div>` : '<div class="skills-mod-slot"></div>').join('');
 }
 
@@ -916,7 +1528,41 @@ function activateHotbar(key: string) {
   }
 }
 
+function toggleMapSettingsPanel(force?: boolean) {
+  const panel = byId<HTMLElement>('map-settings-panel');
+  if (!panel) return;
+  const nextHidden = typeof force === 'boolean' ? !force : !panel.classList.contains('hidden');
+  panel.classList.toggle('hidden', nextHidden);
+}
+
 function bindUi() {
+  byId('hud-root')?.addEventListener('mousedown', (event) => event.stopPropagation(), true);
+  window.addEventListener('pointermove', handleGlobalUiPointerMove, true);
+  window.addEventListener('pointerup', handleGlobalUiPointerEnd, true);
+  window.addEventListener('pointercancel', handleGlobalUiPointerEnd, true);
+  document.addEventListener('dragover', (event) => {
+    if (!draggingPayload) return;
+    const target = updateUiDragTarget(event.clientX, event.clientY);
+    setUiDragHover(target);
+    const deleteCandidate = !target && (draggingPayload.source === 'inventory' || draggingPayload.source === 'equipment');
+    setDeleteDropFeedback(deleteCandidate);
+    if (target || deleteCandidate) event.preventDefault();
+  }, true);
+  document.addEventListener('drop', (event) => {
+    if (!draggingPayload) return;
+    const dropTarget = event.target as HTMLElement | null;
+    const target = isUiDropTarget(dropTarget) ? updateUiDragTarget(event.clientX, event.clientY) : null;
+    if (target || (draggingPayload.source === 'inventory' || draggingPayload.source === 'equipment')) event.preventDefault();
+    performUiDrop(target, event.clientX, event.clientY);
+    cleanupUiDrag();
+  }, true);
+  ['pointerdown', 'click', 'dblclick', 'contextmenu', 'wheel'].forEach((eventName) => {
+    document.addEventListener(eventName, (event) => {
+      const target = event.target as HTMLElement | null;
+      if (!target?.closest('#hud-root .panel, #hud-root .hud-worldmap, #hud-root .hud-chat, #hud-root .hud-skillbar, #hud-root .hud-menus, #hud-root .hud-card, #hud-root .hud-target-player, #hud-root .hud-minimap, #hud-root .hud-party-frames, #hud-root .hud-party-notify, #hud-root .hud-friend-notify, #hud-root .hud-dungeon-notify, #item-tooltip')) return;
+      event.stopPropagation();
+    }, true);
+  });
   byId('tab-login')?.addEventListener('click', () => { byId('tab-login')?.classList.add('active'); byId('tab-register')?.classList.remove('active'); setHidden(byId('form-login'), false); setHidden(byId('form-register'), true); });
   byId('tab-register')?.addEventListener('click', () => { byId('tab-register')?.classList.add('active'); byId('tab-login')?.classList.remove('active'); setHidden(byId('form-login'), true); setHidden(byId('form-register'), false); });
   byId('btn-login')?.addEventListener('click', () => socket.send({ type: 'auth_login', username: String(byId<HTMLInputElement>('login-username')?.value || '').trim(), password: String(byId<HTMLInputElement>('login-password')?.value || '') }));
@@ -930,7 +1576,16 @@ function bindUi() {
   byId('create-char-class')?.addEventListener('change', () => { byId('class-preview')!.textContent = classIcon(String(byId<HTMLSelectElement>('create-char-class')?.value || 'knight')); });
   byId('revive-btn')?.addEventListener('click', () => socket.send({ type: 'player.revive' }));
   byId('dungeon-leave-btn')?.addEventListener('click', () => socket.send({ type: 'dungeon.leave' }));
-  byId('map-settings-toggle')?.addEventListener('click', () => byId('map-settings-panel')?.classList.toggle('hidden'));
+  byId('map-settings-toggle')?.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleMapSettingsPanel();
+  });
+  byId('map-settings-toggle')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+  byId('map-settings-panel')?.addEventListener('pointerdown', (event) => event.stopPropagation(), true);
   byId<HTMLInputElement>('auto-attack-toggle')?.addEventListener('change', (event) => { autoAttackEnabled = Boolean((event.currentTarget as HTMLInputElement).checked); });
   byId<HTMLInputElement>('path-debug-toggle')?.addEventListener('change', (event) => {
     if (!isAdminPlayer()) {
@@ -979,8 +1634,16 @@ function bindUi() {
   byId('player-pvp-toggle')?.addEventListener('click', () => byId('player-pvp-menu')?.classList.toggle('hidden'));
   document.querySelectorAll<HTMLElement>('.pvp-mode-option').forEach((button) => button.addEventListener('click', () => { socket.send({ type: 'player.setPvpMode', mode: String(button.dataset.mode || 'peace') }); byId('player-pvp-menu')?.classList.add('hidden'); }));
   byId<HTMLSelectElement>('instance-select')?.addEventListener('change', (event) => socket.send({ type: 'switch_instance', mapId: String((event.currentTarget as HTMLSelectElement).value || '') }));
-  [['menu-attrs', 'char-panel', 'char-panel-close'], ['menu-inventory', 'inventory-panel', 'inventory-panel-close'], ['menu-skills', 'skills-panel', 'skills-panel-close'], ['menu-quests', 'quest-panel', 'quest-panel-close'], ['menu-map', 'worldmap-panel', 'worldmap-close'], ['menu-party', 'party-panel', 'party-panel-close'], ['menu-friends', 'friends-panel', 'friends-panel-close']].forEach(([buttonId, panelId, closeId]) => { byId(buttonId)?.addEventListener('click', () => byId(panelId)?.classList.toggle('hidden')); byId(closeId)?.addEventListener('click', () => byId(panelId)?.classList.add('hidden')); });
-  [['char-panel', 'char-panel-header'], ['inventory-panel', 'inventory-header'], ['skills-panel', 'skills-header'], ['party-panel', 'party-header'], ['friends-panel', 'friends-header'], ['worldmap-panel', 'worldmap-header'], ['admin-panel', 'admin-header']].forEach(([panelId, headerId]) => makePanelDraggable(panelId, headerId));
+  [['menu-attrs', 'char-panel', 'char-panel-close'], ['menu-inventory', 'inventory-panel', 'inventory-panel-close'], ['menu-skills', 'skills-panel', 'skills-panel-close'], ['menu-quests', 'quest-panel', 'quest-panel-close'], ['menu-map', 'worldmap-panel', 'worldmap-close'], ['menu-party', 'party-panel', 'party-panel-close'], ['menu-friends', 'friends-panel', 'friends-panel-close'], ['menu-guild', 'guild-panel', 'guild-panel-close']].forEach(([buttonId, panelId, closeId]) => {
+    byId(buttonId)?.addEventListener('click', () => {
+      const panel = byId<HTMLElement>(panelId);
+      if (!panel) return;
+      panel.classList.toggle('hidden');
+      if (!panel.classList.contains('hidden')) bringPanelToFront(panel);
+    });
+    byId(closeId)?.addEventListener('click', () => byId(panelId)?.classList.add('hidden'));
+  });
+  [['char-panel', 'char-panel-header'], ['inventory-panel', 'inventory-header'], ['skills-panel', 'skills-header'], ['party-panel', 'party-header'], ['friends-panel', 'friends-header'], ['guild-panel', 'guild-header'], ['worldmap-panel', 'worldmap-header'], ['admin-panel', 'admin-header']].forEach(([panelId, headerId]) => makePanelDraggable(panelId, headerId));
   for (let i = 0; i < 3; i += 1) byId<HTMLButtonElement>(`character-slot-${i}`)?.addEventListener('click', () => store.getState().characterSlots[i] && store.update({ selectedCharacterSlot: i }));
   document.querySelectorAll<HTMLElement>('.chat-scope').forEach((button) => button.addEventListener('click', () => { chatScope = String(button.dataset.scope || 'local') as 'local' | 'map' | 'global'; document.querySelectorAll('.chat-scope').forEach((entry) => entry.classList.remove('active')); button.classList.add('active'); }));
   byId<HTMLInputElement>('chat-input')?.addEventListener('keydown', (event) => { if (event.key !== 'Enter') return; const input = event.currentTarget as HTMLInputElement; const text = String(input.value || '').trim(); event.preventDefault(); if (!text) { closeChatInput(); return; } socket.send({ type: 'chat_send', scope: chatScope, text }); input.value = ''; closeChatInput(); });
@@ -1014,8 +1677,93 @@ function bindUi() {
   });
   window.addEventListener('pointerup', () => { chatManualSizing = false; });
   byId('inventory-sort')?.addEventListener('click', () => socket.send({ type: 'inventory_sort' }));
-  byId('delete-confirm-yes')?.addEventListener('click', () => { const itemId = store.getState().pendingDeleteItemId; if (itemId) socket.send({ type: 'inventory_delete', itemId }); store.update({ pendingDeleteItemId: null }); });
-  byId('delete-confirm-no')?.addEventListener('click', () => store.update({ pendingDeleteItemId: null }));
+  byId('inventory-grid')?.addEventListener('mousedown', (event) => {
+    const itemEl = (event.target as HTMLElement | null)?.closest('.inv-item') as HTMLElement | null;
+    if (!itemEl || event.button !== 0) return;
+    const previous = dragPressState.get(itemEl) || { lastDownAt: 0, suppressNextDrag: false };
+    const now = Date.now();
+    previous.suppressNextDrag = now - previous.lastDownAt < 300;
+    previous.lastDownAt = now;
+    dragPressState.set(itemEl, previous);
+  });
+  byId('inventory-grid')?.addEventListener('dragstart', (event) => {
+    const itemEl = (event.target as HTMLElement | null)?.closest('.inv-item') as HTMLElement | null;
+    if (!itemEl) return;
+    const press = dragPressState.get(itemEl);
+    if (press?.suppressNextDrag) {
+      press.suppressNextDrag = false;
+      dragPressState.set(itemEl, press);
+      event.preventDefault();
+      return;
+    }
+    const itemId = String(itemEl.dataset.itemId || '');
+    const item = findInventoryItemById(itemId);
+    if (!item) {
+      event.preventDefault();
+      return;
+    }
+    draggingPayload = { source: 'inventory', itemId };
+    itemEl.classList.add('dragging');
+    document.body.classList.add('ui-drag-active');
+    const dragImage = createNativeDragImage(itemEl, draggingPayload, String(item.name || item.templateId || 'Item'));
+    const point = normalizeHudClientPoint(event.clientX || 0, event.clientY || 0);
+    const img = dragImage.querySelector<HTMLElement>('.ui-drag-ghost-icon') || dragImage;
+    const rect = img.getBoundingClientRect();
+    event.dataTransfer?.setData('text/plain', itemId);
+    event.dataTransfer?.setDragImage(dragImage, Math.round(rect.width / (2 * point.scale)), Math.round(rect.height / (2 * point.scale)));
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+    window.setTimeout(() => dragImage.remove(), 0);
+  });
+  byId('inventory-grid')?.addEventListener('dragend', () => cleanupUiDrag());
+  byId('inventory-grid')?.addEventListener('dblclick', (event) => {
+    const itemEl = (event.target as HTMLElement | null)?.closest('.inv-item') as HTMLElement | null;
+    if (!itemEl) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dispatchInventoryItemAction(String(itemEl.dataset.itemId || ''));
+  });
+  byId('inventory-grid')?.addEventListener('click', (event) => {
+    const itemEl = (event.target as HTMLElement | null)?.closest('.inv-item') as HTMLElement | null;
+    if (!itemEl) return;
+    const item = findInventoryItemById(String(itemEl.dataset.itemId || ''));
+    if (!item) return;
+    if (event.ctrlKey && Number(item.quantity || 1) > 1) {
+      event.preventDefault();
+      event.stopPropagation();
+      showSplitStackModal(item);
+      return;
+    }
+    if (event.shiftKey && store.getState().npcShopOpen) {
+      event.preventDefault();
+      event.stopPropagation();
+      socket.send({ type: 'sell_item_req', itemId: String(item.id || ''), slotIndex: Number(item.slotIndex ?? -1), npcId: currentNpcShopId() });
+    }
+  });
+  byId('inventory-grid')?.addEventListener('contextmenu', (event) => {
+    const itemEl = (event.target as HTMLElement | null)?.closest('.inv-item') as HTMLElement | null;
+    if (!itemEl) return;
+    event.preventDefault();
+    const item = findInventoryItemById(String(itemEl.dataset.itemId || ''));
+    if (!item) return;
+    showConfirmationModal(
+      'Destruir Item',
+      'Deseja realmente destruir este item? Esta acao nao pode ser desfeita.',
+      () => {
+        socket.send({ type: 'delete_item_req', itemId: String(item.id || ''), slotIndex: Number(item.slotIndex ?? -1) });
+        hideConfirmationModal();
+      }
+    );
+  });
+  byId('inventory-grid')?.addEventListener('mousemove', (event) => {
+    const itemEl = (event.target as HTMLElement | null)?.closest('.inv-item') as HTMLElement | null;
+    if (!itemEl) return;
+    const item = findInventoryItemById(String(itemEl.dataset.itemId || ''));
+    if (!item) return;
+    showTooltip(itemTooltipHtml(item), event.clientX, event.clientY);
+  });
+  byId('inventory-grid')?.addEventListener('mouseleave', () => hideTooltip());
+  byId('confirmation-modal-root')?.addEventListener('pointerdown', handleModalRootInteraction, true);
+  byId('confirmation-modal-root')?.addEventListener('click', handleModalRootInteraction, true);
   byId('party-create')?.addEventListener('click', () => socket.send({ type: 'party.create' }));
   byId('party-invite-btn')?.addEventListener('click', () => { const targetName = String(byId<HTMLInputElement>('party-invite-name')?.value || '').trim(); if (targetName) socket.send({ type: 'party.invite', targetName }); });
   byId('party-leave')?.addEventListener('click', () => socket.send({ type: 'party.leave' }));
@@ -1023,9 +1771,16 @@ function bindUi() {
   byId('friends-add-btn')?.addEventListener('click', () => { const targetName = String(byId<HTMLInputElement>('friends-add-name')?.value || '').trim(); if (targetName) socket.send({ type: 'friend.request', targetName }); });
   byId('friends-tab-list')?.addEventListener('click', () => { setHidden(byId('friends-view-list'), false); setHidden(byId('friends-view-requests'), true); });
   byId('friends-tab-requests')?.addEventListener('click', () => { setHidden(byId('friends-view-list'), true); setHidden(byId('friends-view-requests'), false); });
+  byId('guild-invite-btn')?.addEventListener('click', () => systemMessage('Sistema de guilda pronto para integrar convites quando o backend estiver disponivel.'));
+  byId('guild-roster-btn')?.addEventListener('click', () => systemMessage('Roster de guilda em preparacao. Estrutura visual ja disponivel.'));
   byId('party-tab-area')?.addEventListener('click', () => { setHidden(byId('party-view-area'), false); setHidden(byId('party-view-my'), true); socket.send({ type: 'party.requestAreaParties' }); });
   byId('party-tab-my')?.addEventListener('click', () => { setHidden(byId('party-view-area'), true); setHidden(byId('party-view-my'), false); });
-  byId('npc-dialog-close')?.addEventListener('click', () => store.update({ npcDialog: null }));
+  byId('npc-dialog-close')?.addEventListener('click', () => store.update({ npcDialog: null, npcShopOpen: false }));
+  byId('npc-dialog-panel-close')?.addEventListener('click', () => store.update({ npcDialog: null, npcShopOpen: false }));
+  window.addEventListener('noxis:npc-dialog', () => {
+    lastNpcDialogSyncKey = store.getState().npcDialog ? npcDialogSignature(store.getState().npcDialog) : 'none';
+    renderNpcDialog({ force: true, focus: false });
+  });
   byId('target-actions-toggle')?.addEventListener('click', () => byId('target-actions-menu')?.classList.toggle('hidden'));
   byId('target-invite-btn')?.addEventListener('click', () => { const id = store.getState().selectedPlayerId; const target = id ? store.getState().resolvedWorld?.players?.[String(id)] : null; if (target?.name) socket.send({ type: 'party.invite', targetName: target.name }); });
   byId('target-friend-btn')?.addEventListener('click', () => { const id = store.getState().selectedPlayerId; const target = id ? store.getState().resolvedWorld?.players?.[String(id)] : null; if (target?.name) socket.send({ type: 'friend.request', targetName: target.name }); });
@@ -1074,6 +1829,28 @@ function bindUi() {
     const chatMenu = byId('chat-mode-menu');
     if (target && !chatWrap?.contains(target) && !chatMenu?.contains(target)) closeChatInput();
   }, true);
+  document.addEventListener('pointerdown', (event) => {
+    const panel = (event.target as HTMLElement | null)?.closest('.panel, .hud-worldmap') as HTMLElement | null;
+    if (!panel || panel.classList.contains('hidden')) return;
+    bringPanelToFront(panel);
+  }, true);
+  document.addEventListener('pointerdown', (event) => {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('#map-settings-toggle, #map-settings-panel')) return;
+    toggleMapSettingsPanel(false);
+  }, true);
+  document.addEventListener('click', (event) => {
+    if (Date.now() < suppressClickUntil) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    const closeButton = (event.target as HTMLElement | null)?.closest('.panel-close-btn') as HTMLElement | null;
+    if (!closeButton) return;
+    event.preventDefault();
+    event.stopPropagation();
+    closePanelFromButton(closeButton);
+  }, true);
   window.addEventListener('keydown', (event) => {
     if (isTypingTarget(event.target)) return;
     const key = event.key.toLowerCase();
@@ -1081,9 +1858,17 @@ function bindUi() {
     if (isQuote) { event.preventDefault(); selectNearestHostileTarget(event.shiftKey); return; }
     if (event.key === '.') { event.preventDefault(); socket.send({ type: 'player.toggleAfk' }); return; }
     if (key === 'h' && isAdminPlayer()) { event.preventDefault(); setAdminPanelOpen(!adminPanelOpen); return; }
-    if (event.key === 'Escape') { Object.values(PANEL_SHORTCUTS).forEach((panelId) => byId(panelId)?.classList.add('hidden')); setAdminPanelOpen(false); byId('player-pvp-menu')?.classList.add('hidden'); byId('target-actions-menu')?.classList.add('hidden'); byId('chat-mode-menu')?.classList.add('hidden'); closeChatInput(); store.update({ pendingDeleteItemId: null, npcDialog: null }); clearCurrentTargetSelection(); hideTooltip(); return; }
+    if (event.key === 'Escape') { Object.values(PANEL_SHORTCUTS).forEach((panelId) => byId(panelId)?.classList.add('hidden')); setAdminPanelOpen(false); byId('player-pvp-menu')?.classList.add('hidden'); byId('target-actions-menu')?.classList.add('hidden'); byId('chat-mode-menu')?.classList.add('hidden'); closeChatInput(); store.update({ pendingDeleteItemId: null, npcDialog: null, npcShopOpen: false }); hideConfirmationModal(); clearCurrentTargetSelection(); hideTooltip(); cleanupUiDrag(); return; }
     if (event.key === 'Enter') return void byId<HTMLInputElement>('chat-input')?.focus();
-    if (PANEL_SHORTCUTS[key]) { event.preventDefault(); byId(PANEL_SHORTCUTS[key])?.classList.toggle('hidden'); if (key === 'g') socket.send({ type: 'party.requestAreaParties' }); if (key === 'o') socket.send({ type: 'friend.list' }); return; }
+    if (PANEL_SHORTCUTS[key]) {
+      event.preventDefault();
+      const panel = byId<HTMLElement>(PANEL_SHORTCUTS[key]);
+      panel?.classList.toggle('hidden');
+      if (panel && !panel.classList.contains('hidden')) bringPanelToFront(panel);
+      if (key === 'g') socket.send({ type: 'party.requestAreaParties' });
+      if (key === 'o') socket.send({ type: 'friend.list' });
+      return;
+    }
     if (HOTBAR_KEYS.includes(key)) { event.preventDefault(); activateHotbar(key); }
   });
   [byId<HTMLCanvasElement>('minimap-canvas'), byId<HTMLCanvasElement>('worldmap-canvas')].forEach((canvas) => {
@@ -1108,6 +1893,8 @@ function bindUi() {
     });
   });
   updateHudDebugPanelUI();
+  applyHudBrowserZoomCompensation();
+  window.addEventListener('resize', applyHudBrowserZoomCompensation);
 }
 function render() {
   const state = store.getState();
@@ -1119,12 +1906,13 @@ function render() {
   setHidden(byId('screen-login-register'), !(state.connectionPhase === 'auth' || state.connectionPhase === 'connecting' || state.connectionPhase === 'disconnected'));
   setHidden(byId('screen-character-select'), state.connectionPhase !== 'character_select');
   setHidden(byId('screen-character-create'), state.connectionPhase !== 'character_create');
-  setHidden(byId('ui-container'), inGame);
+  setHidden(byId('ui-container'), inGame && !SVELTE_HUD_SCAFFOLD_ENABLED);
+  setHidden(byId('auth-screen'), SVELTE_AUTH_ENABLED || inGame);
   renderCharacterSlots(state.characterSlots, state.selectedCharacterSlot);
   if (byId('btn-character-enter')) byId<HTMLButtonElement>('btn-character-enter')!.disabled = !Number.isInteger(state.selectedCharacterSlot);
   ['player-card', 'minimap-wrap', 'chat-wrap', 'skillbar-wrap', 'menus-wrap', 'perf-hud'].forEach((id) => setHidden(byId(id), !inGame));
+  setHidden(byId('hud-root'), !inGame || SVELTE_HUD_SCAFFOLD_ENABLED);
   setHidden(byId('revive-overlay'), !(inGame && (state.dead || Boolean(p?.dead) || Number(p?.hp || 0) <= 0)));
-  setHidden(byId('delete-confirm'), !state.pendingDeleteItemId);
   if (!inGame || !isAdmin) adminPanelOpen = false;
   setHidden(byId('admin-panel'), !inGame || !isAdmin || !adminPanelOpen);
   setHidden(byId('afk-status'), !(inGame && Boolean(p?.afkActive)));
@@ -1176,14 +1964,15 @@ function render() {
   renderHotbar();
   renderPartyFrames();
   renderNotifications();
-  renderNpcDialog();
   renderTargetCard();
   renderDungeonReady();
   renderMinimap();
+  if (!state.npcDialog) byId('npc-dialog-panel')?.classList.add('hidden');
   if (!byId('inventory-panel')?.classList.contains('hidden')) renderInventory();
   if (!byId('quest-panel')?.classList.contains('hidden')) renderQuests();
   if (!byId('party-panel')?.classList.contains('hidden')) renderParty();
   if (!byId('friends-panel')?.classList.contains('hidden')) renderFriends();
+  if (!byId('guild-panel')?.classList.contains('hidden')) renderGuildPanel();
   if (!byId('char-panel')?.classList.contains('hidden')) renderCharacterPanel();
   if (!byId('skills-panel')?.classList.contains('hidden')) renderSkillsPanel();
 }
@@ -1198,10 +1987,17 @@ function scheduleRender() {
 }
 
 bindUi();
+const svelteHudRuntime = (SVELTE_AUTH_ENABLED || SVELTE_HUD_SCAFFOLD_ENABLED)
+  ? mountHudApp({ store, socket, target: byId('ui-container'), enableHud: SVELTE_HUD_SCAFFOLD_ENABLED })
+  : null;
 store.addEventListener('change', scheduleRender as EventListener);
+store.addEventListener('change', syncNpcDialogRender as EventListener);
 render();
 socket.connect();
-window.addEventListener('beforeunload', () => game.destroy(true));
+window.addEventListener('beforeunload', () => {
+  svelteHudRuntime?.destroy();
+  game.destroy(true);
+});
 
 
 

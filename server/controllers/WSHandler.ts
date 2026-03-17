@@ -83,6 +83,15 @@ export class WSHandler {
             case 'inventory_delete':
                 this.controller.handleInventoryDelete(player, msg as any);
                 break;
+            case 'delete_item_req':
+                this.controller.handleInventoryDelete(player, msg as any);
+                break;
+            case 'split_item_req':
+                this.controller.handleInventorySplit(player, msg as any);
+                break;
+            case 'sell_item_req':
+                this.controller.handleSellItem(player, msg as any);
+                break;
             case 'inventory_unequip_to_slot':
                 this.controller.handleInventoryUnequipToSlot(player, msg as any);
                 break;

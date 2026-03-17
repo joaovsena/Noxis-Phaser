@@ -236,7 +236,11 @@ export class GameSocket {
         this.store.update({ friendState: payload });
         return;
       case 'npc.dialog':
-        this.store.update({ npcDialog: payload });
+        this.store.update({
+          npcDialog: payload,
+          npcShopOpen: Array.isArray(payload?.shopOffers) && payload.shopOffers.length > 0
+        });
+        window.dispatchEvent(new CustomEvent('noxis:npc-dialog', { detail: payload }));
         return;
       case 'dungeon.readyCheck':
       case 'dungeon.readyUpdate':

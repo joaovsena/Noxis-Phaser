@@ -134,6 +134,8 @@ export class WorldScene extends Phaser.Scene {
   private changeHandler: EventListener | null = null;
   private projectedMapWidth = 0;
   private projectedMapHeight = 0;
+  private baseCameraZoom = 0.9;
+  private userZoomFactor = 1;
   private currentCameraZoom = 0.82;
   private loadedTileTextureKeys = new Set<string>();
   private mapRenderTextures: Phaser.GameObjects.RenderTexture[] = [];
@@ -182,6 +184,11 @@ export class WorldScene extends Phaser.Scene {
     this.localPlayerAnchor = this.add.circle(0, 0, 8, 0x000000, 0);
     this.localPlayerAnchor.setVisible(false);
     this.cameras.main.startFollow(this.localPlayerAnchor, true, 0.09, 0.09);
+    this.input.on('wheel', (_pointer: Phaser.Input.Pointer, _objects: Phaser.GameObjects.GameObject[], _deltaX: number, deltaY: number) => {
+      const direction = deltaY > 0 ? -1 : 1;
+      this.userZoomFactor = Phaser.Math.Clamp(this.userZoomFactor + direction * 0.05, 0.75, 1.25);
+      this.applyCameraZoom();
+    });
     this.drawEmergencyMapFallback();
     await this.ensurePlayerAssets();
     this.createPlayerAnimations();
@@ -1304,13 +1311,17 @@ export class WorldScene extends Phaser.Scene {
     const height = Number(gameSize.height || 0);
     if (!width || !height) return;
     this.cameras.main.setSize(width, height);
-    const baseZoom = width < 900 ? 0.8 : width < 1400 ? 0.9 : 0.98;
-    const zoom = this.projectedMapWidth > 0
-      ? Phaser.Math.Clamp(baseZoom, 0.78, 1.02)
-      : baseZoom;
-    this.currentCameraZoom = zoom;
-    this.cameras.main.setZoom(zoom);
+    const responsiveBaseZoom = width < 900 ? 0.8 : width < 1400 ? 0.9 : 0.98;
+    this.baseCameraZoom = this.projectedMapWidth > 0
+      ? Phaser.Math.Clamp(responsiveBaseZoom, 0.78, 1.02)
+      : responsiveBaseZoom;
+    this.applyCameraZoom();
     this.cameras.main.setBounds(0, 0, this.projectedMapWidth || width, (this.projectedMapHeight || height) + 180);
+  }
+
+  private applyCameraZoom() {
+    this.currentCameraZoom = Phaser.Math.Clamp(this.baseCameraZoom * this.userZoomFactor, this.baseCameraZoom * 0.75, this.baseCameraZoom * 1.25);
+    this.cameras.main.setZoom(this.currentCameraZoom);
   }
 
   private getRenderTileMetrics() {

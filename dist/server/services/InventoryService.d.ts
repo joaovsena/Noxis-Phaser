@@ -27,10 +27,15 @@ export declare class InventoryService {
     constructor(getGroundItems: () => GroundItem[], setGroundItems: (items: GroundItem[]) => void, mapInstanceId: MapInstanceIdFn, persistPlayer: PersistPlayerFn, recomputePlayerStats: RecomputePlayerStatsFn, sendInventoryState: SendInventoryStateFn, sendStatsUpdated: SendStatsUpdatedFn, normalizeHotbarBindings: NormalizeHotbarBindingsFn, firstFreeInventorySlot: FirstFreeInventorySlotFn, getSpentSkillPoints: GetSpentSkillPointsFn, sendRaw: SendRawFn, normalizeClassId: NormalizeClassIdFn, onItemCollected?: ItemCollectedFn | undefined);
     handlePickupItem(player: PlayerRuntime, msg: any): void;
     handleHotbarSet(player: PlayerRuntime, msg: any): void;
+    private commitInventoryEquipTransaction;
+    private enrichItemVisuals;
     handleEquipItem(player: PlayerRuntime, msg: any): void;
     handleInventoryMove(player: PlayerRuntime, msg: any): void;
     handleInventorySort(player: PlayerRuntime): void;
     handleInventoryDelete(player: PlayerRuntime, msg: any): void;
+    handleInventorySplit(player: PlayerRuntime, msg: any): void;
+    private isItemDestroyable;
+    isItemSellable(item: any): boolean;
     handleInventoryUnequipToSlot(player: PlayerRuntime, msg: any): void;
     handleItemUse(player: PlayerRuntime, msg: any): void;
     normalizeInventorySlots(items: any[], equippedWeaponId?: string | null): any[];

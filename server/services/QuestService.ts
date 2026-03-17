@@ -132,6 +132,8 @@ export class QuestService {
                     npcId: String(npcId || ''),
                     templateId: String(template.id || template.type || ''),
                     name: String(template.name || 'Item'),
+                    spriteId: template.spriteId ? String(template.spriteId) : null,
+                    iconUrl: template.iconUrl ? String(template.iconUrl) : '/assets/ui/items/placeholder-transparent.svg',
                     type: String(template.type || 'misc'),
                     slot: String(template.slot || 'misc'),
                     quantity: Math.max(1, Number(entry.quantity || 1)),

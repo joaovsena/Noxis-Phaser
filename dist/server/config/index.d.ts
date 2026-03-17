@@ -98,6 +98,9 @@ export declare const WEAPON_TEMPLATE: {
     id: string;
     type: string;
     name: string;
+    rarity: string;
+    spriteId: string;
+    iconUrl: string;
     slot: string;
     price: {
         silver: number;
@@ -113,6 +116,9 @@ export declare const WEAPON_TEMPLATE_RUBI: {
     id: string;
     type: string;
     name: string;
+    rarity: string;
+    spriteId: string;
+    iconUrl: string;
     slot: string;
     price: {
         gold: number;
@@ -129,6 +135,9 @@ export declare const WEAPON_TEMPLATES: {
     id: string;
     type: string;
     name: string;
+    rarity: string;
+    spriteId: string;
+    iconUrl: string;
     slot: string;
     price: {
         silver: number;
@@ -144,6 +153,9 @@ export declare const HP_POTION_TEMPLATE: {
     id: string;
     type: string;
     name: string;
+    rarity: string;
+    spriteId: string;
+    iconUrl: string;
     slot: string;
     price: {
         copper: number;
@@ -156,6 +168,9 @@ export declare const SKILL_RESET_HOURGLASS_TEMPLATE: {
     id: string;
     type: string;
     name: string;
+    rarity: string;
+    spriteId: string;
+    iconUrl: string;
     slot: string;
     price: {
         silver: number;
@@ -167,6 +182,9 @@ export declare const CLASS_EQUIPMENT_TEMPLATES: {
     id: string;
     type: string;
     name: string;
+    rarity: string;
+    spriteId: string;
+    iconUrl: string;
     slot: "helmet" | "chest" | "pants" | "gloves" | "boots" | "ring" | "necklace";
     requiredClass: "knight" | "archer" | "druid" | "assassin";
     price: any;
@@ -176,6 +194,9 @@ export declare const BUILTIN_ITEM_TEMPLATES: ({
     id: string;
     type: string;
     name: string;
+    rarity: string;
+    spriteId: string;
+    iconUrl: string;
     slot: string;
     price: {
         silver: number;
@@ -190,6 +211,9 @@ export declare const BUILTIN_ITEM_TEMPLATES: ({
     id: string;
     type: string;
     name: string;
+    rarity: string;
+    spriteId: string;
+    iconUrl: string;
     slot: string;
     price: {
         copper: number;
@@ -201,6 +225,9 @@ export declare const BUILTIN_ITEM_TEMPLATES: ({
     id: string;
     type: string;
     name: string;
+    rarity: string;
+    spriteId: string;
+    iconUrl: string;
     slot: string;
     price: {
         silver: number;
@@ -211,6 +238,9 @@ export declare const BUILTIN_ITEM_TEMPLATES: ({
     id: string;
     type: string;
     name: string;
+    rarity: string;
+    spriteId: string;
+    iconUrl: string;
     slot: "helmet" | "chest" | "pants" | "gloves" | "boots" | "ring" | "necklace";
     requiredClass: "knight" | "archer" | "druid" | "assassin";
     price: any;
