@@ -46,6 +46,7 @@ let chatManualOrigin = { x: 0, y: 0, width: 360, height: 260 };
 let autoAttackEnabled = true;
 let pathDebugEnabled = false;
 let renderQueued = false;
+let adminPanelOpen = false;
 let shopQuantities: Record<string, number> = {};
 let shopSelectedClassTab = 'knight';
 let shopNpcDialogNpcId: string | null = null;
@@ -122,6 +123,60 @@ function skillPoints() { return Number.isFinite(Number(localPlayer()?.skillPoint
 function autoAttackDef(id: string) { if (!id || id === 'class_primary') return { id: 'class_primary', label: 'Atk Basico' }; const node = skillNode(id); if (node && skillLevel(id) > 0) return { id, label: node.label }; if (id === 'mod_fire_wing') return { id, label: 'Asa de Fogo' }; return null; }
 function availableAutoAttacks() { const out = [{ id: 'class_primary', label: 'Atk Basico' }]; const cls = skillClass(String(localPlayer()?.class || 'knight')); SKILL_TREE.filter((node) => node.classId === cls && skillLevel(node.id) > 0).forEach((node) => out.push({ id: node.id, label: node.label })); if ([...inventoryItems(), ...Object.values(equippedBySlot())].some((it: any) => String(it?.name || '').toLowerCase().includes('asa de fogo'))) out.push({ id: 'mod_fire_wing', label: 'Asa de Fogo' }); return out; }
 function systemMessage(text: string) { store.pushChatMessage({ id: `${Date.now()}-${Math.random()}`, type: 'system', text, at: Date.now() }); }
+function closeChatInput() {
+  byId<HTMLInputElement>('chat-input')?.blur();
+  byId('chat-mode-menu')?.classList.add('hidden');
+}
+function clearCurrentTargetSelection(clearCombat = true) {
+  store.update({ selectedPlayerId: null, selectedMobId: null });
+  if (clearCombat) socket.send({ type: 'combat.clearTarget' });
+}
+function setAdminPanelOpen(nextOpen: boolean) {
+  adminPanelOpen = nextOpen;
+  byId('admin-panel')?.classList.toggle('hidden', !nextOpen);
+}
+function makePanelDraggable(panelId: string, headerId: string) {
+  const panel = byId<HTMLElement>(panelId);
+  const header = byId<HTMLElement>(headerId);
+  if (!panel || !header) return;
+  let dragging = false;
+  let pointerId: number | null = null;
+  let ox = 0;
+  let oy = 0;
+  const stopDragging = () => {
+    dragging = false;
+    pointerId = null;
+    header.classList.remove('dragging');
+  };
+  header.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    const rect = panel.getBoundingClientRect();
+    const computed = window.getComputedStyle(panel);
+    event.preventDefault();
+    event.stopPropagation();
+    dragging = true;
+    pointerId = event.pointerId;
+    header.classList.add('dragging');
+    panel.style.left = `${rect.left}px`;
+    panel.style.top = `${rect.top}px`;
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+    if (computed.transform && computed.transform !== 'none') panel.style.transform = 'none';
+    ox = event.clientX - rect.left;
+    oy = event.clientY - rect.top;
+    header.setPointerCapture?.(event.pointerId);
+  });
+  header.addEventListener('pointermove', (event) => {
+    if (!dragging || pointerId !== event.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    panel.style.left = `${Math.max(8, Math.min(window.innerWidth - panel.offsetWidth - 8, event.clientX - ox))}px`;
+    panel.style.top = `${Math.max(8, Math.min(window.innerHeight - panel.offsetHeight - 8, event.clientY - oy))}px`;
+  });
+  header.addEventListener('pointerup', stopDragging);
+  header.addEventListener('pointercancel', stopDragging);
+  header.addEventListener('lostpointercapture', stopDragging);
+}
 function isHostilePlayer(player: any) { return player && Number(player.id || 0) !== Number(store.getState().playerId) && !player.dead && Number(player.hp || 0) > 0 && String(player.pvpMode || 'peace') !== 'peace'; }
 function inferEquipSlot(item: any) { const slot = String(item?.slot || '').toLowerCase(); if (slot) return slot; const type = String(item?.type || '').toLowerCase(); if (type === 'weapon') return 'weapon'; if (type === 'ring') return 'ring'; if (type === 'necklace' || type === 'amulet') return 'necklace'; return type === 'equipment' ? '' : ''; }
 function walletToCopper(wallet: any) { const w = wallet && typeof wallet === 'object' ? wallet : {}; return (Number(w.diamond || 0) * 1000000) + (Number(w.gold || 0) * 10000) + (Number(w.silver || 0) * 100) + Number(w.copper || 0); }
@@ -187,7 +242,7 @@ function itemTooltipHtml(item: any) {
   return `<div class="tooltip-title">${esc(item?.name || item?.templateId || 'Item')}</div><div class="tooltip-muted">Tipo: ${esc(item?.type || 'generic')}</div>${requiredClass}${bonuses || '<div class="tooltip-muted">Sem bonus declarados.</div>'}<div class="tooltip-muted">Qtd: ${quantity}</div>${compareBlock}`;
 }
 function skillTooltipHtml(skillId: string) { const node = skillNode(skillId); if (!node) return `<div><strong>Habilidade</strong></div>`; return `<div><strong>${esc(node.label)}</strong></div><div>Nivel: ${skillLevel(skillId)}/${node.maxPoints}</div><div>Classe: ${esc(classLabel(node.classId))}</div>`; }
-function selectNearestHostileTarget(reverse = false) { const me = localPlayer(); const world = store.getState().resolvedWorld; if (!me || !world) return; const candidates: Array<{ type: 'mob' | 'player'; id: string; dist: number }> = []; for (const mob of Array.isArray(world.mobs) ? world.mobs : []) { if (!mob || Number(mob.hp || 0) <= 0) continue; candidates.push({ type: 'mob', id: String(mob.id), dist: Math.hypot(Number(mob.x || 0) - Number(me.x || 0), Number(mob.y || 0) - Number(me.y || 0)) }); } for (const player of Object.values(world.players || {})) { const safe = player as any; if (!isHostilePlayer(safe)) continue; candidates.push({ type: 'player', id: String(safe.id), dist: Math.hypot(Number(safe.x || 0) - Number(me.x || 0), Number(safe.y || 0) - Number(me.y || 0)) }); } candidates.sort((a, b) => a.dist - b.dist); if (!candidates.length) { targetCycleIndex = -1; store.update({ selectedMobId: null, selectedPlayerId: null }); systemMessage('Nenhum alvo hostil proximo.'); return; } const currentTargetKey = store.getState().selectedMobId ? `mob:${store.getState().selectedMobId}` : store.getState().selectedPlayerId ? `player:${store.getState().selectedPlayerId}` : ''; const currentIndex = candidates.findIndex((entry) => `${entry.type}:${entry.id}` === currentTargetKey); targetCycleIndex = currentIndex >= 0 ? (currentIndex + (reverse ? -1 : 1) + candidates.length) % candidates.length : 0; const next = candidates[targetCycleIndex]; if (next.type === 'mob') { store.update({ selectedMobId: next.id, selectedPlayerId: null }); socket.send({ type: 'target_mob', mobId: next.id }); return; } store.update({ selectedPlayerId: Number(next.id) || null, selectedMobId: null }); }
+function selectNearestHostileTarget(reverse = false) { const me = localPlayer(); const world = store.getState().resolvedWorld; if (!me || !world) return; const candidates: Array<{ type: 'mob' | 'player'; id: string; dist: number }> = []; for (const mob of Array.isArray(world.mobs) ? world.mobs : []) { if (!mob || Number(mob.hp || 0) <= 0) continue; candidates.push({ type: 'mob', id: String(mob.id), dist: Math.hypot(Number(mob.x || 0) - Number(me.x || 0), Number(mob.y || 0) - Number(me.y || 0)) }); } for (const player of Object.values(world.players || {})) { const safe = player as any; if (!isHostilePlayer(safe)) continue; candidates.push({ type: 'player', id: String(safe.id), dist: Math.hypot(Number(safe.x || 0) - Number(me.x || 0), Number(safe.y || 0) - Number(me.y || 0)) }); } candidates.sort((a, b) => a.dist - b.dist); if (!candidates.length) { targetCycleIndex = -1; clearCurrentTargetSelection(); systemMessage('Nenhum alvo hostil proximo.'); return; } const currentTargetKey = store.getState().selectedMobId ? `mob:${store.getState().selectedMobId}` : store.getState().selectedPlayerId ? `player:${store.getState().selectedPlayerId}` : ''; const currentIndex = candidates.findIndex((entry) => `${entry.type}:${entry.id}` === currentTargetKey); targetCycleIndex = currentIndex >= 0 ? (currentIndex + (reverse ? -1 : 1) + candidates.length) % candidates.length : 0; const next = candidates[targetCycleIndex]; socket.send({ type: 'combat.clearTarget' }); if (next.type === 'mob') { store.update({ selectedMobId: next.id, selectedPlayerId: null }); return; } store.update({ selectedPlayerId: Number(next.id) || null, selectedMobId: null }); }
 
 // RENDERERS
 function renderCharacterSlots(slots: CharacterSlot[], selectedSlot: number | null) {
@@ -925,10 +980,10 @@ function bindUi() {
   document.querySelectorAll<HTMLElement>('.pvp-mode-option').forEach((button) => button.addEventListener('click', () => { socket.send({ type: 'player.setPvpMode', mode: String(button.dataset.mode || 'peace') }); byId('player-pvp-menu')?.classList.add('hidden'); }));
   byId<HTMLSelectElement>('instance-select')?.addEventListener('change', (event) => socket.send({ type: 'switch_instance', mapId: String((event.currentTarget as HTMLSelectElement).value || '') }));
   [['menu-attrs', 'char-panel', 'char-panel-close'], ['menu-inventory', 'inventory-panel', 'inventory-panel-close'], ['menu-skills', 'skills-panel', 'skills-panel-close'], ['menu-quests', 'quest-panel', 'quest-panel-close'], ['menu-map', 'worldmap-panel', 'worldmap-close'], ['menu-party', 'party-panel', 'party-panel-close'], ['menu-friends', 'friends-panel', 'friends-panel-close']].forEach(([buttonId, panelId, closeId]) => { byId(buttonId)?.addEventListener('click', () => byId(panelId)?.classList.toggle('hidden')); byId(closeId)?.addEventListener('click', () => byId(panelId)?.classList.add('hidden')); });
-  [['char-panel', 'char-panel-header'], ['inventory-panel', 'inventory-header'], ['skills-panel', 'skills-header'], ['party-panel', 'party-header'], ['friends-panel', 'friends-header'], ['worldmap-panel', 'worldmap-header'], ['admin-panel', 'admin-header']].forEach(([panelId, headerId]) => { const panel = byId<HTMLElement>(panelId); const header = byId<HTMLElement>(headerId); if (!panel || !header) return; let dragging = false, ox = 0, oy = 0; header.addEventListener('pointerdown', (event) => { dragging = true; const rect = panel.getBoundingClientRect(); panel.style.left = `${rect.left}px`; panel.style.top = `${rect.top}px`; panel.style.right = 'auto'; panel.style.bottom = 'auto'; ox = event.clientX - rect.left; oy = event.clientY - rect.top; }); window.addEventListener('pointermove', (event) => { if (!dragging) return; panel.style.left = `${Math.max(8, event.clientX - ox)}px`; panel.style.top = `${Math.max(8, event.clientY - oy)}px`; }); window.addEventListener('pointerup', () => { dragging = false; }); });
+  [['char-panel', 'char-panel-header'], ['inventory-panel', 'inventory-header'], ['skills-panel', 'skills-header'], ['party-panel', 'party-header'], ['friends-panel', 'friends-header'], ['worldmap-panel', 'worldmap-header'], ['admin-panel', 'admin-header']].forEach(([panelId, headerId]) => makePanelDraggable(panelId, headerId));
   for (let i = 0; i < 3; i += 1) byId<HTMLButtonElement>(`character-slot-${i}`)?.addEventListener('click', () => store.getState().characterSlots[i] && store.update({ selectedCharacterSlot: i }));
   document.querySelectorAll<HTMLElement>('.chat-scope').forEach((button) => button.addEventListener('click', () => { chatScope = String(button.dataset.scope || 'local') as 'local' | 'map' | 'global'; document.querySelectorAll('.chat-scope').forEach((entry) => entry.classList.remove('active')); button.classList.add('active'); }));
-  byId<HTMLInputElement>('chat-input')?.addEventListener('keydown', (event) => { if (event.key !== 'Enter') return; const input = event.currentTarget as HTMLInputElement; const text = String(input.value || '').trim(); if (!text) return; socket.send({ type: 'chat_send', scope: chatScope, text }); input.value = ''; });
+  byId<HTMLInputElement>('chat-input')?.addEventListener('keydown', (event) => { if (event.key !== 'Enter') return; const input = event.currentTarget as HTMLInputElement; const text = String(input.value || '').trim(); event.preventDefault(); if (!text) { closeChatInput(); return; } socket.send({ type: 'chat_send', scope: chatScope, text }); input.value = ''; closeChatInput(); });
   document.querySelectorAll<HTMLElement>('.chat-mode-option').forEach((button) => button.addEventListener('click', () => {
     chatViewMode = String(button.dataset.mode || 'expanded') as typeof chatViewMode;
     document.querySelectorAll('.chat-mode-option').forEach((entry) => entry.classList.remove('active'));
@@ -1012,18 +1067,45 @@ function bindUi() {
     }
     if (store.getState().selectedPlayerId) socket.send({ type: 'combat.targetPlayer', targetPlayerId: store.getState().selectedPlayerId });
   });
-  byId('target-clear-btn')?.addEventListener('click', () => { byId('target-actions-menu')?.classList.add('hidden'); store.update({ selectedPlayerId: null, selectedMobId: null }); });
+  byId('target-clear-btn')?.addEventListener('click', () => { byId('target-actions-menu')?.classList.add('hidden'); clearCurrentTargetSelection(); });
+  document.addEventListener('pointerdown', (event) => {
+    const target = event.target as Node | null;
+    const chatWrap = byId('chat-wrap');
+    const chatMenu = byId('chat-mode-menu');
+    if (target && !chatWrap?.contains(target) && !chatMenu?.contains(target)) closeChatInput();
+  }, true);
   window.addEventListener('keydown', (event) => {
     if (isTypingTarget(event.target)) return;
     const key = event.key.toLowerCase();
     const isQuote = event.code === 'Quote' || event.key === "'" || event.key === '"';
     if (isQuote) { event.preventDefault(); selectNearestHostileTarget(event.shiftKey); return; }
     if (event.key === '.') { event.preventDefault(); socket.send({ type: 'player.toggleAfk' }); return; }
-    if (key === 'h' && isAdminPlayer()) { event.preventDefault(); byId('admin-panel')?.classList.toggle('hidden'); return; }
-    if (event.key === 'Escape') { Object.values(PANEL_SHORTCUTS).forEach((panelId) => byId(panelId)?.classList.add('hidden')); byId('admin-panel')?.classList.add('hidden'); byId('player-pvp-menu')?.classList.add('hidden'); byId('target-actions-menu')?.classList.add('hidden'); byId('chat-mode-menu')?.classList.add('hidden'); store.update({ selectedPlayerId: null, selectedMobId: null, pendingDeleteItemId: null, npcDialog: null }); hideTooltip(); return; }
+    if (key === 'h' && isAdminPlayer()) { event.preventDefault(); setAdminPanelOpen(!adminPanelOpen); return; }
+    if (event.key === 'Escape') { Object.values(PANEL_SHORTCUTS).forEach((panelId) => byId(panelId)?.classList.add('hidden')); setAdminPanelOpen(false); byId('player-pvp-menu')?.classList.add('hidden'); byId('target-actions-menu')?.classList.add('hidden'); byId('chat-mode-menu')?.classList.add('hidden'); closeChatInput(); store.update({ pendingDeleteItemId: null, npcDialog: null }); clearCurrentTargetSelection(); hideTooltip(); return; }
     if (event.key === 'Enter') return void byId<HTMLInputElement>('chat-input')?.focus();
     if (PANEL_SHORTCUTS[key]) { event.preventDefault(); byId(PANEL_SHORTCUTS[key])?.classList.toggle('hidden'); if (key === 'g') socket.send({ type: 'party.requestAreaParties' }); if (key === 'o') socket.send({ type: 'friend.list' }); return; }
     if (HOTBAR_KEYS.includes(key)) { event.preventDefault(); activateHotbar(key); }
+  });
+  [byId<HTMLCanvasElement>('minimap-canvas'), byId<HTMLCanvasElement>('worldmap-canvas')].forEach((canvas) => {
+    canvas?.addEventListener('mousemove', (event) => {
+      if (!canvas) return;
+      const point = canvas.id === 'minimap-canvas'
+        ? worldPointFromMinimapClick(canvas, event.clientX, event.clientY)
+        : worldPointFromIsoMapClick(canvas, event.clientX, event.clientY);
+      const label = byId<HTMLElement>(canvas.id === 'minimap-canvas' ? 'minimap-coords-label' : 'worldmap-coords-label');
+      if (!label) return;
+      if (!point) {
+        const p = localPlayer();
+        label.textContent = p ? `X: ${Math.round(Number(p.x || 0))} | Y: ${Math.round(Number(p.y || 0))}` : 'X: -- | Y: --';
+        return;
+      }
+      label.textContent = `X: ${Math.round(Number(point.x || 0))} | Y: ${Math.round(Number(point.y || 0))}`;
+    });
+    canvas?.addEventListener('mouseleave', () => {
+      const p = localPlayer();
+      const label = byId<HTMLElement>(canvas.id === 'minimap-canvas' ? 'minimap-coords-label' : 'worldmap-coords-label');
+      if (label) label.textContent = p ? `X: ${Math.round(Number(p.x || 0))} | Y: ${Math.round(Number(p.y || 0))}` : 'X: -- | Y: --';
+    });
   });
   updateHudDebugPanelUI();
 }
@@ -1043,7 +1125,8 @@ function render() {
   ['player-card', 'minimap-wrap', 'chat-wrap', 'skillbar-wrap', 'menus-wrap', 'perf-hud'].forEach((id) => setHidden(byId(id), !inGame));
   setHidden(byId('revive-overlay'), !(inGame && (state.dead || Boolean(p?.dead) || Number(p?.hp || 0) <= 0)));
   setHidden(byId('delete-confirm'), !state.pendingDeleteItemId);
-  setHidden(byId('admin-panel'), !inGame || !isAdmin);
+  if (!inGame || !isAdmin) adminPanelOpen = false;
+  setHidden(byId('admin-panel'), !inGame || !isAdmin || !adminPanelOpen);
   setHidden(byId('afk-status'), !(inGame && Boolean(p?.afkActive)));
   setHidden(byId('path-debug-setting'), !isAdmin);
   setHidden(byId('interaction-debug-setting'), !isAdmin);

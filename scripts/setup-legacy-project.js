@@ -1,5 +1,6 @@
 const fs = require('fs');
-const path = require('path');
+
+// Legacy scaffold generator kept only for the old public/js client.
 
 const folders = [
     'public/assets/sprites',
@@ -11,8 +12,8 @@ const folders = [
 ];
 
 const files = {
-    // HTML PRINCIPAL
-    'public/index.html': `
+    // HTML PRINCIPAL DO CLIENTE LEGADO
+    'public/index.legacy.html': `
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>

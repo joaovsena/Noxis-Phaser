@@ -3,8 +3,15 @@ set -e
 
 if [ "${PRISMA_DB_PUSH:-1}" = "1" ]; then
   echo "[app] Waiting for database and syncing schema..."
+  prisma_db_push_attempt=1
+  prisma_db_push_max_retries="${PRISMA_DB_PUSH_MAX_RETRIES:-45}"
   until npx prisma db push; do
+    if [ "$prisma_db_push_attempt" -ge "$prisma_db_push_max_retries" ]; then
+      echo "[app] prisma db push failed after ${prisma_db_push_attempt} attempts. Exiting."
+      exit 1
+    fi
     echo "[app] Database not ready yet. Retrying in 2s..."
+    prisma_db_push_attempt=$((prisma_db_push_attempt + 1))
     sleep 2
   done
 else

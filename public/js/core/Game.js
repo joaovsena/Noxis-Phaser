@@ -22,6 +22,7 @@ export class Game {
         this.hoveredNpcId = null;
         this.selectedMobId = null;
         this.hoveredGroundItemId = null;
+        this.selectedGroundItemId = null;
         this.pendingPickup = null;
         this.pickupInteractRange = 110;
         this.groundItemHitHalfSize = 20;
@@ -373,12 +374,13 @@ export class Game {
             if (!this.localId) return;
             const world = this.toWorldCoords(e);
             this.hoveredNpcId = this.getNpcAt(world.x, world.y);
-            this.hoveredMobId = this.getMobAt(world.x, world.y);
-            this.hoveredGroundItemId = this.getGroundItemAt(world.x, world.y);
+            this.hoveredMobId = this.getMobAtClient(e.clientX, e.clientY) || this.getMobAt(world.x, world.y);
+            this.hoveredGroundItemId = this.getGroundItemAtClient(e.clientX, e.clientY) || this.getGroundItemAt(world.x, world.y);
             this.updateGroundItemCursor();
         });
         this.canvas.addEventListener('mouseleave', () => {
             this.hoveredNpcId = null;
+            this.hoveredMobId = null;
             this.hoveredGroundItemId = null;
             this.updateGroundItemCursor();
         });
@@ -392,18 +394,20 @@ export class Game {
                 return;
             }
             this.cancelPendingNpcInteract();
-            const itemId = this.getGroundItemAt(world.x, world.y) || this.getNearestGroundItemAt(world.x, world.y, 32);
+            const itemId = this.getGroundItemAtClient(clientX, clientY)
+                || this.getGroundItemAt(world.x, world.y)
+                || this.getNearestGroundItemAt(world.x, world.y, 32);
             if (itemId) {
                 this.tryPickupGroundItem(itemId);
                 return;
             }
             this.cancelPendingPickup();
-            const playerId = this.getPlayerAt(world.x, world.y);
+            const playerId = this.getPlayerAtClient(clientX, clientY) || this.getPlayerAt(world.x, world.y);
             if (playerId) {
                 this.selectPlayerTarget(playerId, this.autoAttackEnabled);
                 return;
             }
-            const mobId = this.getMobAt(world.x, world.y);
+            const mobId = this.getMobAtClient(clientX, clientY) || this.getMobAt(world.x, world.y);
 
             if (mobId) {
                 this.selectMobTarget(mobId, this.autoAttackEnabled);
@@ -667,11 +671,13 @@ export class Game {
             if (!this.localId) return;
             this.handleMinimapClick(e.clientX, e.clientY);
         });
-        this.minimapCanvas.addEventListener('mousemove', (e) => {
+        const updateMinimapHover = (e) => {
             const worldRect = this.getMinimapWorldRect();
             this.minimapHoverWorld = this.worldFromCanvasClient(this.minimapCanvas, e.clientX, e.clientY, worldRect);
             this.updateMapCoordsLabel(this.minimapCoordsLabel, this.minimapHoverWorld);
-        });
+        };
+        this.minimapCanvas.addEventListener('mousemove', updateMinimapHover);
+        this.minimapCanvas.addEventListener('pointermove', updateMinimapHover);
         this.minimapCanvas.addEventListener('mouseleave', () => {
             this.minimapHoverWorld = null;
             this.updateMapCoordsLabel(this.minimapCoordsLabel, null);
@@ -687,11 +693,13 @@ export class Game {
                 this.handleWorldMapWaypointPing(e.clientX, e.clientY);
             }
         });
-        this.worldmapCanvas.addEventListener('mousemove', (e) => {
+        const updateWorldmapHover = (e) => {
             const worldRect = this.getFullPreviewWorldRect();
             this.worldmapHoverWorld = this.worldFromCanvasClient(this.worldmapCanvas, e.clientX, e.clientY, worldRect);
             this.updateMapCoordsLabel(this.worldmapCoordsLabel, this.worldmapHoverWorld);
-        });
+        };
+        this.worldmapCanvas.addEventListener('mousemove', updateWorldmapHover);
+        this.worldmapCanvas.addEventListener('pointermove', updateWorldmapHover);
         this.worldmapCanvas.addEventListener('mouseleave', () => {
             this.worldmapHoverWorld = null;
             this.updateMapCoordsLabel(this.worldmapCoordsLabel, null);
@@ -701,6 +709,7 @@ export class Game {
             this.closeAllTooltips('ui_window_focus_changed');
             this.worldmapHoverWorld = null;
             this.updateMapCoordsLabel(this.worldmapCoordsLabel, null);
+            this.worldmapLastDrawAt = 0;
         });
         this.inventorySortBtn.addEventListener('click', () => {
             if (!this.localId) return;
@@ -955,9 +964,14 @@ export class Game {
         });
         window.addEventListener('click', (e) => {
             const target = e.target;
-            if (!this.chatModeMenu || this.chatModeMenu.classList.contains('hidden')) return;
             const insideChat = target && typeof target.closest === 'function' && target.closest('#chat-wrap');
-            if (!insideChat) this.chatModeMenu.classList.add('hidden');
+            if (this.chatModeMenu && !this.chatModeMenu.classList.contains('hidden') && !insideChat) {
+                this.chatModeMenu.classList.add('hidden');
+            }
+            if (!insideChat && document.activeElement === this.chatInput) {
+                this.chatInput.blur();
+                this.chatTypingMode = false;
+            }
         });
 
         this.deleteConfirmYes.addEventListener('click', () => {
@@ -1075,30 +1089,49 @@ export class Game {
     makeDraggable(panel, handle, resetTransform = false) {
         if (!panel || !handle) return;
         let dragging = false;
+        let pointerId = null;
         let offsetX = 0;
         let offsetY = 0;
 
-        handle.addEventListener('mousedown', (e) => {
+        handle.addEventListener('pointerdown', (e) => {
+            if (e.button !== 0) return;
             const target = e.target;
             if (target && typeof target.closest === 'function' && target.closest('button')) return;
             dragging = true;
+            pointerId = e.pointerId;
             const rect = panel.getBoundingClientRect();
             offsetX = e.clientX - rect.left;
             offsetY = e.clientY - rect.top;
             panel.style.right = 'auto';
             panel.style.bottom = 'auto';
             if (resetTransform) panel.style.transform = 'none';
+            handle.setPointerCapture?.(e.pointerId);
+            document.body.style.userSelect = 'none';
+            e.preventDefault();
+            e.stopPropagation();
+        });
+
+        window.addEventListener('pointermove', (e) => {
+            if (!dragging) return;
+            if (pointerId !== null && Number(pointerId) !== Number(e.pointerId)) return;
+            panel.style.left = `${e.clientX - offsetX}px`;
+            panel.style.top = `${e.clientY - offsetY}px`;
             e.preventDefault();
         });
 
-        window.addEventListener('mousemove', (e) => {
+        window.addEventListener('pointerup', (e) => {
             if (!dragging) return;
-            panel.style.left = `${e.clientX - offsetX}px`;
-            panel.style.top = `${e.clientY - offsetY}px`;
+            if (pointerId !== null && Number(pointerId) !== Number(e.pointerId)) return;
+            dragging = false;
+            pointerId = null;
+            document.body.style.userSelect = '';
+            handle.releasePointerCapture?.(e.pointerId);
         });
 
-        window.addEventListener('mouseup', () => {
+        window.addEventListener('pointercancel', () => {
             dragging = false;
+            pointerId = null;
+            document.body.style.userSelect = '';
         });
     }
 
@@ -1147,7 +1180,9 @@ export class Game {
         if (this.worldmapPanel.classList.contains('hidden')) {
             this.worldmapHoverWorld = null;
             this.updateMapCoordsLabel(this.worldmapCoordsLabel, null);
+            return;
         }
+        this.worldmapLastDrawAt = 0;
     }
 
     togglePartyPanel() {
@@ -1196,6 +1231,12 @@ export class Game {
         const clampedX = Math.max(0, Math.min(this.mapWidth, x));
         const clampedY = Math.max(0, Math.min(this.mapHeight, y));
         this.clearInteractivePendingStates();
+        this.selectedGroundItemId = null;
+        if (this.selectedMobId || this.selectedPlayerId) {
+            this.selectedMobId = null;
+            this.clearPlayerTarget();
+            this.network.send({ type: 'combat.clearTarget' });
+        }
         if (this.localId && this.players[this.localId]) {
             this.localMoveIntent = {
                 x: clampedX,
@@ -1337,7 +1378,7 @@ export class Game {
         this.chatWrap.classList.remove('hidden');
         this.skillbarWrap.classList.remove('hidden');
         this.menusWrap.classList.remove('hidden');
-        if (this.playerRole !== 'adm') this.adminPanel.classList.add('hidden');
+        this.adminPanel.classList.add('hidden');
         if (this.playerRole === 'adm') {
             const lines = Object.entries(this.statusIds)
                 .map(([name, id]) => `${id}=${name}`)
@@ -2263,7 +2304,7 @@ export class Game {
         this.chatLog.appendChild(line);
         this.chatLog.scrollTop = this.chatLog.scrollHeight;
 
-        if (message.fromId) {
+        if (message.fromId && String(message.scope || '').toLowerCase() === 'local') {
             this.chatBubbles[message.fromId] = {
                 text: message.text,
                 expiresAt: Date.now() + 8000
@@ -2403,6 +2444,23 @@ export class Game {
         return null;
     }
 
+    getGroundItemAtClient(clientX, clientY) {
+        const rect = this.canvas.getBoundingClientRect();
+        const localX = clientX - rect.left;
+        const localY = clientY - rect.top;
+        for (const id of Object.keys(this.groundItems)) {
+            const item = this.groundItems[id];
+            if (!item) continue;
+            const projected = this.worldToRenderCoords(item.x, item.y);
+            const screenX = projected.x - this.camera.x;
+            const screenY = projected.y - this.camera.y;
+            if (Math.abs(localX - screenX) <= 14 && localY >= screenY - 16 && localY <= screenY + 10) {
+                return id;
+            }
+        }
+        return null;
+    }
+
     getNpcAt(x, y) {
         if (!Array.isArray(this.npcs)) return null;
         for (const npc of this.npcs) {
@@ -2523,11 +2581,12 @@ export class Game {
 
     updateGroundItemCursor() {
         if (!this.canvas) return;
-        this.canvas.style.cursor = this.hoveredGroundItemId ? 'grab' : (this.hoveredNpcId ? 'pointer' : 'default');
+        this.canvas.style.cursor = this.hoveredGroundItemId ? 'pointer' : (this.hoveredNpcId ? 'pointer' : 'default');
     }
 
     cancelPendingPickup() {
         this.pendingPickup = null;
+        this.selectedGroundItemId = null;
     }
 
     tryPickupGroundItem(itemId) {
@@ -2535,6 +2594,7 @@ export class Game {
         if (!this.localId || !this.players[this.localId]) return;
         const item = this.groundItems[itemId];
         if (!item) return;
+        this.selectedGroundItemId = String(itemId);
         const now = Date.now();
         this.pendingPickup = {
             itemId: String(itemId),
@@ -2633,6 +2693,24 @@ export class Game {
         return null;
     }
 
+    getMobAtClient(clientX, clientY) {
+        const rect = this.canvas.getBoundingClientRect();
+        const localX = clientX - rect.left;
+        const localY = clientY - rect.top;
+        for (const id of Object.keys(this.mobs)) {
+            const mob = this.mobs[id];
+            if (!mob) continue;
+            const projected = this.worldToRenderCoords(mob.x, mob.y);
+            const screenX = projected.x - this.camera.x;
+            const screenY = projected.y - this.camera.y;
+            const half = this.getMobRenderSize(mob) / 2;
+            if (localX >= screenX - half && localX <= screenX + half && localY >= screenY - half && localY <= screenY + half) {
+                return id;
+            }
+        }
+        return null;
+    }
+
     /**
      * Retorna ID de player sob o cursor (hitbox aproximada do sprite).
      */
@@ -2649,11 +2727,30 @@ export class Game {
         return null;
     }
 
+    getPlayerAtClient(clientX, clientY) {
+        const rect = this.canvas.getBoundingClientRect();
+        const localX = clientX - rect.left;
+        const localY = clientY - rect.top;
+        for (const id of Object.keys(this.players)) {
+            if (id === String(this.localId)) continue;
+            const p = this.players[id];
+            const projected = this.worldToRenderCoords(p.x, p.y);
+            const screenX = projected.x - this.camera.x;
+            const screenY = projected.y - this.camera.y;
+            if (localX >= screenX - 24 && localX <= screenX + 24 && localY >= screenY - 42 && localY <= screenY + 30) {
+                return id;
+            }
+        }
+        return null;
+    }
+
     selectMobTarget(mobId, activateCombat = false) {
         if (!mobId || !this.mobs[mobId]) return false;
         this.selectedMobId = mobId;
+        this.selectedGroundItemId = null;
         this.clearPlayerTarget();
         if (activateCombat) this.network.send({ type: 'target_mob', mobId });
+        else this.network.send({ type: 'combat.clearTarget' });
         return true;
     }
 
@@ -2661,6 +2758,7 @@ export class Game {
         if (!this.players[playerId]) return;
         this.selectedPlayerId = playerId;
         this.selectedMobId = null;
+        this.selectedGroundItemId = null;
         this.targetActionsMenu.classList.add('hidden');
         this.updateTargetPlayerCard();
         const me = this.localId ? this.players[this.localId] : null;
@@ -2672,7 +2770,9 @@ export class Game {
                 return;
             }
             this.network.send({ type: 'combat.targetPlayer', targetPlayerId: Number(playerId) });
+            return;
         }
+        this.network.send({ type: 'combat.clearTarget' });
     }
 
     clearPlayerTarget() {
@@ -2710,6 +2810,7 @@ export class Game {
         if (!this.localId || this.isDead) return;
         const me = this.players[this.localId];
         if (!me) return;
+        this.network.send({ type: 'combat.clearTarget' });
 
         let nearest = null;
         let nearestDistSq = Number.POSITIVE_INFINITY;
@@ -4556,6 +4657,9 @@ export class Game {
             this.hoveredGroundItemId = null;
             this.updateGroundItemCursor();
         }
+        if (this.selectedGroundItemId && !this.groundItems[this.selectedGroundItemId]) {
+            this.selectedGroundItemId = null;
+        }
         if (this.pendingPickup && !this.groundItems[this.pendingPickup.itemId]) {
             this.pendingPickup = null;
         }
@@ -4620,6 +4724,7 @@ export class Game {
                     if (classLine) itemEl.title += classLine;
                 }
                 itemEl.addEventListener('dblclick', () => {
+                    this.closeAllTooltips('item_dblclick');
                     const isEquippable = String(item.type || '') === 'weapon' || String(item.type || '') === 'equipment';
                     if (isEquippable) {
                         this.closeAllTooltips('item_equipped');
@@ -4851,6 +4956,7 @@ export class Game {
                 slot.textContent = String(equippedItem.name || slot.textContent);
                 slot.draggable = true;
                 slot.ondblclick = () => {
+                    this.closeAllTooltips('item_dblclick');
                     this.network.send({ type: 'equip_req', itemId: equippedItem.id });
                 };
                 slot.ondragstart = (e) => {
@@ -7084,6 +7190,14 @@ export class Game {
             const projected = this.worldToRenderCoords(item.x, item.y);
             const screenX = projected.x - this.camera.x;
             const screenY = projected.y - this.camera.y;
+            const isHovered = this.hoveredGroundItemId === id;
+            const isSelected = this.selectedGroundItemId === id;
+
+            if (isHovered || isSelected) {
+                this.ctx.strokeStyle = isSelected ? '#fff2a8' : '#ffe07a';
+                this.ctx.lineWidth = 2;
+                this.ctx.strokeRect(screenX - 13, screenY - 11, 26, 20);
+            }
 
             this.ctx.fillStyle = '#c0392b';
             this.ctx.fillRect(screenX - 10, screenY - 8, 20, 14);

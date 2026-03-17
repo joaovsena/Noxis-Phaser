@@ -58,6 +58,7 @@ type GroundItemMarker = {
   body: Phaser.GameObjects.Container;
   hitArea: Phaser.GameObjects.Zone;
   badge: Phaser.GameObjects.Text;
+  diamond: Phaser.GameObjects.Rectangle;
 };
 
 type PendingWorldAction = {
@@ -125,6 +126,8 @@ export class WorldScene extends Phaser.Scene {
   private groundItemMarkers = new Map<string, GroundItemMarker>();
   private pendingWorldAction: PendingWorldAction | null = null;
   private selectedMobId: string | null = null;
+  private selectedGroundItemId: string | null = null;
+  private hoveredInteraction: HoverInteraction | null = null;
   private lastCombatSignature: string | null = null;
   private processedCombatBursts = new Set<string>();
   private processedSkillEffects = new Set<string>();
@@ -157,6 +160,7 @@ export class WorldScene extends Phaser.Scene {
       if (pointer.rightButtonDown()) return;
       if (this.handleWorldInteractionClick(pointer.worldX, pointer.worldY)) return;
       if (currentlyOver.length > 0) return;
+      this.clearPendingSelection(true);
       this.queueMoveFromScreenPoint(pointer.worldX, pointer.worldY);
     });
     this.input.on('gameobjectdown', (pointer: Phaser.Input.Pointer, gameObject: Phaser.GameObjects.GameObject) => {
@@ -563,27 +567,19 @@ export class WorldScene extends Phaser.Scene {
 
   private selectMob(mobId: string) {
     this.selectedMobId = mobId;
+    this.selectedGroundItemId = null;
     this.services.store.update({ selectedMobId: mobId, selectedPlayerId: null });
-    this.services.socket.send({ type: 'target_mob', mobId });
-    const state = this.services.store.getState();
-    const mob = Array.isArray(state.resolvedWorld?.mobs)
-      ? state.resolvedWorld?.mobs.find((entry: any) => String(entry?.id || '') === mobId)
-      : null;
-    if (!mob) return;
-    const player = state.playerId ? state.resolvedWorld?.players?.[String(state.playerId)] : null;
-    const range = Math.max(24, Number(player?.stats?.attackRange || MOB_INTERACTION_FALLBACK_RANGE));
-    this.pendingWorldAction = {
-      kind: 'mob',
-      id: mobId,
-      range,
-      lastIssuedAt: 0,
-      lastIssuedX: Number(mob.x || 0),
-      lastIssuedY: Number(mob.y || 0)
-    };
-    this.queueMoveToWorld(Number(mob.x || 0), Number(mob.y || 0), true);
+    if (this.isAutoAttackEnabled()) {
+      this.pendingWorldAction = null;
+      this.services.socket.send({ type: 'target_mob', mobId });
+      return;
+    }
+    this.pendingWorldAction = null;
+    this.services.socket.send({ type: 'combat.clearTarget' });
   }
 
   private interactNpc(npcId: string) {
+    this.selectedGroundItemId = null;
     const state = this.services.store.getState();
     const npc = Array.isArray(state.resolvedWorld?.npcs)
       ? state.resolvedWorld?.npcs.find((entry: any) => String(entry?.id || '') === npcId)
@@ -601,6 +597,7 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private pickupGroundItem(itemId: string) {
+    this.selectedGroundItemId = itemId;
     const state = this.services.store.getState();
     const item = Array.isArray(state.resolvedWorld?.groundItems)
       ? state.resolvedWorld?.groundItems.find((entry: any) => String(entry?.id || '') === itemId)
@@ -691,15 +688,33 @@ export class WorldScene extends Phaser.Scene {
     const pointer = this.input.activePointer;
     const world = this.screenToWorld(pointer.worldX, pointer.worldY);
     if (!world) {
+      this.hoveredInteraction = null;
       this.applyCursor('default');
       return;
     }
     const interaction = this.getInteractionAtWorldPoint(world.x, world.y);
     if (!interaction) {
+      this.hoveredInteraction = null;
       this.applyCursor('default');
       return;
     }
+    this.hoveredInteraction = interaction;
     this.applyCursor(interaction.kind === 'mob' ? 'sword' : 'hand');
+  }
+
+  private isAutoAttackEnabled() {
+    const checkbox = document.getElementById('auto-attack-toggle') as HTMLInputElement | null;
+    return checkbox ? Boolean(checkbox.checked) : true;
+  }
+
+  private clearPendingSelection(clearCombatTarget = false) {
+    this.pendingWorldAction = null;
+    this.selectedGroundItemId = null;
+    this.selectedMobId = null;
+    this.services.store.update({ selectedMobId: null, selectedPlayerId: null });
+    if (clearCombatTarget) {
+      this.services.socket.send({ type: 'combat.clearTarget' });
+    }
   }
 
   private applyCursor(cursor: 'default' | 'hand' | 'sword') {
@@ -737,7 +752,15 @@ export class WorldScene extends Phaser.Scene {
       marker.body.setVisible(isVisible(marker.body.x, marker.body.y));
     });
     this.groundItemMarkers.forEach((marker) => {
-      marker.body.setVisible(isVisible(marker.body.x, marker.body.y));
+      const visible = isVisible(marker.body.x, marker.body.y);
+      const itemId = String(marker.hitArea.getData('interactionId') || '');
+      const hovered = this.hoveredInteraction?.kind === 'groundItem' && this.hoveredInteraction.id === itemId;
+      const selected = this.selectedGroundItemId === itemId;
+      marker.body.setVisible(visible);
+      marker.hitArea.setVisible(visible);
+      marker.diamond.setFillStyle(selected ? 0xf3d58a : hovered ? 0xffebaa : 0xd8b56f, selected ? 1 : 0.96);
+      marker.diamond.setStrokeStyle(selected || hovered ? 2 : 1, selected ? 0xfff7cf : 0xa46f2c, selected ? 0.95 : 0.7);
+      marker.badge.setAlpha(selected || hovered ? 1 : 0.82);
     });
   }
   private getLayerColor(layerName: string, gid: number, layerIndex: number) {
@@ -893,6 +916,7 @@ export class WorldScene extends Phaser.Scene {
       let marker = this.groundItemMarkers.get(itemId);
       if (!marker) {
         const diamond = this.add.rectangle(0, 0, 16, 16, 0xd8b56f, 1).setAngle(45);
+        diamond.setStrokeStyle(1, 0xa46f2c, 0.7);
         const badge = this.add.text(0, -20, String(item.name || item.templateId || 'Item'), {
           fontFamily: 'Segoe UI',
           fontSize: '12px',
@@ -908,7 +932,7 @@ export class WorldScene extends Phaser.Scene {
         hitArea.setData('interactionId', itemId);
         this.entityLayer.add(body);
         this.entityLayer.add(hitArea);
-        marker = { body, hitArea, badge };
+        marker = { body, hitArea, badge, diamond };
         this.groundItemMarkers.set(itemId, marker);
       }
       const projected = this.worldToScreen(Number(item.x || 0), Number(item.y || 0));

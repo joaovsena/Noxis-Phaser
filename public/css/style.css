@@ -1050,14 +1050,14 @@ button:not(.btn):hover {
 .skill-slot-btn:nth-child(2n) {
     background:
         linear-gradient(180deg, rgba(174, 152, 108, 0.35), rgba(73, 61, 38, 0.72)),
-        radial-gradient(circle at 50% 35%, rgba(191, 151, 255, 0.42), rgba(34, 26, 48, 0.28) 55%),
+        radial-gradient(circle at 44% 34%, rgba(171, 139, 86, 0.24), rgba(54, 40, 24, 0.22) 55%),
         #2b2419;
 }
 
 .skill-slot-btn:nth-child(3n) {
     background:
         linear-gradient(180deg, rgba(174, 152, 108, 0.35), rgba(73, 61, 38, 0.72)),
-        radial-gradient(circle at 55% 38%, rgba(120, 255, 196, 0.4), rgba(18, 48, 34, 0.28) 55%),
+        radial-gradient(circle at 52% 38%, rgba(150, 123, 74, 0.22), rgba(46, 35, 22, 0.22) 55%),
         #2b2419;
 }
 

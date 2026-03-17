@@ -1,7 +1,8 @@
+name: noxis-phaser
+
 services:
   redis:
     image: redis:7-alpine
-    container_name: noxis-redis
     ports:
       - "6379:6379"
     command: ["redis-server", "--appendonly", "yes"]
@@ -11,7 +12,6 @@ services:
 
   db:
     image: postgres:16
-    container_name: noxis-db
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: 1234
@@ -22,9 +22,10 @@ services:
       - noxis_postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d noxis"]
+      start_period: 20s
       interval: 5s
       timeout: 3s
-      retries: 10
+      retries: 20
     restart: unless-stopped
 
   app:
@@ -32,7 +33,6 @@ services:
       context: .
       dockerfile: Dockerfile
     image: noxis-app:local
-    container_name: noxis-app
     depends_on:
       redis:
         condition: service_started
@@ -63,7 +63,6 @@ services:
       context: ./engine-go
       dockerfile: Dockerfile
     image: noxis-engine-go:local
-    container_name: noxis-engine-go
     environment:
       ENGINE_PORT: 8088
     ports:
@@ -72,4 +71,10 @@ services:
 
 volumes:
   noxis_postgres_data:
+    name: noxis_postgres_data
   noxis_redis_data:
+    name: noxis_redis_data
+
+networks:
+  default:
+    name: noxis_network

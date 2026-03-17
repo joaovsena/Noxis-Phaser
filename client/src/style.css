@@ -2655,6 +2655,14 @@ label {
     align-items: center;
     justify-content: space-between;
     gap: 10px;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.panel-header.dragging,
+.worldmap-header.dragging {
+    cursor: move;
 }
 
 .panel-close-btn {

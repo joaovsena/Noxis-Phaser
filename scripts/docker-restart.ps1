@@ -1,3 +1,9 @@
+$ErrorActionPreference = 'Stop'
+
 . "$PSScriptRoot\docker-env.ps1"
-docker compose down
-docker compose up --build -d
+
+Write-Host "[docker-restart] Derrubando stack..."
+docker compose down --remove-orphans
+
+Write-Host "[docker-restart] Subindo stack novamente..."
+& "$PSScriptRoot\docker-up.ps1"
