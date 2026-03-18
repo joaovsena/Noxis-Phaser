@@ -1,8 +1,9 @@
 <script lang="ts">
+  import { afterUpdate } from 'svelte';
   import goldCursorUrl from './assets/gold-pointer.svg';
   import AuthCharacterSlot from './components/AuthCharacterSlot.svelte';
   import WorldLoadingOverlay from './WorldLoadingOverlay.svelte';
-  import { appStore, beginWorldEntryLoading, cancelWorldEntryLoading, hudTransformStyle, loadingStore, selectCharacterSlot, sendUiMessage, setConnectionPhase } from './stores/gameUi';
+  import { appStore, beginWorldEntryLoading, cancelWorldEntryLoading, hudTransformStyle, loadingStore, selectCharacterSlot, sendUiMessage, setConnectionPhase, traceLoadingStep } from './stores/gameUi';
 
   let mode: 'login' | 'register' = 'login';
   let loginUsername = '';
@@ -12,10 +13,19 @@
   let createName = '';
   let createClass = 'knight';
   let createGender = 'male';
+  let pendingWorldEntryCancellation = false;
+  let lastAuthView = '';
+  let pendingAuthCommitTrace = '';
 
   $: phase = $appStore.connectionPhase;
   $: selectedSlot = $appStore.selectedCharacterSlot;
   $: canEnter = Number.isInteger(selectedSlot);
+  $: authView = `${phase}|loading:${$loadingStore.active ? 'on' : 'off'}|pending:${$loadingStore.pendingWorldEntry ? 'yes' : 'no'}`;
+  $: if (authView !== lastAuthView) {
+    traceLoadingStep(`Auth.svelte view -> ${authView}.`);
+    lastAuthView = authView;
+    pendingAuthCommitTrace = authView;
+  }
 
   function submitLogin() {
     sendUiMessage({
@@ -49,18 +59,67 @@
 
   function enterWorld() {
     if (!canEnter) return;
+    traceLoadingStep(`Auth.svelte enterWorld slot ${selectedSlot}.`);
     beginWorldEntryLoading();
     sendUiMessage({ type: 'character_enter', slot: selectedSlot });
   }
 
-  $: if ($appStore.connectionPhase !== 'character_select' && $appStore.connectionPhase !== 'in_game' && $loadingStore.pendingWorldEntry) {
-    cancelWorldEntryLoading();
+  function updateLoginUsername(event: Event) {
+    loginUsername = (event.currentTarget as HTMLInputElement).value;
   }
+
+  function updateLoginPassword(event: Event) {
+    loginPassword = (event.currentTarget as HTMLInputElement).value;
+  }
+
+  function updateRegisterUsername(event: Event) {
+    registerUsername = (event.currentTarget as HTMLInputElement).value;
+  }
+
+  function updateRegisterPassword(event: Event) {
+    registerPassword = (event.currentTarget as HTMLInputElement).value;
+  }
+
+  function updateCreateName(event: Event) {
+    createName = (event.currentTarget as HTMLInputElement).value;
+  }
+
+  function updateCreateClass(event: Event) {
+    createClass = (event.currentTarget as HTMLSelectElement).value;
+  }
+
+  function updateCreateGender(event: Event) {
+    createGender = (event.currentTarget as HTMLSelectElement).value;
+  }
+
+  function stopEventPropagation(event: Event) {
+    event.stopPropagation();
+  }
+
+  $: {
+    const shouldCancelPendingWorldEntry = $loadingStore.pendingWorldEntry
+      && phase !== 'character_select'
+      && phase !== 'in_game';
+    if (shouldCancelPendingWorldEntry && !pendingWorldEntryCancellation) {
+      cancelWorldEntryLoading();
+    }
+    pendingWorldEntryCancellation = shouldCancelPendingWorldEntry;
+  }
+
+  afterUpdate(() => {
+    if (!pendingAuthCommitTrace) return;
+    traceLoadingStep(`Auth.svelte commit concluido para ${pendingAuthCommitTrace}.`);
+    pendingAuthCommitTrace = '';
+  });
 </script>
 
 <section
   class="auth-shell"
+  role="presentation"
   style={`--auth-cursor: url('${goldCursorUrl}') 4 2, auto; ${$hudTransformStyle}`}
+  on:keydown={stopEventPropagation}
+  on:keyup={stopEventPropagation}
+  on:input={stopEventPropagation}
 >
   <div class="auth-noise"></div>
   <div class="auth-vignette"></div>
@@ -93,18 +152,20 @@
           {#if mode === 'login'}
             <input
               id="auth-username"
-              bind:value={loginUsername}
+              value={loginUsername}
               maxlength="16"
               placeholder="Digite seu usuario"
               type="text"
+              on:input={updateLoginUsername}
             />
           {:else}
             <input
               id="auth-username"
-              bind:value={registerUsername}
+              value={registerUsername}
               maxlength="16"
               placeholder="Digite seu usuario"
               type="text"
+              on:input={updateRegisterUsername}
             />
           {/if}
 
@@ -112,18 +173,20 @@
           {#if mode === 'login'}
             <input
               id="auth-password"
-              bind:value={loginPassword}
+              value={loginPassword}
               maxlength="32"
               placeholder="Digite sua senha"
               type="password"
+              on:input={updateLoginPassword}
             />
           {:else}
             <input
               id="auth-password"
-              bind:value={registerPassword}
+              value={registerPassword}
               maxlength="32"
               placeholder="Digite sua senha"
               type="password"
+              on:input={updateRegisterPassword}
             />
           {/if}
         </div>
@@ -170,10 +233,10 @@
 
         <div class="field-stack">
           <label for="create-name">Nome</label>
-          <input id="create-name" bind:value={createName} maxlength="12" placeholder="3 a 12 caracteres" type="text" />
+          <input id="create-name" value={createName} maxlength="12" placeholder="3 a 12 caracteres" type="text" on:input={updateCreateName} />
 
           <label for="create-class">Classe</label>
-          <select id="create-class" bind:value={createClass}>
+          <select id="create-class" value={createClass} on:change={updateCreateClass}>
             <option value="knight">Cavaleiro</option>
             <option value="archer">Arqueiro</option>
             <option value="druid">Druida</option>
@@ -181,7 +244,7 @@
           </select>
 
           <label for="create-gender">Sexo</label>
-          <select id="create-gender" bind:value={createGender}>
+          <select id="create-gender" value={createGender} on:change={updateCreateGender}>
             <option value="male">Masculino</option>
             <option value="female">Feminino</option>
           </select>

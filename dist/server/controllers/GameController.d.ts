@@ -111,8 +111,43 @@ export declare class GameController {
     buildWorldSnapshot(mapId?: string, mapKey?: string): {
         type: string;
         players: Record<string, any>;
-        mobs: import("../models/types").Mob[];
-        groundItems: GroundItem[];
+        mobs: ({
+            id: string;
+            x: number;
+            y: number;
+            kind: string;
+            color: string;
+            size: number;
+            hp: number;
+            maxHp: number;
+            level: number | undefined;
+            state: string;
+            targetPlayerId: number | null;
+            eventId: string | null;
+            eventName: string | null;
+        } | null)[];
+        groundItems: ({
+            id: string;
+            templateId: string;
+            type: string;
+            name: string;
+            rarity: string;
+            spriteId: string | null;
+            iconUrl: string | null;
+            slot: string | null;
+            quantity: number;
+            stackable: boolean;
+            maxStack: number;
+            healPercent: number | undefined;
+            bonuses: Record<string, string | number | boolean>;
+            x: number;
+            y: number;
+            mapId: string;
+            ownerId: number | null;
+            ownerPartyId: string | null;
+            reservedUntil: number | undefined;
+            expiresAt: number | undefined;
+        } | null)[];
         activeEvents: {
             id: string;
             name: string;
@@ -161,6 +196,10 @@ export declare class GameController {
     private computeWorldSnapshotSignature;
     private firstFreeInventorySlot;
     private sanitizePublicPlayer;
+    private sanitizeNetworkBonuses;
+    private sanitizeNetworkItem;
+    private sanitizeGroundItemForNetwork;
+    private sanitizeMobForNetwork;
     private computePublicPlayerSignature;
     private getStaticWorldSnapshot;
     private normalizeHotbarBinding;
@@ -200,6 +239,7 @@ export declare class GameController {
     private getEquippedItemsBySlot;
     private recomputePlayerStats;
     private sendInventoryState;
+    private buildInventoryState;
     private ensureWallet;
     private addWalletCopper;
     private trySpendCopper;
@@ -273,6 +313,8 @@ export declare class GameController {
     private getSkillPowerWithLevel;
     private sendStatsUpdated;
     private sendRaw;
+    private sendDebugStep;
+    private sendDebugPacket;
     private broadcastRaw;
     private broadcastMapInstance;
 }

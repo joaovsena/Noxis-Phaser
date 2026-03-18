@@ -94,6 +94,7 @@ async function initializeServer() {
             const extWs = ws;
             extWs.playerId = null;
             extWs.lastStaticInstanceKey = null;
+            extWs.bootstrapReady = false;
             (0, logger_1.logEvent)('INFO', 'ws_connected', {});
             extWs.on('message', (raw) => {
                 try {
@@ -136,6 +137,8 @@ async function initializeServer() {
                     continue;
                 const extClient = client;
                 if (!extClient.playerId)
+                    continue;
+                if (!extClient.bootstrapReady)
                     continue;
                 const player = gameController.getPlayerByRuntimeId(extClient.playerId);
                 if (!player)

@@ -155,6 +155,12 @@ export class WorldScene extends Phaser.Scene {
   private syncQueued = false;
   private syncRafId: number | null = null;
   private syncingFromStore = false;
+  private lastMapError: string | null = null;
+  private lastTileTextureStats = {
+    required: 0,
+    loaded: 0,
+    failed: [] as string[]
+  };
 
   constructor(services: SceneServices) {
     super('world');
@@ -197,6 +203,7 @@ export class WorldScene extends Phaser.Scene {
       this.applyCameraZoom();
     });
     this.drawEmergencyMapFallback();
+    this.publishDebugState('boot');
     await this.ensurePlayerAssets();
     this.createPlayerAnimations();
 
@@ -272,6 +279,7 @@ export class WorldScene extends Phaser.Scene {
     }
     this.mapRenderTextures.forEach((texture) => texture.destroy());
     this.mapRenderTextures = [];
+    this.publishDebugState('shutdown');
   }
 
   private scheduleSyncFromStore() {
@@ -383,16 +391,25 @@ export class WorldScene extends Phaser.Scene {
 
   private async loadAndRenderMap(url: string) {
     this.loadingMapUrl = url;
+    this.lastMapError = null;
+    this.publishDebugState('map:loading');
     try {
       this.mapDocument = await loadMapDocument(url);
       this.renderLoadedMap();
       if (ENABLE_TILE_TEXTURE_RENDER) {
-        void this.ensureTileTextures(this.mapDocument).then(() => {
-          if (this.mapDocument?.url !== url) return;
-          this.renderLoadedMap();
-        });
+        void this.ensureTileTextures(this.mapDocument)
+          .then(() => {
+            if (this.mapDocument?.url !== url) return;
+            this.renderLoadedMap();
+          })
+          .catch((error) => {
+            this.lastMapError = `tile_textures:${error instanceof Error ? error.message : String(error)}`;
+            this.publishDebugState('map:texture-error');
+          });
       }
     } catch (error) {
+      this.lastMapError = error instanceof Error ? error.message : String(error);
+      this.publishDebugState('map:error');
       if (url !== DEFAULT_MAP_URL) {
         this.loadingMapUrl = null;
         await this.loadAndRenderMap(DEFAULT_MAP_URL);
@@ -401,6 +418,7 @@ export class WorldScene extends Phaser.Scene {
       throw error;
     } finally {
       this.loadingMapUrl = null;
+      this.publishDebugState('map:loaded');
     }
   }
 
@@ -491,6 +509,7 @@ export class WorldScene extends Phaser.Scene {
     frame.strokeRect(0, 0, this.projectedMapWidth, this.projectedMapHeight + metrics.tileHeight);
     this.mapContainer.add(frame);
     this.handleResize(this.scale.gameSize);
+    this.publishDebugState('map:rendered');
   }
   private drawEmergencyMapFallback() {
     this.mapContainer.removeAll(true);
@@ -516,26 +535,48 @@ export class WorldScene extends Phaser.Scene {
     this.projectedMapWidth = width;
     this.projectedMapHeight = height;
     this.handleResize(this.scale.gameSize);
+    this.publishDebugState('map:fallback');
   }
 
   private async ensureTileTextures(map: LoadedMapDocument) {
     const requiredSources = Array.from(new Set(
       Object.values(map.tileImages || {}).map((entry) => String(entry?.source || '')).filter(Boolean)
     ));
+    this.lastTileTextureStats.required = requiredSources.length;
+    this.lastTileTextureStats.loaded = requiredSources.filter((source) => this.textures.exists(this.getTileTextureKey(source))).length;
+    this.lastTileTextureStats.failed = [];
     const pending = requiredSources.filter((source) => {
       const key = this.getTileTextureKey(source);
       return key && !this.textures.exists(key) && !this.loadedTileTextureKeys.has(key);
     });
-    if (!pending.length) return;
+    if (!pending.length) {
+      this.publishDebugState('map:textures-ready');
+      return;
+    }
     await new Promise<void>((resolve) => {
       pending.forEach((source) => {
         const key = this.getTileTextureKey(source);
-        this.loadedTileTextureKeys.add(key);
         this.load.image(key, source);
+      });
+      this.load.once(Phaser.Loader.Events.FILE_LOAD_ERROR, (file: any) => {
+        const src = String(file?.src || file?.key || 'unknown');
+        this.lastMapError = `tile_source_failed:${src}`;
       });
       this.load.once(Phaser.Loader.Events.COMPLETE, () => resolve());
       this.load.start();
     });
+    pending.forEach((source) => {
+      const key = this.getTileTextureKey(source);
+      if (this.textures.exists(key)) {
+        this.loadedTileTextureKeys.add(key);
+      }
+    });
+    this.lastTileTextureStats.loaded = requiredSources.filter((source) => this.textures.exists(this.getTileTextureKey(source))).length;
+    this.lastTileTextureStats.failed = pending.filter((source) => !this.textures.exists(this.getTileTextureKey(source)));
+    if (this.lastTileTextureStats.failed.length) {
+      this.lastMapError = `tile_sources_failed:${this.lastTileTextureStats.failed.slice(0, 4).join(',')}`;
+    }
+    this.publishDebugState('map:textures-finished');
   }
 
   private getTileTextureKey(source: string) {
@@ -734,8 +775,7 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private isAutoAttackEnabled() {
-    const checkbox = document.getElementById('auto-attack-toggle') as HTMLInputElement | null;
-    return checkbox ? Boolean(checkbox.checked) : true;
+    return Boolean(this.services.store.getState().autoAttackEnabled);
   }
 
   private clearPendingSelection(clearCombatTarget = false) {
@@ -826,7 +866,13 @@ export class WorldScene extends Phaser.Scene {
     const mapUrl = String(world?.mapTiled?.tmjUrl || this.mapDocument?.url || DEFAULT_MAP_URL);
     if (!this.mapDocument || this.mapDocument.url !== mapUrl) {
       if (this.loadingMapUrl === mapUrl) return;
-      void this.loadAndRenderMap(mapUrl).then(() => this.scheduleSyncFromStore()).catch(() => undefined);
+      void this.loadAndRenderMap(mapUrl)
+        .then(() => this.scheduleSyncFromStore())
+        .catch((error) => {
+          this.lastMapError = error instanceof Error ? error.message : String(error);
+          this.drawEmergencyMapFallback();
+          this.publishDebugState('map:load-failed');
+        });
       return;
     }
 
@@ -1013,7 +1059,47 @@ export class WorldScene extends Phaser.Scene {
     this.renderQueuedSkillEffects(state.skillEffects);
     } finally {
       this.syncingFromStore = false;
+      this.publishDebugState('sync');
     }
+  }
+
+  public getDebugState() {
+    const state = this.services.store.getState();
+    const localPlayerId = String(state.playerId || '');
+    const camera = this.cameras?.main;
+    return {
+      phase: state.connectionPhase,
+      mapCode: state.resolvedWorld?.mapCode || null,
+      mapId: state.resolvedWorld?.mapId || null,
+      loadingMapUrl: this.loadingMapUrl,
+      mapUrl: this.mapDocument?.url || null,
+      mapRenderTextures: this.mapRenderTextures.length,
+      tileTexturesRequired: this.lastTileTextureStats.required,
+      tileTexturesLoaded: this.lastTileTextureStats.loaded,
+      tileTexturesFailed: this.lastTileTextureStats.failed.slice(0, 12),
+      lastMapError: this.lastMapError,
+      playerMarkers: this.playerMarkers.size,
+      mobMarkers: this.mobMarkers.size,
+      npcMarkers: this.npcMarkers.size,
+      groundItemMarkers: this.groundItemMarkers.size,
+      localPlayerId: localPlayerId || null,
+      localPlayerMarkerReady: Boolean(localPlayerId && this.playerMarkers.has(localPlayerId)),
+      camera: camera ? {
+        x: Math.round(camera.scrollX),
+        y: Math.round(camera.scrollY),
+        zoom: Number(camera.zoom.toFixed(3)),
+        width: Math.round(camera.width),
+        height: Math.round(camera.height)
+      } : null
+    };
+  }
+
+  private publishDebugState(reason: string) {
+    const target = (window as any).__NOXIS_DEBUG__;
+    if (!target || typeof target !== 'object') return;
+    target.worldScene = this;
+    target.worldSceneReason = reason;
+    target.worldSceneDebug = this.getDebugState();
   }
 
   private createPlayerMarker(id: string, player: any, localPlayerId: number | null) {

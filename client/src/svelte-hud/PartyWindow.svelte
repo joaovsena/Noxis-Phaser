@@ -1,13 +1,15 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import Window from './components/Window.svelte';
-  import { partyStore, sendUiMessage } from './stores/gameUi';
+  import { appStore, kickPartyMember, partyStore, promotePartyMember, sendUiMessage } from './stores/gameUi';
 
   const dispatch = createEventDispatcher<{ close: void }>();
   let inviteName = '';
 
   $: party = $partyStore.party;
   $: areaList = Array.isArray($partyStore.areaList) ? $partyStore.areaList : [];
+  $: selfPlayerId = Number($appStore.playerId || 0);
+  $: isLeader = party ? Number(party.leaderId || 0) === selfPlayerId : false;
 
   function refreshAreaParties() {
     sendUiMessage({ type: 'party.requestAreaParties' });
@@ -66,8 +68,16 @@
       <div class="member-list">
         {#each (party.members || []) as member}
           <div class="member-row">
-            <span>{member.name || member.playerId || 'Membro'}</span>
-            <span class="meta">{member.online === false ? 'offline' : 'online'}</span>
+            <div class="member-info">
+              <span>{member.name || member.playerId || 'Membro'}</span>
+              <span class="meta">{member.online === false ? 'offline' : 'online'}{Number(member.playerId || 0) === Number(party.leaderId || 0) ? ' | lider' : ''}</span>
+            </div>
+            {#if isLeader && Number(member.playerId || 0) !== selfPlayerId}
+              <div class="member-actions">
+                <button type="button" class="ghost compact" on:click={() => promotePartyMember(member.playerId)}>Promover</button>
+                <button type="button" class="danger compact" on:click={() => kickPartyMember(member.playerId)}>Expulsar</button>
+              </div>
+            {/if}
           </div>
         {/each}
       </div>
@@ -130,6 +140,18 @@
     gap: 8px;
   }
 
+  .member-info,
+  .member-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .member-info {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
   .actions input {
     flex: 1;
     min-height: 40px;
@@ -140,6 +162,7 @@
   }
 
   .actions button,
+  .member-actions button,
   .danger {
     min-height: 40px;
     border: 1px solid rgba(201, 168, 106, 0.3);
@@ -158,5 +181,11 @@
   .danger {
     border-color: rgba(205, 116, 100, 0.26);
     color: #efc1b5;
+  }
+
+  .compact {
+    min-height: 34px !important;
+    padding: 0 10px !important;
+    font-size: 0.68rem;
   }
 </style>

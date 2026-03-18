@@ -337,9 +337,13 @@ class GameController {
             this.usernameToPlayerId.set(username, player.id);
             ws.playerId = player.id;
             const mapMetadata = (0, mapMetadata_1.getMapMetadata)(player.mapKey);
-            ws.send(JSON.stringify({
+            this.sendDebugStep(ws, 'character_enter: runtime criado');
+            this.sendDebugPacket(ws, 1, 'auth_success');
+            const authSuccessPayload = {
                 type: 'auth_success',
                 playerId: player.id,
+                mapKey: player.mapKey,
+                mapId: player.mapId,
                 world: mapMetadata?.world || config_1.WORLD,
                 mapTiled: mapMetadata
                     ? {
@@ -355,28 +359,67 @@ class GameController {
                 role: player.role,
                 statusIds: config_1.STATUS_IDS,
                 hotbarBindings: this.getPlayerHotbarBindings(player)
-            }));
-            ws.send(JSON.stringify({
+            };
+            const hotbarStatePayload = {
                 type: 'hotbar.state',
                 bindings: this.getPlayerHotbarBindings(player)
-            }));
-            this.sendInventoryState(player);
+            };
+            const worldStatic = this.buildWorldStaticSnapshot(player.mapId, player.mapKey);
+            const worldState = this.buildWorldSnapshot(player.mapId, player.mapKey);
+            const worldStateSerialized = JSON.stringify(worldState);
+            (0, logger_1.logEvent)('INFO', 'character_enter_world_state_meta', {
+                playerId: player.id,
+                mapKey: player.mapKey,
+                mapId: player.mapId,
+                bytes: Buffer.byteLength(worldStateSerialized, 'utf8'),
+                players: Object.keys(worldState?.players || {}).length,
+                mobs: Array.isArray(worldState?.mobs) ? worldState.mobs.length : 0,
+                groundItems: Array.isArray(worldState?.groundItems) ? worldState.groundItems.length : 0,
+                activeEvents: Array.isArray(worldState?.activeEvents) ? worldState.activeEvents.length : 0,
+                npcs: Array.isArray(worldState?.npcs) ? worldState.npcs.length : 0
+            });
+            const inventoryState = this.buildInventoryState(player);
+            this.sendDebugPacket(ws, 1, 'bootstrap.auth');
+            this.sendRaw(player.ws, {
+                type: 'bootstrap.auth',
+                authSuccess: authSuccessPayload,
+                hotbarState: hotbarStatePayload
+            });
+            (0, logger_1.logEvent)('INFO', 'character_enter_send', { order: 1, type: 'bootstrap.auth', playerId: player.id });
+            this.sendDebugStep(ws, 'character_enter: bootstrap.auth enviado');
+            await this.sleep(10);
+            this.sendDebugPacket(ws, 2, 'bootstrap.world');
+            this.sendRaw(player.ws, {
+                type: 'bootstrap.world',
+                worldStatic,
+                worldState,
+                inventoryState
+            });
+            (0, logger_1.logEvent)('INFO', 'character_enter_send', { order: 2, type: 'bootstrap.world', playerId: player.id });
+            this.sendDebugStep(ws, 'character_enter: bootstrap.world enviado');
+            await this.sleep(10);
+            this.sendDebugPacket(ws, 3, 'quest.state');
             this.questService.sendQuestState(player);
-            ws.send(this.serializeWorldSnapshot(player.mapId, player.mapKey));
+            (0, logger_1.logEvent)('INFO', 'character_enter_send', { order: 3, type: 'quest.state', playerId: player.id });
+            this.sendDebugStep(ws, 'character_enter: quest.state enviado');
             this.sendPartyStateToPlayer(player, null);
             this.sendPartyAreaList(player);
+            this.sendDebugStep(ws, 'character_enter: party enviado');
             if (player.role === 'adm') {
                 this.sendRaw(player.ws, {
                     type: 'admin.mobPeacefulState',
                     enabled: this.mobsPeacefulMode
                 });
+                this.sendDebugStep(ws, 'character_enter: admin state enviado');
             }
             await this.hydrateFriendStateForPlayer(player);
             this.sendFriendState(player);
+            this.sendDebugStep(ws, 'character_enter: friend.state enviado');
             ws.pendingPlayerProfiles = [];
             (0, logger_1.logEvent)('INFO', 'user_login', { username, playerId: player.id });
         }
         catch (error) {
+            this.sendDebugStep(ws, `character_enter: erro ${String(error)}`);
             ws.send(JSON.stringify({ type: 'auth_error', message: 'Nao foi possivel entrar no personagem.' }));
             (0, logger_1.logEvent)('ERROR', 'character_enter_error', { error: String(error), userId: ws.authUserId || null });
         }
@@ -1299,8 +1342,14 @@ class GameController {
             return {
                 type: 'world_state',
                 players: publicPlayers,
-                mobs: this.mobService.getMobsByMap(mapInstanceId),
-                groundItems: this.groundItems.filter((it) => it.mapId === mapInstanceId),
+                mobs: this.mobService
+                    .getMobsByMap(mapInstanceId)
+                    .map((mob) => this.sanitizeMobForNetwork(mob))
+                    .filter(Boolean),
+                groundItems: this.groundItems
+                    .filter((it) => it.mapId === mapInstanceId)
+                    .map((it) => this.sanitizeGroundItemForNetwork(it))
+                    .filter(Boolean),
                 activeEvents: this.eventService.getActiveEventsForMap(mapKey, mapId),
                 npcs: this.questService.getNpcsForMap(mapKey, mapId),
                 mapKey,
@@ -1461,6 +1510,95 @@ class GameController {
         };
         this.publicPlayerCache.set(player.id, { signature, snapshot });
         return snapshot;
+    }
+    sanitizeNetworkBonuses(raw) {
+        if (!raw || typeof raw !== 'object')
+            return {};
+        const out = {};
+        for (const [key, value] of Object.entries(raw)) {
+            if (typeof value === 'number' && Number.isFinite(value)) {
+                out[key] = value;
+                continue;
+            }
+            if (typeof value === 'string' || typeof value === 'boolean') {
+                out[key] = value;
+            }
+        }
+        return out;
+    }
+    sanitizeNetworkItem(item) {
+        if (!item || typeof item !== 'object')
+            return null;
+        return {
+            id: item.id ? String(item.id) : '',
+            templateId: item.templateId ? String(item.templateId) : '',
+            type: item.type ? String(item.type) : '',
+            name: item.name ? String(item.name) : 'Item',
+            rarity: item.rarity ? String(item.rarity) : 'common',
+            spriteId: item.spriteId ? String(item.spriteId) : null,
+            iconUrl: item.iconUrl ? String(item.iconUrl) : null,
+            slot: item.slot ? String(item.slot) : null,
+            slotIndex: Number.isFinite(Number(item.slotIndex)) ? Number(item.slotIndex) : -1,
+            quantity: Math.max(1, Number(item.quantity || 1)),
+            stackable: Boolean(item.stackable),
+            maxStack: Math.max(1, Number(item.maxStack || 1)),
+            equipped: Boolean(item.equipped),
+            equippedSlot: item.equippedSlot ? String(item.equippedSlot) : null,
+            requiredClass: item.requiredClass ? String(item.requiredClass) : null,
+            healPercent: Number.isFinite(Number(item.healPercent)) ? Number(item.healPercent) : undefined,
+            bonuses: this.sanitizeNetworkBonuses(item.bonuses)
+        };
+    }
+    sanitizeGroundItemForNetwork(item) {
+        if (!item || typeof item !== 'object')
+            return null;
+        return {
+            id: item.id ? String(item.id) : '',
+            templateId: item.templateId ? String(item.templateId) : '',
+            type: item.type ? String(item.type) : '',
+            name: item.name ? String(item.name) : 'Item',
+            rarity: item.rarity ? String(item.rarity) : 'common',
+            spriteId: item.spriteId ? String(item.spriteId) : null,
+            iconUrl: item.iconUrl ? String(item.iconUrl) : null,
+            slot: item.slot ? String(item.slot) : null,
+            quantity: Math.max(1, Number(item.quantity || 1)),
+            stackable: Boolean(item.stackable),
+            maxStack: Math.max(1, Number(item.maxStack || 1)),
+            healPercent: Number.isFinite(Number(item.healPercent)) ? Number(item.healPercent) : undefined,
+            bonuses: this.sanitizeNetworkBonuses(item.bonuses),
+            x: Number(item.x || 0),
+            y: Number(item.y || 0),
+            mapId: item.mapId ? String(item.mapId) : '',
+            ownerId: Number.isFinite(Number(item.ownerId)) ? Number(item.ownerId) : null,
+            ownerPartyId: item.ownerPartyId ? String(item.ownerPartyId) : null,
+            reservedUntil: Number.isFinite(Number(item.reservedUntil)) ? Number(item.reservedUntil) : undefined,
+            expiresAt: Number.isFinite(Number(item.expiresAt)) ? Number(item.expiresAt) : undefined
+        };
+    }
+    sanitizeMobForNetwork(mob) {
+        if (!mob || typeof mob !== 'object')
+            return null;
+        const normalizedState = typeof mob.state === 'string' ? String(mob.state) : 'idle';
+        return {
+            id: mob.id ? String(mob.id) : '',
+            x: Number.isFinite(Number(mob.x)) ? Number(mob.x) : 0,
+            y: Number.isFinite(Number(mob.y)) ? Number(mob.y) : 0,
+            kind: mob.kind ? String(mob.kind) : 'Mob',
+            color: mob.color ? String(mob.color) : '#cf4444',
+            size: Number.isFinite(Number(mob.size)) ? Number(mob.size) : 14,
+            hp: Number.isFinite(Number(mob.hp)) ? Number(mob.hp) : 0,
+            maxHp: Number.isFinite(Number(mob.maxHp)) ? Number(mob.maxHp) : 1,
+            level: Number.isFinite(Number(mob.level)) ? Number(mob.level) : undefined,
+            state: normalizedState === 'wander' ||
+                normalizedState === 'aggro' ||
+                normalizedState === 'attack_windup' ||
+                normalizedState === 'leash_return'
+                ? normalizedState
+                : 'idle',
+            targetPlayerId: Number.isFinite(Number(mob.targetPlayerId)) ? Number(mob.targetPlayerId) : null,
+            eventId: mob.eventId ? String(mob.eventId) : null,
+            eventName: mob.eventName ? String(mob.eventName) : null
+        };
     }
     computePublicPlayerSignature(player) {
         const movePathSignature = Array.isArray(player.movePath)
@@ -1799,7 +1937,7 @@ class GameController {
             const slot = isWeapon ? 'weapon' : String(item.equippedSlot || item.slot || '');
             if (!slot)
                 continue;
-            equipped[slot] = item;
+            equipped[slot] = this.sanitizeNetworkItem(item);
         }
         return equipped;
     }
@@ -1853,14 +1991,19 @@ class GameController {
         player.hp = (0, math_1.clamp)(Number(player.hp || player.maxHp), 0, player.maxHp);
     }
     sendInventoryState(player) {
+        this.sendRaw(player.ws, this.buildInventoryState(player));
+    }
+    buildInventoryState(player) {
         const equippedBySlot = this.getEquippedItemsBySlot(player);
-        this.sendRaw(player.ws, {
+        return {
             type: 'inventory_state',
-            inventory: [...player.inventory].sort((a, b) => Number(a.slotIndex) - Number(b.slotIndex)),
+            inventory: [...player.inventory]
+                .sort((a, b) => Number(a.slotIndex) - Number(b.slotIndex))
+                .map((item) => this.sanitizeNetworkItem(item)),
             equippedWeaponId: player.equippedWeaponId,
             equippedBySlot,
             wallet: (0, currency_1.normalizeWallet)(player.wallet)
-        });
+        };
     }
     ensureWallet(player) {
         player.wallet = (0, currency_1.normalizeWallet)(player.wallet);
@@ -2565,8 +2708,43 @@ class GameController {
         try {
             ws?.send(JSON.stringify(payload));
         }
-        catch {
-            // Ignore socket send failures; cleanup happens on disconnect.
+        catch (error) {
+            (0, logger_1.logEvent)('ERROR', 'send_raw_failed', {
+                type: String(payload?.type || 'unknown'),
+                error: String(error)
+            });
+        }
+    }
+    sendDebugStep(ws, step) {
+        try {
+            ws?.send(JSON.stringify({
+                type: 'debug.step',
+                step: String(step || ''),
+                at: Date.now()
+            }));
+        }
+        catch (error) {
+            (0, logger_1.logEvent)('ERROR', 'send_debug_step_failed', {
+                step: String(step || ''),
+                error: String(error)
+            });
+        }
+    }
+    sendDebugPacket(ws, order, packetType) {
+        try {
+            ws?.send(JSON.stringify({
+                type: 'debug.packet',
+                order: Number(order || 0),
+                packetType: String(packetType || ''),
+                at: Date.now()
+            }));
+        }
+        catch (error) {
+            (0, logger_1.logEvent)('ERROR', 'send_debug_packet_failed', {
+                order: Number(order || 0),
+                packetType: String(packetType || ''),
+                error: String(error)
+            });
         }
     }
     broadcastRaw(payload) {

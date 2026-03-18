@@ -9,6 +9,12 @@
   let message = '';
   let logEl: HTMLDivElement | null = null;
 
+  function formatTime(at: unknown) {
+    const raw = Number(at || 0);
+    if (!Number.isFinite(raw) || raw <= 0) return '--:--';
+    return new Date(raw).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  }
+
   $: visibleMessages = $chatStore.messages
     .filter((entry) => entry?.type === 'system' || String(entry?.scope || 'local') === scope)
     .slice(-60);
@@ -47,6 +53,7 @@
     {#if visibleMessages.length}
       {#each visibleMessages as entry (entry.id || `${entry.at}-${entry.text}`)}
         <div class={`chat-line ${entry.type === 'system' ? 'system' : ''}`}>
+          <span class="time">{formatTime(entry.at)}</span>
           <span class="tag">[{entry.type === 'system' ? 'system' : (entry.scope || 'local')}]</span>
           {#if entry.type === 'system'}
             <span>{entry.text}</span>
@@ -127,6 +134,7 @@
   }
 
   .tag,
+  .time,
   .author {
     color: #c9a86a;
   }

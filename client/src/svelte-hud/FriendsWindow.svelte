@@ -1,7 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import Window from './components/Window.svelte';
-  import { friendStore, sendUiMessage } from './stores/gameUi';
+  import { friendStore, removeFriend, respondFriendRequest, sendUiMessage } from './stores/gameUi';
 
   const dispatch = createEventDispatcher<{ close: void }>();
   let targetName = '';
@@ -34,8 +34,11 @@
     {#if friends.length}
       {#each friends as entry}
         <div class="row">
-          <span>{entry.name || entry.playerName || 'Amigo'}</span>
-          <span class="meta">{entry.online ? 'online' : 'offline'}</span>
+          <div class="friend-main">
+            <span>{entry.name || entry.playerName || 'Amigo'}</span>
+            <span class="meta">{entry.online ? 'online' : 'offline'}</span>
+          </div>
+          <button type="button" class="ghost compact" on:click={() => removeFriend(entry.friendPlayerId || entry.playerId || entry.id)}>Remover</button>
         </div>
       {/each}
     {:else}
@@ -49,6 +52,10 @@
       {#each incoming as entry}
         <div class="row">
           <span>{entry.fromName || entry.from || 'Pedido'}</span>
+          <div class="request-actions">
+            <button type="button" class="compact" on:click={() => respondFriendRequest(String(entry.requestId || entry.id || ''), true)}>Aceitar</button>
+            <button type="button" class="ghost compact" on:click={() => respondFriendRequest(String(entry.requestId || entry.id || ''), false)}>Recusar</button>
+          </div>
         </div>
       {/each}
     {:else}
@@ -91,7 +98,8 @@
 
   .row,
   .actions input,
-  .actions button {
+  .actions button,
+  .request-actions button {
     clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px);
   }
 
@@ -138,5 +146,23 @@
 
   .ghost {
     background: rgba(16, 20, 24, 0.95) !important;
+  }
+
+  .friend-main,
+  .request-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .friend-main {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .compact {
+    min-height: 34px !important;
+    padding: 0 10px !important;
+    font-size: 0.68rem;
   }
 </style>

@@ -1,3 +1,5 @@
+import { traceLoadingStep } from '../../svelte-hud/stores/gameUi';
+
 export type CharacterSlot = {
   slot: number;
   id: number;
@@ -94,6 +96,7 @@ export type GameState = {
   adminMobPeacefulEnabled: boolean;
   partyWaypoints: any[];
   networkPingMs: number | null;
+  autoAttackEnabled: boolean;
   pathDebugEnabled: boolean;
   interactionDebugEnabled: boolean;
 };
@@ -133,6 +136,7 @@ const INITIAL_STATE: GameState = {
   adminMobPeacefulEnabled: false,
   partyWaypoints: [],
   networkPingMs: null,
+  autoAttackEnabled: true,
   pathDebugEnabled: false,
   interactionDebugEnabled: false
 };
@@ -145,14 +149,40 @@ export class GameStore extends EventTarget {
   }
 
   update(patch: Partial<GameState>) {
+    const startedAt = performance.now();
+    const patchKeys = Object.keys(patch) as Array<keyof GameState>;
+    const shouldTrace = patchKeys.some((key) =>
+      key === 'worldStatic'
+      || key === 'worldState'
+      || key === 'inventoryState'
+      || key === 'connectionPhase'
+      || key === 'playerId'
+    );
+    if (shouldTrace) {
+      traceLoadingStep(`GameStore.update start [${patchKeys.join(', ')}].`);
+    }
+    const hasDirectChanges = patchKeys.some((key) => !Object.is(this.state[key], patch[key]));
+    const hasExpiredWaypoints = (this.state.partyWaypoints || []).some((entry: any) => Number(entry?.expiresAt || 0) <= Date.now());
+    if (!hasDirectChanges && !hasExpiredWaypoints) return;
     const nextState = {
       ...this.state,
       ...patch
     };
+    const resolveStartedAt = performance.now();
     nextState.resolvedWorld = this.resolveWorld(nextState.worldStatic, nextState.worldState);
+    const resolveMs = Math.max(0, Math.round((performance.now() - resolveStartedAt) * 100) / 100);
     nextState.partyWaypoints = (nextState.partyWaypoints || []).filter((entry: any) => Number(entry?.expiresAt || 0) > Date.now());
     this.state = nextState;
+    if (shouldTrace) {
+      traceLoadingStep(
+        `GameStore.update dispatch [${patchKeys.join(', ')}] | resolveWorld ${resolveMs}ms | worldStatic ${nextState.worldStatic ? 'ok' : 'no'} | worldState ${nextState.worldState ? 'ok' : 'no'} | inventory ${nextState.inventoryState ? 'ok' : 'no'}.`
+      );
+    }
     this.dispatchEvent(new CustomEvent<GameState>('change', { detail: this.state }));
+    if (shouldTrace) {
+      const totalMs = Math.max(0, Math.round((performance.now() - startedAt) * 100) / 100);
+      traceLoadingStep(`GameStore.update done [${patchKeys.join(', ')}] em ${totalMs}ms.`);
+    }
   }
 
   resetForDisconnect(message = 'Conexao encerrada.') {
@@ -164,21 +194,33 @@ export class GameStore extends EventTarget {
   }
 
   private resolveWorld(worldStatic: WorldStaticState, worldState: WorldState): ResolvedWorldState {
+    const startedAt = performance.now();
     if (!worldStatic && !worldState) return null;
+    const staticMapKey = String(worldStatic?.mapKey || '');
+    const staticMapId = String(worldStatic?.mapId || '');
+    const stateMapKey = String(worldState?.mapKey || '');
+    const stateMapId = String(worldState?.mapId || '');
     const hasMatchingStatic = Boolean(
       worldStatic
       && (
         !worldState
         || (
-          String(worldStatic.mapKey || '') === String(worldState.mapKey || '')
-          && String(worldStatic.mapId || '') === String(worldState.mapId || '')
+          (!staticMapKey || staticMapKey === stateMapKey)
+          && (!staticMapId || staticMapId === stateMapId)
         )
       )
     );
-    return {
+    const resolved = {
       ...((hasMatchingStatic ? worldStatic : null) || { type: 'world_static' as const }),
       ...(worldState || {})
     };
+    const elapsed = Math.max(0, Math.round((performance.now() - startedAt) * 100) / 100);
+    if (worldStatic || worldState) {
+      traceLoadingStep(
+        `resolveWorld done em ${elapsed}ms | static ${worldStatic ? 'ok' : 'no'} | state ${worldState ? 'ok' : 'no'} | match ${hasMatchingStatic ? 'yes' : 'no'}.`
+      );
+    }
+    return resolved;
   }
 
   pushChatMessage(message: any, maxEntries = 120) {

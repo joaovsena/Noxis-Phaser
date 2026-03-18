@@ -6,6 +6,7 @@ interface ExtendedWebSocket extends WebSocket {
     authUsername?: string;
     authRole?: string;
     pendingPlayerProfiles?: any[];
+    bootstrapReady?: boolean;
 }
 import { GameController } from './GameController';
 import { WSMessage } from '../models/types';
@@ -48,12 +49,18 @@ export class WSHandler {
                 return;
             }
             if (msg.type === 'character_enter') {
+                ws.bootstrapReady = false;
                 void this.controller.handleCharacterEnter(ws, msg as any);
             }
             return;
         }
 
         const player = this.controller.players.get(ws.playerId)!;
+
+        if ((msg as any).type === 'bootstrap.ready') {
+            ws.bootstrapReady = true;
+            return;
+        }
 
         switch (msg.type) {
             case 'move':

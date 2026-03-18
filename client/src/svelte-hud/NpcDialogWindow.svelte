@@ -2,7 +2,7 @@
   import { createEventDispatcher } from 'svelte';
   import Window from './components/Window.svelte';
   import { inferEquipSlot } from './lib/itemTooltip';
-  import { acceptQuest, buyNpcOffer, completeQuest, enterDungeonFromNpc, equippedSlots, hideTooltip, inventoryStore, npcStore, partyStore, showTooltip } from './stores/gameUi';
+  import { acceptQuest, buyNpcOffer, completeQuest, enterDungeonFromNpc, equippedSlots, hideTooltip, inventoryStore, npcStore, partyStore, sendUiMessage, showTooltip } from './stores/gameUi';
 
   const dispatch = createEventDispatcher<{ close: void }>();
   let selectedClassTab = 'knight';
@@ -17,9 +17,12 @@
   $: filteredOffers = hasClassOffers ? shopOffers.filter((offer: any) => String(offer?.requiredClass || '').toLowerCase() === selectedClassTab) : shopOffers;
   $: wallet = $inventoryStore.wallet || {};
   $: walletCopper = (Number(wallet.diamond || 0) * 1000000) + (Number(wallet.gold || 0) * 10000) + (Number(wallet.silver || 0) * 100) + Number(wallet.copper || 0);
+  $: inventoryItems = Array.isArray($inventoryStore.inventory) ? $inventoryStore.inventory : [];
   $: party = $partyStore.party;
   $: partyMemberCount = Array.isArray(party?.members) ? party.members.length : 0;
   $: dungeonEntry = dialog?.dungeonEntry || null;
+  $: canSell = shopOffers.length > 0;
+  $: sellableItems = inventoryItems.filter((item: any) => Number(item?.quantity || 1) > 0);
 
   function walletText(price: any) {
     const safe = price && typeof price === 'object' ? price : {};
@@ -42,6 +45,22 @@
       equipped: equipSlot ? $equippedSlots[equipSlot] || null : null,
       showSell: true
     }, x, y);
+  }
+
+  function inspectInventoryItem(item: any, x: number, y: number) {
+    if (!item) return;
+    const equipSlot = inferEquipSlot(item);
+    showTooltip({
+      kind: 'item',
+      item,
+      equipped: equipSlot ? $equippedSlots[equipSlot] || null : null,
+      showSell: true
+    }, x, y);
+  }
+
+  function sellItem(item: any) {
+    if (!npcId || !item?.id) return;
+    sendUiMessage({ type: 'sell_item_req', npcId, itemId: String(item.id) });
   }
 </script>
 
@@ -122,6 +141,31 @@
           </div>
         {:else}
           <div class="empty-state">Sem itens para esta classe.</div>
+        {/if}
+      </section>
+    {/if}
+
+    {#if canSell}
+      <section class="stack">
+        <div class="shop-head">
+          <div class="block-title">Venda</div>
+          <div class="wallet">Itens no inventario: {sellableItems.length}</div>
+        </div>
+        {#if sellableItems.length}
+          <div class="shop-list">
+            {#each sellableItems as item}
+              <article class="shop-card" on:mousemove={(event) => inspectInventoryItem(item, event.clientX, event.clientY)} on:mouseleave={hideTooltip}>
+                <div>
+                  <div class="block-title">{item.name || item.templateId || 'Item'}</div>
+                  <div class="block-text">Qtd: {Math.max(1, Number(item.quantity || 1))}</div>
+                  <div class="block-text">Tipo: {item.type || 'misc'}</div>
+                </div>
+                <button type="button" class="ghost" on:click={() => sellItem(item)}>Vender</button>
+              </article>
+            {/each}
+          </div>
+        {:else}
+          <div class="empty-state">Nenhum item disponivel para vender.</div>
         {/if}
       </section>
     {/if}

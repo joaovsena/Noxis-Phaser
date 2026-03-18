@@ -1,4 +1,5 @@
 import type { GameStore } from '../state/GameStore';
+import { markLoadingPacket, traceLoadingStep } from '../../svelte-hud/stores/gameUi';
 
 const RECONNECT_MS = 2500;
 const PING_INTERVAL_MS = 5000;
@@ -8,6 +9,7 @@ export class GameSocket {
   private reconnectTimer: number | null = null;
   private pingTimer: number | null = null;
   private pendingPings = new Map<number, number>();
+  private inboundMessageSeq = 0;
 
   constructor(private readonly store: GameStore) {}
 
@@ -23,6 +25,9 @@ export class GameSocket {
     this.ws = new WebSocket(url);
 
     this.ws.addEventListener('open', () => {
+      const readyState = this.ws ? this.ws.readyState : -1;
+      traceLoadingStep(`WS conectado. readyState=${readyState}.`);
+      markLoadingPacket('wsOpen', `ws_open | readyState ${readyState}`);
       this.store.update({
         socketConnected: true,
         connectionPhase: 'auth',
@@ -31,7 +36,12 @@ export class GameSocket {
       this.startPingLoop();
     });
 
-    this.ws.addEventListener('close', () => {
+    this.ws.addEventListener('close', (event) => {
+      const code = Number(event?.code || 0);
+      const reason = String(event?.reason || '').trim();
+      const wasClean = Boolean(event?.wasClean);
+      traceLoadingStep(`WS fechado. code=${code} clean=${wasClean ? 'yes' : 'no'} reason=${reason || '-'}. Reconexao agendada.`);
+      markLoadingPacket('wsClose', `ws_close | code ${code} | clean ${wasClean ? 'yes' : 'no'} | reason ${reason || '-'}`);
       this.stopPingLoop();
       this.pendingPings.clear();
       this.store.resetForDisconnect('Conexao perdida. Tentando reconectar...');
@@ -39,17 +49,37 @@ export class GameSocket {
     });
 
     this.ws.addEventListener('error', () => {
+      const readyState = this.ws ? this.ws.readyState : -1;
+      const bufferedAmount = this.ws ? this.ws.bufferedAmount : -1;
+      traceLoadingStep(`Erro no websocket. readyState=${readyState} buffered=${bufferedAmount}.`);
+      markLoadingPacket('wsError', `ws_error | readyState ${readyState} | buffered ${bufferedAmount}`);
       this.store.update({ authMessage: 'Falha ao conectar no websocket.' });
     });
 
     this.ws.addEventListener('message', (event) => {
+      const seq = ++this.inboundMessageSeq;
       let payload: any;
+      const raw = String(event.data);
+      const rawTypeMatch = /"type"\s*:\s*"([^"]+)"/.exec(raw);
+      const rawType = rawTypeMatch?.[1] || 'unknown';
+      traceLoadingStep(`WS message#${seq} start (${rawType}) | ${raw.length} chars.`);
+      if (rawType === 'world_state') {
+        traceLoadingStep(`WS message#${seq} raw world_state (${raw.length} chars) recebido; iniciando parse.`);
+      }
+      const parseStartedAt = performance.now();
       try {
-        payload = JSON.parse(String(event.data));
+        payload = JSON.parse(raw);
       } catch {
+        traceLoadingStep(`WS message#${seq} falha ao parsear (${rawType}).`);
         return;
       }
+      const parseMs = Math.max(0, Math.round((performance.now() - parseStartedAt) * 100) / 100);
+      if (rawType === 'world_state') {
+        traceLoadingStep(`WS message#${seq} parsed world_state em ${parseMs}ms.`);
+      }
+      traceLoadingStep(`WS message#${seq} parsed (${rawType}) em ${parseMs}ms; entrando no handler.`);
       this.handleMessage(payload);
+      traceLoadingStep(`WS message#${seq} handler concluido (${rawType}).`);
     });
   }
 
@@ -111,6 +141,7 @@ export class GameSocket {
         });
         return;
       case 'auth_character_select':
+        traceLoadingStep(`WS <= auth_character_select (${Array.isArray(payload.slots) ? payload.slots.length : 0} slots).`);
         this.store.update({
           characterSlots: Array.isArray(payload.slots) ? payload.slots : [],
           selectedCharacterSlot: null,
@@ -118,7 +149,68 @@ export class GameSocket {
           authMessage: 'Selecione um personagem.'
         });
         return;
+      case 'debug.step':
+        traceLoadingStep(`WS <= debug.step (${String(payload.step || '-')}).`);
+        return;
+      case 'debug.packet': {
+        const order = Number(payload.order || 0) || 0;
+        const packetType = String(payload.packetType || '-');
+        traceLoadingStep(`WS <= debug.packet (#${order} -> ${packetType}).`);
+        markLoadingPacket('announcedPacket', `debug.packet | #${order} -> ${packetType}`);
+        return;
+      }
+      case 'bootstrap.auth': {
+        const authPayload = payload?.authSuccess && typeof payload.authSuccess === 'object' ? payload.authSuccess : null;
+        const hotbarState = payload?.hotbarState && typeof payload.hotbarState === 'object' ? payload.hotbarState : null;
+        traceLoadingStep(
+          `WS <= bootstrap.auth (playerId ${Number(authPayload?.playerId || 0) || '-'} | hotbar ${hotbarState ? 'yes' : 'no'}).`
+        );
+        if (authPayload) {
+          markLoadingPacket('authSuccess', `auth_success | playerId ${Number(authPayload.playerId || 0) || '-'} | mapa ${String(authPayload.mapKey || '-')}/${String(authPayload.mapId || '-')}`);
+        }
+        this.store.update({
+          playerId: Number(authPayload?.playerId || 0) || this.store.getState().playerId,
+          authPayload: authPayload || this.store.getState().authPayload,
+          hotbarBindings: hotbarState?.bindings && typeof hotbarState.bindings === 'object'
+            ? hotbarState.bindings
+            : authPayload?.hotbarBindings && typeof authPayload.hotbarBindings === 'object'
+              ? authPayload.hotbarBindings
+              : this.store.getState().hotbarBindings,
+          connectionPhase: authPayload?.playerId ? 'in_game' : this.store.getState().connectionPhase,
+          authMessage: authPayload?.playerId ? 'Personagem carregado.' : this.store.getState().authMessage
+        });
+        return;
+      }
+      case 'bootstrap.world':
+      case 'bootstrap.initial': {
+        const worldStatic = payload?.worldStatic && typeof payload.worldStatic === 'object' ? payload.worldStatic : null;
+        const worldState = payload?.worldState && typeof payload.worldState === 'object' ? payload.worldState : null;
+        const inventoryState = payload?.inventoryState && typeof payload.inventoryState === 'object' ? payload.inventoryState : null;
+        traceLoadingStep(
+          `WS <= ${payload.type} (worldStatic ${worldStatic ? 'yes' : 'no'} | worldState ${worldState ? 'yes' : 'no'} | inventory ${inventoryState ? 'yes' : 'no'}).`
+        );
+        if (worldStatic) {
+          markLoadingPacket('worldStatic', `world_static | mapa ${String(worldStatic.mapKey || '-')}/${String(worldStatic.mapId || '-')}`);
+        }
+        if (worldState) {
+          markLoadingPacket('worldState', `world_state | players ${Object.keys(worldState?.players || {}).length} | mobs ${Array.isArray(worldState?.mobs) ? worldState.mobs.length : 0}`);
+        }
+        if (inventoryState) {
+          markLoadingPacket('inventoryState', `inventory_state | itens ${Array.isArray(inventoryState?.inventory) ? inventoryState.inventory.length : 0}`);
+        }
+        this.store.update({
+          worldStatic: worldStatic || this.store.getState().worldStatic,
+          worldState: worldState || this.store.getState().worldState,
+          inventoryState: inventoryState || this.store.getState().inventoryState,
+          connectionPhase: this.store.getState().playerId ? 'in_game' : this.store.getState().connectionPhase
+        });
+        this.send({ type: 'bootstrap.ready' });
+        traceLoadingStep('WS => bootstrap.ready enviado.');
+        return;
+      }
       case 'auth_success':
+        traceLoadingStep(`WS <= auth_success (playerId ${Number(payload.playerId || 0) || '-'} | mapa ${String(payload.mapKey || '-')}/${String(payload.mapId || '-')}).`);
+        markLoadingPacket('authSuccess', `auth_success | playerId ${Number(payload.playerId || 0) || '-'} | mapa ${String(payload.mapKey || '-')}/${String(payload.mapId || '-')}`);
         this.store.update({
           playerId: Number(payload.playerId || 0) || null,
           authPayload: payload,
@@ -141,12 +233,16 @@ export class GameSocket {
         });
         return;
       case 'world_static':
+        traceLoadingStep(`WS <= world_static (${String(payload.mapKey || '-')}/${String(payload.mapId || '-')}).`);
+        markLoadingPacket('worldStatic', `world_static | mapa ${String(payload.mapKey || '-')}/${String(payload.mapId || '-')}`);
         this.store.update({
           worldStatic: payload,
           connectionPhase: this.store.getState().playerId ? 'in_game' : this.store.getState().connectionPhase
         });
         return;
       case 'world_state':
+        traceLoadingStep(`WS <= world_state (players ${Object.keys(payload?.players || {}).length} | mobs ${Array.isArray(payload?.mobs) ? payload.mobs.length : 0}).`);
+        markLoadingPacket('worldState', `world_state | players ${Object.keys(payload?.players || {}).length} | mobs ${Array.isArray(payload?.mobs) ? payload.mobs.length : 0}`);
         this.store.update({
           worldState: payload,
           connectionPhase: this.store.getState().playerId ? 'in_game' : this.store.getState().connectionPhase
@@ -168,6 +264,8 @@ export class GameSocket {
         this.store.pushChatMessage(payload);
         return;
       case 'inventory_state':
+        traceLoadingStep(`WS <= inventory_state (${Array.isArray(payload?.inventory) ? payload.inventory.length : 0} itens).`);
+        markLoadingPacket('inventoryState', `inventory_state | itens ${Array.isArray(payload?.inventory) ? payload.inventory.length : 0}`);
         this.store.update({ inventoryState: payload });
         return;
       case 'hotbar.state':
@@ -176,9 +274,11 @@ export class GameSocket {
         });
         return;
       case 'quest.state':
+        traceLoadingStep(`WS <= quest.state (${Array.isArray(payload?.quests) ? payload.quests.length : 0} quests).`);
         this.store.update({ questState: Array.isArray(payload.quests) ? payload.quests : [] });
         return;
       case 'party.state':
+        traceLoadingStep('WS <= party.state.');
         this.store.update({ partyState: payload.party || null });
         return;
       case 'party.areaList':
@@ -233,14 +333,15 @@ export class GameSocket {
         this.store.update({ authMessage: String(payload.message || this.store.getState().authMessage) });
         return;
       case 'friend.state':
+        traceLoadingStep('WS <= friend.state.');
         this.store.update({ friendState: payload });
         return;
       case 'npc.dialog':
+        traceLoadingStep(`WS <= npc.dialog (${String(payload?.npc?.id || '-')}).`);
         this.store.update({
           npcDialog: payload,
           npcShopOpen: Array.isArray(payload?.shopOffers) && payload.shopOffers.length > 0
         });
-        window.dispatchEvent(new CustomEvent('noxis:npc-dialog', { detail: payload }));
         return;
       case 'dungeon.readyCheck':
       case 'dungeon.readyUpdate':
@@ -271,6 +372,7 @@ export class GameSocket {
         this.store.pushSkillEffect(payload);
         return;
       case 'player.statsUpdated': {
+        traceLoadingStep('WS <= player.statsUpdated.');
         const state = this.store.getState();
         const playerId = state.playerId;
         const currentWorldState = state.worldState;

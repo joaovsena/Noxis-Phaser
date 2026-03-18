@@ -66,6 +66,7 @@ const wss = new WebSocketServer({ server });
 interface ExtendedWebSocket extends WebSocket {
     playerId?: number | null;
     lastStaticInstanceKey?: string | null;
+    bootstrapReady?: boolean;
 }
 
 async function initializeServer() {
@@ -97,6 +98,7 @@ async function initializeServer() {
             const extWs = ws as ExtendedWebSocket;
             extWs.playerId = null;
             extWs.lastStaticInstanceKey = null;
+            extWs.bootstrapReady = false;
             logEvent('INFO', 'ws_connected', {});
 
             extWs.on('message', (raw: Buffer) => {
@@ -139,6 +141,7 @@ async function initializeServer() {
                 if (client.readyState !== WebSocket.OPEN) continue;
                 const extClient = client as ExtendedWebSocket;
                 if (!extClient.playerId) continue;
+                if (!extClient.bootstrapReady) continue;
                 const player = gameController.getPlayerByRuntimeId(extClient.playerId);
                 if (!player) continue;
                 const instanceKey = `${String(player.mapKey)}::${String(player.mapId)}`;

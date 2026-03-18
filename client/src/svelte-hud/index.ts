@@ -10,8 +10,10 @@ export function mountHudApp(options: {
   target?: HTMLElement | null;
   enableHud?: boolean;
 }) {
-  const target = options.target || document.getElementById('svelte-root');
-  if (!target) return null;
+  const target = options.target || document.getElementById('ui-root');
+  if (!target || target.id !== 'ui-root') return null;
+  target.classList.remove('hidden');
+  target.setAttribute('aria-hidden', 'false');
   const host = document.createElement('div');
   host.id = 'svelte-hud-root';
   target.appendChild(host);
@@ -27,6 +29,10 @@ export function mountHudApp(options: {
     destroy() {
       disposeRuntime();
       host.remove();
+      if (!target.childElementCount) {
+        target.classList.add('hidden');
+        target.setAttribute('aria-hidden', 'true');
+      }
     }
   };
 }

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { afterUpdate, onMount } from 'svelte';
   import Auth from './Auth.svelte';
   import CharacterWindow from './CharacterWindow.svelte';
   import Inventory from './Inventory.svelte';
@@ -12,7 +12,6 @@
   import QuestWindow from './QuestWindow.svelte';
   import PartyWindow from './PartyWindow.svelte';
   import FriendsWindow from './FriendsWindow.svelte';
-  import GuildWindow from './GuildWindow.svelte';
   import AdminWindow from './AdminWindow.svelte';
   import NpcDialogWindow from './NpcDialogWindow.svelte';
   import NotificationsPanel from './NotificationsPanel.svelte';
@@ -24,7 +23,7 @@
   import ProgressBar from './components/ProgressBar.svelte';
   import IconButton from './components/IconButton.svelte';
   import Slot from './components/Slot.svelte';
-  import { activateHotbarBinding, adminStore, appStore, attributesStore, beginDrag, clearHotbarBinding, closeAllPanels, closeNpcDialog, commitHotbarBindings, cycleSelectedAutoAttack, dragStore, endDrag, hideTooltip, hotbarBindingsStore, hotbarSlots, hudTransformStyle, loadingStore, mapSettingsStore, npcStore, panelStore, playerMetaStore, returnToCharacterSelect, selectedAutoAttackLabelStore, sendUiMessage, setHotbarBinding, setPvpMode, toggleAfk, togglePanel } from './stores/gameUi';
+  import { activateHotbarBinding, adminStore, appStore, attributesStore, beginDrag, clearHotbarBinding, closeAllPanels, closeNpcDialog, commitHotbarBindings, cycleSelectedAutoAttack, dragStore, endDrag, hideTooltip, hotbarBindingsStore, hotbarSlots, hudTransformStyle, loadingStore, mapSettingsStore, npcStore, panelStore, playerMetaStore, returnToCharacterSelect, selectedAutoAttackLabelStore, sendUiMessage, setHotbarBinding, setPvpMode, toggleAfk, togglePanel, traceLoadingStep, worldStore } from './stores/gameUi';
 
   export let enableHud = false;
 
@@ -33,26 +32,31 @@
   let chatVisible = true;
   let minimapVisible = true;
   let pvpMenuOpen = false;
-  let hudReleased = false;
-  let releaseTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastUiMode = '';
+  let pendingUiCommitTrace = '';
 
   $: inGame = $appStore.connectionPhase === 'in_game';
   $: showAuth = !inGame;
   $: hudReady = inGame && enableHud && $loadingStore.ready;
-  $: if (!inGame || !enableHud) {
-    hudReleased = false;
-    if (releaseTimer) {
-      clearTimeout(releaseTimer);
-      releaseTimer = null;
-    }
-  } else if (hudReady && !hudReleased && !releaseTimer) {
-    releaseTimer = setTimeout(() => {
-      hudReleased = true;
-      releaseTimer = null;
-    }, 220);
+  $: showHud = hudReady;
+  $: showLoading = inGame && enableHud && $loadingStore.active && !showHud;
+  $: showInGameFallback = inGame && enableHud && !showAuth && !showLoading && !showHud;
+  $: mapCode = $worldStore.mapCode;
+  $: mapId = $worldStore.mapId;
+  $: runtimeFlags = [
+    `phase:${$appStore.connectionPhase}`,
+    `loading:${$loadingStore.active ? 'on' : 'off'}`,
+    `ready:${$loadingStore.ready ? 'yes' : 'no'}`,
+    `player:${$attributesStore.player ? 'yes' : 'no'}`,
+    `map:${mapCode}/${mapId}`,
+    `ws:${$adminStore.socketConnected ? 'on' : 'off'}`
+  ].join(' | ');
+  $: uiMode = showAuth ? 'auth' : showLoading ? 'loading' : showHud ? 'hud' : showInGameFallback ? 'fallback' : 'none';
+  $: if (uiMode !== lastUiMode) {
+    traceLoadingStep(`App.svelte modo -> ${uiMode} | phase ${$appStore.connectionPhase} | loading ${$loadingStore.active ? 'on' : 'off'} | ready ${$loadingStore.ready ? 'yes' : 'no'}.`);
+    lastUiMode = uiMode;
+    pendingUiCommitTrace = uiMode;
   }
-  $: showHud = inGame && enableHud && hudReleased;
-  $: showLoading = enableHud && $loadingStore.active && !hudReleased;
 
   function dropOnHotbar(targetKey: string, event: DragEvent) {
     event.preventDefault();
@@ -86,7 +90,7 @@
       activateHotbarBinding(key);
       return;
     }
-    if (!['b', 'c', 'v', 'm', 'j', 'g', 'o', 'l', 'h', 'escape'].includes(key)) return;
+    if (!['b', 'c', 'v', 'm', 'j', 'g', 'o', 'h', 'escape'].includes(key)) return;
     event.preventDefault();
     event.stopPropagation();
     if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
@@ -109,7 +113,6 @@
       togglePanel('friends');
       sendUiMessage({ type: 'friend.list' });
     }
-    if (key === 'l') togglePanel('guild');
     if (key === 'h' && $adminStore.isAdmin) togglePanel('admin');
   }
 
@@ -177,7 +180,7 @@
   }
 
   onMount(() => {
-    uiHost = document.getElementById('ui-container');
+    uiHost = document.getElementById('ui-root');
     uiHost?.classList.add('svelte-ui-mounted');
     window.addEventListener('keydown', handleShortcut, true);
     const handleWindowPointerDown = (event: PointerEvent) => {
@@ -187,11 +190,16 @@
     };
     window.addEventListener('pointerdown', handleWindowPointerDown);
     return () => {
-      if (releaseTimer) clearTimeout(releaseTimer);
       uiHost?.classList.remove('svelte-ui-mounted');
       window.removeEventListener('keydown', handleShortcut, true);
       window.removeEventListener('pointerdown', handleWindowPointerDown);
     };
+  });
+
+  afterUpdate(() => {
+    if (!pendingUiCommitTrace) return;
+    traceLoadingStep(`App.svelte commit concluido para modo ${pendingUiCommitTrace}.`);
+    pendingUiCommitTrace = '';
   });
 </script>
 
@@ -316,12 +324,6 @@
       </div>
     {/if}
 
-    {#if $panelStore.guild}
-      <div class="window-wrap guild-wrap" use:draggablePanel>
-        <GuildWindow on:close={() => togglePanel('guild')} />
-      </div>
-    {/if}
-
     {#if $panelStore.admin && $adminStore.isAdmin}
       <div class="window-wrap admin-wrap" use:draggablePanel>
         <AdminWindow on:close={() => togglePanel('admin')} />
@@ -376,7 +378,6 @@
       <IconButton icon="quests" label="Quests" hotkey="J" active={$panelStore.quests} on:press={() => togglePanel('quests')} />
       <IconButton icon="party" label="Grupo" hotkey="G" active={$panelStore.party} on:press={() => { togglePanel('party'); sendUiMessage({ type: 'party.requestAreaParties' }); }} />
       <IconButton icon="friends" label="Amigos" hotkey="O" active={$panelStore.friends} on:press={() => { togglePanel('friends'); sendUiMessage({ type: 'friend.list' }); }} />
-      <IconButton icon="guild" label="Guilda" hotkey="L" active={$panelStore.guild} on:press={() => togglePanel('guild')} />
       {#if $adminStore.isAdmin}
         <IconButton icon="admin" label="Admin" hotkey="H" active={$panelStore.admin} on:press={() => togglePanel('admin')} />
       {/if}
@@ -386,6 +387,14 @@
 
     <ReviveOverlay />
     <TooltipOverlay />
+  </div>
+{:else if showInGameFallback}
+  <div class="hud-fallback-debug" style={$hudTransformStyle}>
+    <div class="hud-fallback-card">
+      <div class="hud-fallback-title">HUD em estado intermediario</div>
+      <div class="hud-fallback-copy">A autenticacao terminou, mas a interface principal ainda nao foi liberada.</div>
+      <div class="hud-fallback-flags">{runtimeFlags}</div>
+    </div>
   </div>
 {/if}
 
@@ -397,6 +406,46 @@
     transform-origin: center center;
     --ui-surface: rgba(8, 11, 14, 0.96);
     --ui-panel: rgba(14, 18, 22, 0.98);
+  }
+
+  .hud-fallback-debug {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: start center;
+    padding-top: 20px;
+    pointer-events: none;
+  }
+
+  .hud-fallback-card {
+    width: min(560px, calc(100vw - 32px));
+    padding: 14px 16px;
+    border: 1px solid rgba(201, 168, 106, 0.32);
+    background: linear-gradient(180deg, rgba(17, 15, 12, 0.97), rgba(8, 8, 8, 0.98));
+    color: #f1e5c8;
+    clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 14px, 100% calc(100% - 14px), calc(100% - 14px) 100%, 14px 100%, 0 calc(100% - 14px), 0 14px);
+    box-shadow: 0 18px 34px rgba(0, 0, 0, 0.28);
+  }
+
+  .hud-fallback-title {
+    font-family: 'Cinzel', serif;
+    font-size: 0.88rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #f0dfbc;
+  }
+
+  .hud-fallback-copy {
+    margin-top: 6px;
+    font-size: 0.82rem;
+    color: rgba(233, 223, 200, 0.78);
+  }
+
+  .hud-fallback-flags {
+    margin-top: 10px;
+    font-size: 0.72rem;
+    color: rgba(214, 201, 173, 0.72);
+    letter-spacing: 0.03em;
   }
 
   .player-panel,
@@ -577,11 +626,6 @@
   .friends-wrap {
     left: 24px;
     top: 140px;
-  }
-
-  .guild-wrap {
-    right: 24px;
-    top: 160px;
   }
 
   .admin-wrap {

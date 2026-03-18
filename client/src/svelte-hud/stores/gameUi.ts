@@ -73,6 +73,30 @@ type LoadingUiState = {
   ready: boolean;
 };
 
+type LoadingPacketState = {
+  authSuccess: string | null;
+  worldStatic: string | null;
+  worldState: string | null;
+  inventoryState: string | null;
+  announcedPacket: string | null;
+  wsOpen: string | null;
+  wsError: string | null;
+  wsClose: string | null;
+  lastPacket: string | null;
+};
+
+type LoadingDebugSnapshot = {
+  savedAt: string;
+  phase: string;
+  playerId: number | null;
+  mapCode: string;
+  mapId: string;
+  socketConnected: boolean;
+  loading: LoadingUiState;
+  packets: LoadingPacketState;
+  trace: string[];
+};
+
 type TooltipUiState = {
   visible: boolean;
   x: number;
@@ -204,10 +228,102 @@ const DEFAULT_LOADING: LoadingUiState = {
   ready: false
 };
 
+const DEFAULT_LOADING_PACKETS: LoadingPacketState = {
+  authSuccess: null,
+  worldStatic: null,
+  worldState: null,
+  inventoryState: null,
+  announcedPacket: null,
+  wsOpen: null,
+  wsError: null,
+  wsClose: null,
+  lastPacket: null
+};
+
+const LOADING_DEBUG_STORAGE_KEY = 'noxis.loading.debug.v1';
+
 let runtimeSocket: GameSocket | null = null;
 let runtimeStore: GameStore | null = null;
+let runtimeLoadingState: LoadingUiState = DEFAULT_LOADING;
 
 const SKILL_TREE = buildSkillTree();
+
+function persistLoadingDebugSnapshot() {
+  if (typeof window === 'undefined') return;
+  try {
+    const app = get(appStore);
+    const world = get(worldStore);
+    const admin = get(adminStore);
+    const loading = get(loadingStore);
+    const packets = get(loadingPacketStore);
+    const trace = get(loadingTraceStore);
+    const snapshot: LoadingDebugSnapshot = {
+      savedAt: new Date().toISOString(),
+      phase: String(app.connectionPhase || 'unknown'),
+      playerId: app.playerId ?? null,
+      mapCode: String(world.mapCode || '-'),
+      mapId: String(world.mapId || '-'),
+      socketConnected: Boolean(admin.socketConnected),
+      loading,
+      packets,
+      trace
+    };
+    window.localStorage.setItem(LOADING_DEBUG_STORAGE_KEY, JSON.stringify(snapshot));
+  } catch {
+    // noop
+  }
+}
+
+export function getPersistedLoadingDebugSnapshot() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(LOADING_DEBUG_STORAGE_KEY);
+    return raw ? JSON.parse(raw) as LoadingDebugSnapshot : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearPersistedLoadingDebugSnapshot() {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(LOADING_DEBUG_STORAGE_KEY);
+  } catch {
+    // noop
+  }
+}
+
+function pushLoadingTrace(message: string) {
+  const timestamp = new Date().toLocaleTimeString('pt-BR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+  loadingTraceStore.update((current) => {
+    const next = [`${timestamp} ${message}`, ...current].slice(0, 40);
+    return next;
+  });
+  persistLoadingDebugSnapshot();
+}
+
+export function traceLoadingStep(message: string) {
+  pushLoadingTrace(message);
+}
+
+export function markLoadingPacket(type: keyof Omit<LoadingPacketState, 'lastPacket'>, detail: string) {
+  const timestamp = new Date().toLocaleTimeString('pt-BR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+  const line = `${timestamp} ${detail}`;
+  loadingPacketStore.update((current) => ({
+    ...current,
+    [type]: line,
+    lastPacket: line
+  }));
+  persistLoadingDebugSnapshot();
+}
 
 export const inventoryStore = writable<InventoryUiState>(DEFAULT_INVENTORY);
 export const attributesStore = writable<AttributeUiState>(DEFAULT_ATTRIBUTES);
@@ -220,6 +336,8 @@ export const partyStore = writable<PartyUiState>(DEFAULT_PARTY);
 export const friendStore = writable<FriendUiState>(DEFAULT_FRIENDS);
 export const adminStore = writable<AdminUiState>(DEFAULT_ADMIN);
 export const loadingStore = writable<LoadingUiState>(DEFAULT_LOADING);
+export const loadingTraceStore = writable<string[]>([]);
+export const loadingPacketStore = writable<LoadingPacketState>(DEFAULT_LOADING_PACKETS);
 export const tooltipStore = writable<TooltipUiState>({
   visible: false,
   x: 0,
@@ -637,7 +755,8 @@ export function returnToCharacterSelect() {
 }
 
 export function beginWorldEntryLoading() {
-  loadingStore.update((current) => ({
+  const current = runtimeLoadingState;
+  const next = {
     ...current,
     active: true,
     progress: Math.max(current.progress, 0.08),
@@ -645,11 +764,19 @@ export function beginWorldEntryLoading() {
     detail: 'Solicitando acesso ao mundo.',
     pendingWorldEntry: true,
     ready: false
-  }));
+  };
+  runtimeLoadingState = next;
+  loadingStore.set(next);
+  loadingPacketStore.set(DEFAULT_LOADING_PACKETS);
+  persistLoadingDebugSnapshot();
+  pushLoadingTrace('Solicitacao de entrada no mundo iniciada.');
 }
 
 export function cancelWorldEntryLoading() {
+  runtimeLoadingState = DEFAULT_LOADING;
   loadingStore.set(DEFAULT_LOADING);
+  persistLoadingDebugSnapshot();
+  pushLoadingTrace('Loading de entrada cancelado.');
 }
 
 export function togglePanel(panel: keyof PanelUiState) {
@@ -746,6 +873,35 @@ export function respondFriendRequest(requestId: string, accept: boolean) {
   sendUiMessage({ type: accept ? 'friend.accept' : 'friend.decline', requestId });
 }
 
+export function removeFriend(friendPlayerId: number | string) {
+  const safeFriendPlayerId = Number(friendPlayerId || 0);
+  if (!safeFriendPlayerId) return;
+  sendUiMessage({ type: 'friend.remove', friendPlayerId: safeFriendPlayerId });
+}
+
+export function kickPartyMember(targetPlayerId: number | string) {
+  const safeTargetPlayerId = Number(targetPlayerId || 0);
+  if (!safeTargetPlayerId) return;
+  sendUiMessage({ type: 'party.kick', targetPlayerId: safeTargetPlayerId });
+}
+
+export function promotePartyMember(targetPlayerId: number | string) {
+  const safeTargetPlayerId = Number(targetPlayerId || 0);
+  if (!safeTargetPlayerId) return;
+  sendUiMessage({ type: 'party.promote', targetPlayerId: safeTargetPlayerId });
+}
+
+export function allocateStats(allocation: { str?: number; int?: number; dex?: number; vit?: number }) {
+  const normalized = {
+    str: Math.max(0, Math.floor(Number(allocation?.str || 0))),
+    int: Math.max(0, Math.floor(Number(allocation?.int || 0))),
+    dex: Math.max(0, Math.floor(Number(allocation?.dex || 0))),
+    vit: Math.max(0, Math.floor(Number(allocation?.vit || 0)))
+  };
+  if (!normalized.str && !normalized.int && !normalized.dex && !normalized.vit) return;
+  sendUiMessage({ type: 'stats.allocate', allocation: normalized });
+}
+
 export function buyNpcOffer(npcId: string, offerId: string, quantity = 1) {
   if (!npcId || !offerId) return;
   sendUiMessage({ type: 'npc.buy', npcId, offerId, quantity });
@@ -785,7 +941,11 @@ export function hideTooltip() {
 }
 
 export function setMapSetting(key: keyof MapSettingsUiState, enabled: boolean) {
-  mapSettingsStore.update((current) => ({ ...current, [key]: Boolean(enabled) }));
+  const safeEnabled = Boolean(enabled);
+  mapSettingsStore.update((current) => ({ ...current, [key]: safeEnabled }));
+  if (key === 'autoAttackEnabled') {
+    runtimeStore?.update({ autoAttackEnabled: safeEnabled });
+  }
 }
 
 export function toggleMapSettings(force?: boolean) {
@@ -914,6 +1074,9 @@ export function setMobPeacefulEnabled(enabled: boolean) {
 export function bindHudRuntime(gameStore: GameStore, socket: GameSocket) {
   runtimeSocket = socket;
   runtimeStore = gameStore;
+  loadingTraceStore.set([]);
+  loadingPacketStore.set(DEFAULT_LOADING_PACKETS);
+  pushLoadingTrace('Runtime HUD conectado ao GameStore.');
   let lastInventoryRef: any = null;
   let lastEquippedRef: any = null;
   let lastWalletRef: any = null;
@@ -936,6 +1099,7 @@ export function bindHudRuntime(gameStore: GameStore, socket: GameSocket) {
   let lastAdminPathDebugEnabled = false;
   let lastAdminInteractionDebugEnabled = false;
   let lastAdminMobPeacefulEnabled = false;
+  let lastAutoAttackEnabled = true;
   let lastConnectionPhase = '';
   let lastAuthMessage = '';
   let lastSelectedCharacterSlot: number | null = null;
@@ -947,11 +1111,29 @@ export function bindHudRuntime(gameStore: GameStore, socket: GameSocket) {
   let lastWorldPlayerRef: any = null;
   let lastMapCode = '';
   let lastCoordsText = '';
-  let lastLoadingSignature = '';
-  let currentLoadingState: LoadingUiState = DEFAULT_LOADING;
+  let lastLoadingState: LoadingUiState = runtimeLoadingState;
+  let lastLoadingSnapshot = '';
+  let lastSyncTraceSnapshot = '';
+  let syncQueued = false;
+  let syncFrameId = 0;
 
   const sync = () => {
+    const syncStartedAt = performance.now();
     const state = gameStore.getState();
+    const syncSnapshot = [
+      state.connectionPhase,
+      state.worldStatic ? 'static1' : 'static0',
+      state.worldState ? 'state1' : 'state0',
+      state.inventoryState ? 'inv1' : 'inv0',
+      state.playerId ? `player${state.playerId}` : 'player0'
+    ].join('|');
+    const shouldTraceSyncStart = syncSnapshot !== lastSyncTraceSnapshot;
+    if (shouldTraceSyncStart) {
+      lastSyncTraceSnapshot = syncSnapshot;
+      pushLoadingTrace(
+        `HUD sync start | phase ${state.connectionPhase} | worldStatic ${state.worldStatic ? 'ok' : 'no'} | worldState ${state.worldState ? 'ok' : 'no'} | inventory ${state.inventoryState ? 'ok' : 'no'} | playerId ${state.playerId || '-'}.`
+      );
+    }
     const player = state.playerId ? state.resolvedWorld?.players?.[String(state.playerId)] || null : null;
     const inventory = Array.isArray(state.inventoryState?.inventory) ? state.inventoryState.inventory : [];
     const equippedBySlot = state.inventoryState?.equippedBySlot || {};
@@ -1023,6 +1205,12 @@ export function bindHudRuntime(gameStore: GameStore, socket: GameSocket) {
       friendStore.set({ state: friendState });
     }
 
+    const autoAttackEnabled = Boolean(state.autoAttackEnabled);
+    if (autoAttackEnabled !== lastAutoAttackEnabled) {
+      lastAutoAttackEnabled = autoAttackEnabled;
+      mapSettingsStore.update((current) => ({ ...current, autoAttackEnabled }));
+    }
+
     const adminResult = state.adminResult || null;
     const isAdmin = String(player?.role || '').toLowerCase() === 'adm';
     const pingMs = Number.isFinite(Number(state.networkPingMs)) ? Math.max(0, Math.round(Number(state.networkPingMs))) : null;
@@ -1069,6 +1257,9 @@ export function bindHudRuntime(gameStore: GameStore, socket: GameSocket) {
       || characterSlots !== lastCharacterSlotsRef
       || playerId !== lastPlayerId
     ) {
+      if (connectionPhase !== lastConnectionPhase) {
+        pushLoadingTrace(`Fase alterada para ${connectionPhase}.`);
+      }
       lastConnectionPhase = connectionPhase;
       lastAuthMessage = authMessage;
       lastSelectedCharacterSlot = selectedCharacterSlot;
@@ -1101,7 +1292,7 @@ export function bindHudRuntime(gameStore: GameStore, socket: GameSocket) {
     const playerReady = Boolean(player);
     const inventoryReady = state.inventoryState !== null;
     const allowPendingWorldEntry = state.connectionPhase === 'character_select' || state.connectionPhase === 'in_game';
-    const pendingWorldEntry = allowPendingWorldEntry ? currentLoadingState.pendingWorldEntry : false;
+    const pendingWorldEntry = allowPendingWorldEntry ? runtimeLoadingState.pendingWorldEntry : false;
     const ready = state.connectionPhase === 'in_game' && worldReady && playerReady;
     const shouldShowLoading = pendingWorldEntry || (state.connectionPhase === 'in_game' && !ready);
     let progress = 0;
@@ -1149,19 +1340,56 @@ export function bindHudRuntime(gameStore: GameStore, socket: GameSocket) {
       pendingWorldEntry: ready ? false : pendingWorldEntry,
       ready
     };
-    const loadingSignature = JSON.stringify(nextLoading);
-    if (loadingSignature !== lastLoadingSignature) {
-      lastLoadingSignature = loadingSignature;
-      currentLoadingState = nextLoading;
+    const loadingChanged = nextLoading.active !== lastLoadingState.active
+      || nextLoading.progress !== lastLoadingState.progress
+      || nextLoading.title !== lastLoadingState.title
+      || nextLoading.detail !== lastLoadingState.detail
+      || nextLoading.pendingWorldEntry !== lastLoadingState.pendingWorldEntry
+      || nextLoading.ready !== lastLoadingState.ready;
+    if (loadingChanged) {
+      if (nextLoading.active !== lastLoadingState.active) {
+        pushLoadingTrace(nextLoading.active ? 'Overlay de loading ativado.' : 'Overlay de loading ocultado.');
+      }
+      if (nextLoading.detail !== lastLoadingState.detail) {
+        pushLoadingTrace(nextLoading.detail);
+      }
+      if (!lastLoadingState.ready && nextLoading.ready) {
+        pushLoadingTrace('Estado minimo do mundo concluido para liberar a HUD.');
+      }
+      lastLoadingState = nextLoading;
+      runtimeLoadingState = nextLoading;
       loadingStore.set(nextLoading);
     }
+
+    if (state.connectionPhase === 'in_game') {
+      const worldPlayers = Object.keys(state.resolvedWorld?.players || {}).length;
+      const worldMobs = Array.isArray(state.resolvedWorld?.mobs) ? state.resolvedWorld.mobs.length : 0;
+      const loadingSnapshot = [
+        worldReady ? 'world ok' : 'world pendente',
+        mapReady ? 'map ok' : 'map pendente',
+        playerReady ? 'player ok' : 'player pendente',
+        inventoryReady ? 'inventory ok' : 'inventory pendente',
+        `players ${worldPlayers}`,
+        `mobs ${worldMobs}`
+      ].join(' | ');
+      if (loadingSnapshot !== lastLoadingSnapshot) {
+        lastLoadingSnapshot = loadingSnapshot;
+        pushLoadingTrace(loadingSnapshot);
+      }
+    }
+
+    const syncMs = Math.max(0, Math.round((performance.now() - syncStartedAt) * 100) / 100);
+    if (shouldTraceSyncStart || syncMs >= 8) {
+      pushLoadingTrace(`HUD sync done em ${syncMs}ms | phase ${state.connectionPhase}.`);
+    }
+    persistLoadingDebugSnapshot();
   };
 
   const syncHudScale = () => {
     const rootStyles = getComputedStyle(document.documentElement);
     const hudScale = parseFloat(rootStyles.getPropertyValue('--hud-scale') || '1');
     const compensation = parseFloat(
-      getComputedStyle(document.getElementById('hud-root') || document.documentElement)
+      getComputedStyle(document.getElementById('ui-root') || document.documentElement)
         .getPropertyValue('--hud-browser-compensation') || '1'
     );
     hudScaleStore.set(Number.isFinite(hudScale) && hudScale > 0 ? hudScale : 1);
@@ -1172,13 +1400,22 @@ export function bindHudRuntime(gameStore: GameStore, socket: GameSocket) {
   syncHudScale();
   selectedAutoAttackStore.set(loadSelectedAutoAttack());
 
-  const onChange = () => sync();
+  const onChange = () => {
+    if (syncQueued) return;
+    syncQueued = true;
+    syncFrameId = requestAnimationFrame(() => {
+      syncQueued = false;
+      syncFrameId = 0;
+      sync();
+    });
+  };
   const onResize = () => syncHudScale();
 
   gameStore.addEventListener('change', onChange as EventListener);
   window.addEventListener('resize', onResize);
 
   return () => {
+    if (syncFrameId) cancelAnimationFrame(syncFrameId);
     gameStore.removeEventListener('change', onChange as EventListener);
     window.removeEventListener('resize', onResize);
     runtimeSocket = null;

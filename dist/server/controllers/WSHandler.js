@@ -36,11 +36,16 @@ class WSHandler {
                 return;
             }
             if (msg.type === 'character_enter') {
+                ws.bootstrapReady = false;
                 void this.controller.handleCharacterEnter(ws, msg);
             }
             return;
         }
         const player = this.controller.players.get(ws.playerId);
+        if (msg.type === 'bootstrap.ready') {
+            ws.bootstrapReady = true;
+            return;
+        }
         switch (msg.type) {
             case 'move':
                 this.controller.handleMove(player, msg);

@@ -5,6 +5,7 @@ interface ExtendedWebSocket extends WebSocket {
     authUsername?: string;
     authRole?: string;
     pendingPlayerProfiles?: any[];
+    bootstrapReady?: boolean;
 }
 import { GameController } from './GameController';
 export declare class WSHandler {
