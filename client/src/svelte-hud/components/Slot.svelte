@@ -10,7 +10,10 @@
     activate: any;
     dblactivate: any;
     ctrlclick: any;
+    contextaction: any;
     dragstart: any;
+    inspect: { item: any; x: number; y: number };
+    inspectend: void;
   }>();
 
   function rarityClass() {
@@ -21,6 +24,10 @@
   function handleClick(event: MouseEvent) {
     if (event.ctrlKey && Number(item?.quantity || 1) > 1) {
       dispatch('ctrlclick', item);
+      return;
+    }
+    if (event.detail >= 2) {
+      dispatch('dblactivate', item);
       return;
     }
     dispatch('activate', item);
@@ -45,8 +52,14 @@
     dispatch('dragstart', item);
   }
 
-  function handleDoubleClick() {
-    dispatch('dblactivate', item);
+  function handleContextMenu(event: MouseEvent) {
+    event.preventDefault();
+    dispatch('contextaction', item);
+  }
+
+  function handlePointerMove(event: MouseEvent) {
+    if (!item) return;
+    dispatch('inspect', { item, x: event.clientX, y: event.clientY });
   }
 </script>
 
@@ -55,8 +68,10 @@
   style={`width:${size}px;height:${size}px;`}
   draggable={Boolean(item)}
   on:click={handleClick}
-  on:dblclick={handleDoubleClick}
+  on:contextmenu={handleContextMenu}
   on:dragstart={handleDragStart}
+  on:mousemove={handlePointerMove}
+  on:mouseleave={() => dispatch('inspectend')}
   type="button"
 >
   <div class="slot-chrome"></div>

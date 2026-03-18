@@ -214,6 +214,8 @@ const SKILL_CHAINS: Record<string, string[]> = {
     ass_letal: ['ass_letal_expor_fraqueza', 'ass_letal_ocultar', 'ass_letal_emboscada', 'ass_letal_bomba_fumaca', 'ass_letal_sentenca']
 };
 
+const SKILL_UNLOCK_LEVELS = [1, 10, 20, 30, 40];
+
 export class GameController {
     private persistence: PersistenceService;
     private mobService: MobService;
@@ -342,6 +344,7 @@ export class GameController {
             (mapId) => this.mobService.getMobsByMap(mapId),
             this.assignPathTo.bind(this),
             this.getSkillPrerequisite.bind(this),
+            this.getSkillRequiredLevel.bind(this),
             this.normalizeSkillLevels.bind(this),
             this.getAvailableSkillPoints.bind(this),
             this.recomputePlayerStats.bind(this),
@@ -2985,6 +2988,15 @@ export class GameController {
             return chain[idx - 1];
         }
         return null;
+    }
+
+    private getSkillRequiredLevel(skillId: string) {
+        for (const chain of Object.values(SKILL_CHAINS)) {
+            const idx = chain.indexOf(skillId);
+            if (idx < 0) continue;
+            return Number(SKILL_UNLOCK_LEVELS[idx] || 1);
+        }
+        return 1;
     }
 
     private getSkillPowerWithLevel(skill: SkillDef, level: number) {

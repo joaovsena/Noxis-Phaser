@@ -1,7 +1,10 @@
 <script lang="ts">
+  import { createEventDispatcher } from 'svelte';
   import Window from './components/Window.svelte';
   import Slot from './components/Slot.svelte';
-  import { beginDrag, dragStore, equipInventoryItem, equippedSlots, playerStats, unequipItem } from './stores/gameUi';
+  import { beginDrag, dragStore, equipInventoryItem, equippedSlots, hideTooltip, playerStats, showTooltip, unequipItem } from './stores/gameUi';
+
+  const dispatch = createEventDispatcher<{ close: void }>();
 
   const slotLabels: Record<string, string> = {
     helmet: 'Capacete',
@@ -22,9 +25,14 @@
     if (!payload) return;
     if (payload.source === 'inventory') equipInventoryItem(payload.itemId);
   }
+
+  function inspectEquipped(item: any, x: number, y: number) {
+    if (!item) return;
+    showTooltip({ kind: 'item', item, equipped: null, showSell: false }, x, y);
+  }
 </script>
 
-<Window title="Personagem" subtitle="Equipamentos e atributos" width="420px">
+<Window title="Personagem" subtitle="Equipamentos e atributos" width="420px" on:close={() => dispatch('close')}>
   <div class="hero-strip">
     <div class="hero-core">{$playerStats.className}</div>
     <div class="hero-meta">
@@ -42,6 +50,8 @@
           size={56}
           on:dragstart={(event) => event.detail && beginDrag({ source: 'equipment', itemId: String(event.detail.id), slot: slotKey })}
           on:dblactivate={(event) => event.detail && unequipItem(event.detail)}
+          on:inspect={(event) => inspectEquipped(event.detail.item, event.detail.x, event.detail.y)}
+          on:inspectend={hideTooltip}
         />
       </div>
     {/each}

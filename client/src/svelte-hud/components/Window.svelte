@@ -1,18 +1,28 @@
 <script lang="ts">
+  import { createEventDispatcher } from 'svelte';
+
   export let title = 'Janela';
   export let subtitle = '';
   export let visible = true;
   export let width = '360px';
+  export let showClose = true;
+
+  const dispatch = createEventDispatcher<{ close: void }>();
 </script>
 
 {#if visible}
   <section class="window-shell" style={`width:${width};`}>
-    <header class="window-header">
+    <header class="window-header" data-window-drag-handle="true">
       <div class="title-block">
         <div class="subtitle-chip">{subtitle || 'Noxis UI'}</div>
         <h2>{title}</h2>
       </div>
-      <slot name="actions" />
+      <div class="header-actions">
+        <slot name="actions" />
+        {#if showClose}
+          <button class="close-btn" type="button" aria-label={`Fechar ${title}`} on:click={() => dispatch('close')}>x</button>
+        {/if}
+      </div>
     </header>
     <div class="window-body">
       <slot />
@@ -68,6 +78,17 @@
     gap: 12px;
     padding: 16px 18px 12px;
     border-bottom: 1px solid rgba(201, 168, 106, 0.14);
+    cursor: grab;
+  }
+
+  .window-header:active {
+    cursor: grabbing;
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
   .title-block {
@@ -90,6 +111,19 @@
     letter-spacing: 0.08em;
     color: #f0dfbc;
     text-transform: uppercase;
+  }
+
+  .close-btn {
+    width: 24px;
+    height: 24px;
+    display: grid;
+    place-items: center;
+    border: 1px solid rgba(201, 168, 106, 0.24);
+    background: linear-gradient(180deg, rgba(28, 22, 15, 0.94), rgba(10, 8, 7, 0.98));
+    color: #e8d5aa;
+    clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px);
+    line-height: 1;
+    font-family: 'Cinzel', serif;
   }
 
   .window-body {

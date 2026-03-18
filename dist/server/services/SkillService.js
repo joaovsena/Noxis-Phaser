@@ -4,7 +4,7 @@ exports.SkillService = void 0;
 const config_1 = require("../config");
 const math_1 = require("../utils/math");
 class SkillService {
-    constructor(skillDefs, sendRaw, normalizeClassId, getSkillLevel, pruneExpiredSkillEffects, applyTimedSkillEffect, sendSkillEffect, computeMobDamage, applyDamageToMobAndHandleDeath, broadcastMobHit, applyOnHitSkillEffects, hasActiveSkillEffect, removeSkillEffectById, getSkillPowerWithLevel, sendStatsUpdated, mapInstanceId, getMobByIdInMap, getMobsByMap, assignPathTo, getSkillPrerequisite, normalizeSkillLevels, getAvailableSkillPoints, recomputePlayerStats, persistPlayer, getPlayerById) {
+    constructor(skillDefs, sendRaw, normalizeClassId, getSkillLevel, pruneExpiredSkillEffects, applyTimedSkillEffect, sendSkillEffect, computeMobDamage, applyDamageToMobAndHandleDeath, broadcastMobHit, applyOnHitSkillEffects, hasActiveSkillEffect, removeSkillEffectById, getSkillPowerWithLevel, sendStatsUpdated, mapInstanceId, getMobByIdInMap, getMobsByMap, assignPathTo, getSkillPrerequisite, getSkillRequiredLevel, normalizeSkillLevels, getAvailableSkillPoints, recomputePlayerStats, persistPlayer, getPlayerById) {
         this.skillDefs = skillDefs;
         this.sendRaw = sendRaw;
         this.normalizeClassId = normalizeClassId;
@@ -25,6 +25,7 @@ class SkillService {
         this.getMobsByMap = getMobsByMap;
         this.assignPathTo = assignPathTo;
         this.getSkillPrerequisite = getSkillPrerequisite;
+        this.getSkillRequiredLevel = getSkillRequiredLevel;
         this.normalizeSkillLevels = normalizeSkillLevels;
         this.getAvailableSkillPoints = getAvailableSkillPoints;
         this.recomputePlayerStats = recomputePlayerStats;
@@ -291,6 +292,11 @@ class SkillService {
                 this.sendRaw(player.ws, { type: 'system_message', text: 'Aprenda o pre-requisito antes desta habilidade.' });
                 return;
             }
+        }
+        const requiredLevel = Math.max(1, Number(this.getSkillRequiredLevel(skillId) || 1));
+        if (Math.max(1, Number(player.level || 1)) < requiredLevel) {
+            this.sendRaw(player.ws, { type: 'system_message', text: `Essa habilidade exige nivel ${requiredLevel}.` });
+            return;
         }
         const skillPointsAvailable = this.getAvailableSkillPoints(player);
         if (skillPointsAvailable <= 0) {

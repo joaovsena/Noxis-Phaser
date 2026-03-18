@@ -1,7 +1,8 @@
 <script lang="ts">
   import goldCursorUrl from './assets/gold-pointer.svg';
   import AuthCharacterSlot from './components/AuthCharacterSlot.svelte';
-  import { appStore, hudTransformStyle, selectCharacterSlot, sendUiMessage, setConnectionPhase } from './stores/gameUi';
+  import WorldLoadingOverlay from './WorldLoadingOverlay.svelte';
+  import { appStore, beginWorldEntryLoading, cancelWorldEntryLoading, hudTransformStyle, loadingStore, selectCharacterSlot, sendUiMessage, setConnectionPhase } from './stores/gameUi';
 
   let mode: 'login' | 'register' = 'login';
   let loginUsername = '';
@@ -44,6 +45,16 @@
   function handlePrimaryAction() {
     if (mode === 'login') submitLogin();
     else submitRegister();
+  }
+
+  function enterWorld() {
+    if (!canEnter) return;
+    beginWorldEntryLoading();
+    sendUiMessage({ type: 'character_enter', slot: selectedSlot });
+  }
+
+  $: if ($appStore.connectionPhase !== 'character_select' && $appStore.connectionPhase !== 'in_game' && $loadingStore.pendingWorldEntry) {
+    cancelWorldEntryLoading();
   }
 </script>
 
@@ -145,7 +156,7 @@
         </div>
 
         <div class="action-stack">
-          <button class="primary-button" disabled={!canEnter} type="button" on:click={() => canEnter && sendUiMessage({ type: 'character_enter', slot: selectedSlot })}>Jogar</button>
+          <button class="primary-button" disabled={!canEnter || $loadingStore.pendingWorldEntry} type="button" on:click={enterWorld}>Jogar</button>
           <button class="secondary-button" type="button" on:click={() => setConnectionPhase('character_create')}>Criar personagem</button>
           <button class="ghost-button" type="button" on:click={() => sendUiMessage({ type: 'character.back' })}>Voltar</button>
         </div>
@@ -185,6 +196,10 @@
 
     <div class="auth-status">{$appStore.authMessage || 'As portas do reino estao silenciosas.'}</div>
   </div>
+
+  {#if $loadingStore.active}
+    <WorldLoadingOverlay />
+  {/if}
 </section>
 
 <style>

@@ -38,6 +38,7 @@ type GetMobByIdInMapFn = (mobId: string, mapId: string) => any | null;
 type GetMobsByMapFn = (mapId: string) => any[];
 type AssignPathToFn = (player: PlayerRuntime, destinationX: number, destinationY: number) => void;
 type GetSkillPrerequisiteFn = (skillId: string) => string | null;
+type GetSkillRequiredLevelFn = (skillId: string) => number;
 type NormalizeSkillLevelsFn = (input: any) => Record<string, number>;
 type GetAvailableSkillPointsFn = (player: PlayerRuntime) => number;
 type RecomputePlayerStatsFn = (player: PlayerRuntime) => void;
@@ -68,6 +69,7 @@ export class SkillService {
         private readonly getMobsByMap: GetMobsByMapFn,
         private readonly assignPathTo: AssignPathToFn,
         private readonly getSkillPrerequisite: GetSkillPrerequisiteFn,
+        private readonly getSkillRequiredLevel: GetSkillRequiredLevelFn,
         private readonly normalizeSkillLevels: NormalizeSkillLevelsFn,
         private readonly getAvailableSkillPoints: GetAvailableSkillPointsFn,
         private readonly recomputePlayerStats: RecomputePlayerStatsFn,
@@ -339,6 +341,11 @@ export class SkillService {
                 this.sendRaw(player.ws, { type: 'system_message', text: 'Aprenda o pre-requisito antes desta habilidade.' });
                 return;
             }
+        }
+        const requiredLevel = Math.max(1, Number(this.getSkillRequiredLevel(skillId) || 1));
+        if (Math.max(1, Number(player.level || 1)) < requiredLevel) {
+            this.sendRaw(player.ws, { type: 'system_message', text: `Essa habilidade exige nivel ${requiredLevel}.` });
+            return;
         }
 
         const skillPointsAvailable = this.getAvailableSkillPoints(player);

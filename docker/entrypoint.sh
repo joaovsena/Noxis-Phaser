@@ -1,5 +1,4 @@
 #!/bin/sh
-set -e
 
 if [ "${PRISMA_DB_PUSH:-1}" = "1" ]; then
   echo "[app] Waiting for database and syncing schema..."
@@ -21,10 +20,13 @@ fi
 if [ ! -f /app/node_modules/.prisma/client/index.js ]; then
   echo "[app] Prisma client missing. Generating..."
   npx prisma generate
+  if [ $? -ne 0 ]; then
+    echo "[app] Prisma generate failed"
+    exit 1
+  fi
 else
   echo "[app] Prisma client already present. Skipping generate."
 fi
 
 echo "[app] Starting server..."
-exec node dist/server/index.js
-
+exec node --trace-uncaught dist/server/index.js

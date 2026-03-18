@@ -5,7 +5,7 @@
   "main": "dist/server/index.js",
   "scripts": {
     "build": "npm run build:client && npm run build:server",
-    "build:server": "tsc",
+    "build:server": "npm run db:generate && tsc",
     "build:client": "vite build --config client/vite.config.ts",
     "start": "node dist/server/index.js",
     "dev": "ts-node server/index.ts",
@@ -21,7 +21,7 @@
     "db:push": "prisma db push",
     "db:reset": "prisma db push --force-reset",
     "dev:setup": "npm run db:reset && npm run db:generate",
-    "test": "jest",
+    "test": "jest --passWithNoTests",
     "bench:engine:poc": "node scripts/bench_engine_poc.js"
   },
   "keywords": [],

@@ -34,8 +34,10 @@ const HOTBAR_KEYS = ['q', 'w', 'e', 'r', 'a', 's', 'd', 'f', '1', '2', '3', '4',
 const SKILL_STATE_STORAGE_KEY = 'noxis.skillTree.v1';
 const SKILL_TREE: SkillNode[] = buildSkillTree();
 const INITIAL_DEVICE_PIXEL_RATIO = window.devicePixelRatio || 1;
-const SVELTE_AUTH_ENABLED = true;
-const SVELTE_HUD_SCAFFOLD_ENABLED = new URLSearchParams(window.location.search).get('svelteHud') !== '0';
+const UI_QUERY_PARAMS = new URLSearchParams(window.location.search);
+const SVELTE_AUTH_ENABLED = UI_QUERY_PARAMS.get('svelteAuth') === '1';
+const SVELTE_HUD_SCAFFOLD_ENABLED = UI_QUERY_PARAMS.get('svelteHud') === '1';
+const SVELTE_UI_ENABLED = SVELTE_AUTH_ENABLED || SVELTE_HUD_SCAFFOLD_ENABLED;
 
 let chatScope: 'local' | 'map' | 'global' = 'local';
 let chatViewMode: 'expanded' | 'compact' | 'mini' | 'manual' = 'expanded';
@@ -1777,6 +1779,16 @@ function bindUi() {
   byId('party-tab-my')?.addEventListener('click', () => { setHidden(byId('party-view-area'), true); setHidden(byId('party-view-my'), false); });
   byId('npc-dialog-close')?.addEventListener('click', () => store.update({ npcDialog: null, npcShopOpen: false }));
   byId('npc-dialog-panel-close')?.addEventListener('click', () => store.update({ npcDialog: null, npcShopOpen: false }));
+  window.addEventListener('noxis:svelte-minimap-move', (event) => {
+    const detail = (event as CustomEvent<{ x: number; y: number }>).detail;
+    if (!detail) return;
+    socket.send({ type: 'move', reqId: Date.now(), x: Number(detail.x || 0), y: Number(detail.y || 0) });
+  });
+  window.addEventListener('noxis:svelte-worldmap-move', (event) => {
+    const detail = (event as CustomEvent<{ x: number; y: number }>).detail;
+    if (!detail) return;
+    socket.send({ type: 'move', reqId: Date.now(), x: Number(detail.x || 0), y: Number(detail.y || 0) });
+  });
   window.addEventListener('noxis:npc-dialog', () => {
     lastNpcDialogSyncKey = store.getState().npcDialog ? npcDialogSignature(store.getState().npcDialog) : 'none';
     renderNpcDialog({ force: true, focus: false });
@@ -1901,21 +1913,23 @@ function render() {
   const world = state.resolvedWorld;
   const p = localPlayer();
   const inGame = state.connectionPhase === 'in_game';
+  const useSvelteHudInGame = inGame && SVELTE_HUD_SCAFFOLD_ENABLED;
   const isAdmin = isAdminPlayer(p);
   if (byId('auth-status')) byId('auth-status')!.textContent = state.authMessage || '';
+  setHidden(byId('svelte-root'), !SVELTE_UI_ENABLED);
   setHidden(byId('screen-login-register'), !(state.connectionPhase === 'auth' || state.connectionPhase === 'connecting' || state.connectionPhase === 'disconnected'));
   setHidden(byId('screen-character-select'), state.connectionPhase !== 'character_select');
   setHidden(byId('screen-character-create'), state.connectionPhase !== 'character_create');
-  setHidden(byId('ui-container'), inGame && !SVELTE_HUD_SCAFFOLD_ENABLED);
+  setHidden(byId('ui-container'), inGame);
   setHidden(byId('auth-screen'), SVELTE_AUTH_ENABLED || inGame);
   renderCharacterSlots(state.characterSlots, state.selectedCharacterSlot);
   if (byId('btn-character-enter')) byId<HTMLButtonElement>('btn-character-enter')!.disabled = !Number.isInteger(state.selectedCharacterSlot);
-  ['player-card', 'minimap-wrap', 'chat-wrap', 'skillbar-wrap', 'menus-wrap', 'perf-hud'].forEach((id) => setHidden(byId(id), !inGame));
+  ['player-card', 'minimap-wrap', 'chat-wrap', 'skillbar-wrap', 'menus-wrap', 'perf-hud'].forEach((id) => setHidden(byId(id), !inGame || useSvelteHudInGame));
   setHidden(byId('hud-root'), !inGame || SVELTE_HUD_SCAFFOLD_ENABLED);
-  setHidden(byId('revive-overlay'), !(inGame && (state.dead || Boolean(p?.dead) || Number(p?.hp || 0) <= 0)));
+  setHidden(byId('revive-overlay'), !inGame || useSvelteHudInGame || !(state.dead || Boolean(p?.dead) || Number(p?.hp || 0) <= 0));
   if (!inGame || !isAdmin) adminPanelOpen = false;
-  setHidden(byId('admin-panel'), !inGame || !isAdmin || !adminPanelOpen);
-  setHidden(byId('afk-status'), !(inGame && Boolean(p?.afkActive)));
+  setHidden(byId('admin-panel'), !inGame || useSvelteHudInGame || !isAdmin || !adminPanelOpen);
+  setHidden(byId('afk-status'), !(inGame && !useSvelteHudInGame && Boolean(p?.afkActive)));
   setHidden(byId('path-debug-setting'), !isAdmin);
   setHidden(byId('interaction-debug-setting'), !isAdmin);
   setHidden(byId('hud-debug-setting'), !isAdmin);
@@ -1923,6 +1937,28 @@ function render() {
   setHidden(byId('dungeon-debug-setting'), !isAdmin);
   if (!inGame) {
     requestedInGameState = false;
+    return;
+  }
+  if (useSvelteHudInGame) {
+    [
+      'hud-root',
+      'npc-dialog-panel',
+      'inventory-panel',
+      'quest-panel',
+      'party-panel',
+      'friends-panel',
+      'guild-panel',
+      'char-panel',
+      'skills-panel',
+      'worldmap-panel',
+      'target-player-card',
+      'party-frames',
+      'item-tooltip',
+      'map-settings-panel',
+      'admin-panel',
+      'revive-overlay'
+    ].forEach((id) => setHidden(byId(id), true));
+    hideConfirmationModal();
     return;
   }
   if (!requestedInGameState) { requestedInGameState = true; socket.send({ type: 'party.requestAreaParties' }); socket.send({ type: 'friend.list' }); }
@@ -1987,8 +2023,8 @@ function scheduleRender() {
 }
 
 bindUi();
-const svelteHudRuntime = (SVELTE_AUTH_ENABLED || SVELTE_HUD_SCAFFOLD_ENABLED)
-  ? mountHudApp({ store, socket, target: byId('ui-container'), enableHud: SVELTE_HUD_SCAFFOLD_ENABLED })
+const svelteHudRuntime = SVELTE_UI_ENABLED
+  ? mountHudApp({ store, socket, target: byId('svelte-root'), enableHud: SVELTE_HUD_SCAFFOLD_ENABLED })
   : null;
 store.addEventListener('change', scheduleRender as EventListener);
 store.addEventListener('change', syncNpcDialogRender as EventListener);

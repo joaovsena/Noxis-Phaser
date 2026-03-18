@@ -269,6 +269,7 @@ export declare class GameController {
     private getAvailableSkillPoints;
     private getSkillLevel;
     private getSkillPrerequisite;
+    private getSkillRequiredLevel;
     private getSkillPowerWithLevel;
     private sendStatsUpdated;
     private sendRaw;

@@ -1,1 +1,10 @@
-node_modules
+node_modules/
+dist/
+client/dist/
+server/logs/
+.env
+.tmp-prisma-*.ts
+.docker-local/
+*.log
+*.log.txt
+noxis_backup.sql

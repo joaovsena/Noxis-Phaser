@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import type { GameStore } from '../state/GameStore';
 import type { GameSocket } from '../net/GameSocket';
 import { loadMapDocument, type LoadedMapDocument } from '../maps/MapDocument';
+import { DEFAULT_MAP_URL } from '../config';
 
 type SceneServices = {
   store: GameStore;
@@ -100,6 +101,9 @@ const ACTION_REISSUE_DISTANCE = 18;
 const HAND_CURSOR = 'pointer';
 const SWORD_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke='%23f6d37a' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14.5 3.5l6 6'/%3E%3Cpath d='M8 16l9.5-9.5 2 2L10 18'/%3E%3Cpath d='M7 17l-2.5 2.5'/%3E%3Cpath d='M5.5 15.5l3 3'/%3E%3C/g%3E%3C/svg%3E") 8 8, crosshair`;
 const PLAYER_DIRECTIONS: FacingDirection[] = ['s', 'sw', 'w', 'nw', 'n', 'ne', 'e', 'se'];
+const ENABLE_TILE_TEXTURE_RENDER = true;
+const WORLD_OBJECT_STREAM_RANGE = 2600;
+const REMOTE_PLAYER_STREAM_RANGE = 3200;
 const DIRECTION_COLUMN: Record<FacingDirection, number> = {
   s: 0,
   sw: 1,
@@ -148,6 +152,9 @@ export class WorldScene extends Phaser.Scene {
   private renderOriginX = 0;
   private renderOriginY = 0;
   private lastCursorKey: 'default' | 'hand' | 'sword' = 'default';
+  private syncQueued = false;
+  private syncRafId: number | null = null;
+  private syncingFromStore = false;
 
   constructor(services: SceneServices) {
     super('world');
@@ -193,9 +200,9 @@ export class WorldScene extends Phaser.Scene {
     await this.ensurePlayerAssets();
     this.createPlayerAnimations();
 
-    this.changeHandler = () => this.syncFromStore();
+    this.changeHandler = () => this.scheduleSyncFromStore();
     this.services.store.addEventListener('change', this.changeHandler);
-    this.syncFromStore();
+    this.scheduleSyncFromStore();
 
     this.scale.on('resize', this.handleResize, this);
     this.handleResize(this.scale.gameSize);
@@ -259,8 +266,23 @@ export class WorldScene extends Phaser.Scene {
       this.changeHandler = null;
     }
     this.scale.off('resize', this.handleResize, this);
+    if (this.syncRafId !== null) {
+      cancelAnimationFrame(this.syncRafId);
+      this.syncRafId = null;
+    }
     this.mapRenderTextures.forEach((texture) => texture.destroy());
     this.mapRenderTextures = [];
+  }
+
+  private scheduleSyncFromStore() {
+    this.syncQueued = true;
+    if (this.syncRafId !== null) return;
+    this.syncRafId = requestAnimationFrame(() => {
+      this.syncRafId = null;
+      if (!this.syncQueued) return;
+      this.syncQueued = false;
+      this.syncFromStore();
+    });
   }
 
   private clientToWorldPoint(clientX: number, clientY: number, rect: DOMRect) {
@@ -364,10 +386,12 @@ export class WorldScene extends Phaser.Scene {
     try {
       this.mapDocument = await loadMapDocument(url);
       this.renderLoadedMap();
-      void this.ensureTileTextures(this.mapDocument).then(() => {
-        if (this.mapDocument?.url !== url) return;
-        this.renderLoadedMap();
-      });
+      if (ENABLE_TILE_TEXTURE_RENDER) {
+        void this.ensureTileTextures(this.mapDocument).then(() => {
+          if (this.mapDocument?.url !== url) return;
+          this.renderLoadedMap();
+        });
+      }
     } catch (error) {
       if (url !== DEFAULT_MAP_URL) {
         this.loadingMapUrl = null;
@@ -779,14 +803,30 @@ export class WorldScene extends Phaser.Scene {
     return [0x2f5065, 0x395d70, 0x4e6f78][seed] || 0x395d70;
   }
 
+  private isWithinStreamRange(localPlayer: any, entry: any, maxDistance: number) {
+    if (!localPlayer || !entry) return true;
+    return Phaser.Math.Distance.Between(
+      Number(localPlayer.x || 0),
+      Number(localPlayer.y || 0),
+      Number(entry.x || 0),
+      Number(entry.y || 0)
+    ) <= maxDistance;
+  }
+
   private syncFromStore() {
+    if (this.syncingFromStore) {
+      this.scheduleSyncFromStore();
+      return;
+    }
+    this.syncingFromStore = true;
+    try {
     const state = this.services.store.getState();
     const world = state.resolvedWorld;
     this.selectedMobId = state.selectedMobId;
     const mapUrl = String(world?.mapTiled?.tmjUrl || this.mapDocument?.url || DEFAULT_MAP_URL);
     if (!this.mapDocument || this.mapDocument.url !== mapUrl) {
       if (this.loadingMapUrl === mapUrl) return;
-      void this.loadAndRenderMap(mapUrl).then(() => this.syncFromStore()).catch(() => undefined);
+      void this.loadAndRenderMap(mapUrl).then(() => this.scheduleSyncFromStore()).catch(() => undefined);
       return;
     }
 
@@ -801,6 +841,7 @@ export class WorldScene extends Phaser.Scene {
     const visibleGroundItemIds = new Set<string>();
 
     Object.entries(players).forEach(([id, player]) => {
+      if (id !== String(state.playerId) && !this.isWithinStreamRange(localPlayer, player, REMOTE_PLAYER_STREAM_RANGE)) return;
       visibleIds.add(id);
       let marker = this.playerMarkers.get(id);
       if (!marker) {
@@ -821,6 +862,7 @@ export class WorldScene extends Phaser.Scene {
     mobs.forEach((mob: any) => {
       const mobId = String(mob.id || '');
       if (!mobId) return;
+      if (!this.isWithinStreamRange(localPlayer, mob, WORLD_OBJECT_STREAM_RANGE)) return;
       visibleMobIds.add(mobId);
       let marker = this.mobMarkers.get(mobId);
       if (!marker) {
@@ -874,6 +916,7 @@ export class WorldScene extends Phaser.Scene {
     npcs.forEach((npc: any) => {
       const npcId = String(npc.id || '');
       if (!npcId) return;
+      if (!this.isWithinStreamRange(localPlayer, npc, WORLD_OBJECT_STREAM_RANGE)) return;
       visibleNpcIds.add(npcId);
       let marker = this.npcMarkers.get(npcId);
       if (!marker) {
@@ -919,6 +962,7 @@ export class WorldScene extends Phaser.Scene {
     groundItems.forEach((item: any) => {
       const itemId = String(item.id || '');
       if (!itemId) return;
+      if (!this.isWithinStreamRange(localPlayer, item, WORLD_OBJECT_STREAM_RANGE)) return;
       visibleGroundItemIds.add(itemId);
       let marker = this.groundItemMarkers.get(itemId);
       if (!marker) {
@@ -967,6 +1011,9 @@ export class WorldScene extends Phaser.Scene {
     this.renderCombatFeedback(state.lastCombatEvent);
     this.renderQueuedCombatBursts(state.combatBursts);
     this.renderQueuedSkillEffects(state.skillEffects);
+    } finally {
+      this.syncingFromStore = false;
+    }
   }
 
   private createPlayerMarker(id: string, player: any, localPlayerId: number | null) {

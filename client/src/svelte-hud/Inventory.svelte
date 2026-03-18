@@ -1,11 +1,16 @@
 <script lang="ts">
+  import { createEventDispatcher } from 'svelte';
   import Window from './components/Window.svelte';
   import Slot from './components/Slot.svelte';
-  import { activateInventoryItem, beginDrag, dragStore, endDrag, inventorySlots, moveInventoryItem, sendUiMessage } from './stores/gameUi';
+  import { inferEquipSlot } from './lib/itemTooltip';
+  import { activateInventoryItem, beginDrag, dragStore, endDrag, equippedSlots, hideTooltip, inventorySlots, inventoryStore, moveInventoryItem, sendUiMessage, showTooltip } from './stores/gameUi';
+
+  const dispatch = createEventDispatcher<{ close: void }>();
 
   let search = '';
   let splitTarget: any = null;
   let splitAmount = 1;
+  let deleteTarget: any = null;
 
   $: normalizedSearch = search.trim().toLowerCase();
   $: visibleSlots = $inventorySlots.map((entry) => ({
@@ -17,8 +22,14 @@
   $: splitMax = splitTarget ? Math.max(1, Math.min(249, Math.floor(Number(splitTarget.quantity || 1)) - 1)) : 1;
 
   function openSplit(item: any) {
+    if (!item) return;
     splitTarget = item;
     splitAmount = Math.max(1, Math.floor(splitMax / 2));
+  }
+
+  function openDelete(item: any) {
+    if (!item) return;
+    deleteTarget = item;
   }
 
   function confirmSplit() {
@@ -40,9 +51,45 @@
     if (payload.source === 'equipment') sendUiMessage({ type: 'inventory_unequip_to_slot', itemId: payload.itemId, toSlot: slotIndex });
     endDrag();
   }
+
+  function resolveDraggedItem() {
+    const payload = $dragStore;
+    if (!payload || !('itemId' in payload)) return null;
+    const itemId = String(payload.itemId || '');
+    return $inventoryStore.inventory.find((entry: any) => String(entry?.id || '') === itemId)
+      || Object.values($equippedSlots).find((entry: any) => String(entry?.id || '') === itemId)
+      || null;
+  }
+
+  function handleDeleteDrop(event: DragEvent) {
+    event.preventDefault();
+    deleteTarget = resolveDraggedItem();
+    endDrag();
+  }
+
+  function confirmDelete() {
+    if (!deleteTarget?.id) return;
+    sendUiMessage({
+      type: 'delete_item_req',
+      itemId: String(deleteTarget.id || ''),
+      slotIndex: Number(deleteTarget.slotIndex ?? -1)
+    });
+    deleteTarget = null;
+  }
+
+  function inspectItem(item: any, x: number, y: number) {
+    if (!item) return;
+    const equipSlot = inferEquipSlot(item);
+    showTooltip({
+      kind: 'item',
+      item,
+      equipped: equipSlot ? $equippedSlots[equipSlot] || null : null,
+      showSell: false
+    }, x, y);
+  }
 </script>
 
-<Window title="Inventario" subtitle="Reliquias e espolios" width="432px">
+<Window title="Inventario" subtitle="Reliquias e espolios" width="432px" on:close={() => dispatch('close')}>
   <div class="inventory-toolbar">
     <input bind:value={search} class="search-input" type="search" placeholder="Buscar item..." />
     <button class="sort-btn" type="button" on:click={() => sendUiMessage({ type: 'inventory_sort' })}>Ordenar</button>
@@ -55,11 +102,18 @@
           item={slot.item}
           searchHidden={slot.hidden}
           on:ctrlclick={(event) => openSplit(event.detail)}
+          on:contextaction={(event) => openDelete(event.detail)}
           on:dragstart={(event) => event.detail && beginDrag({ source: 'inventory', itemId: String(event.detail.id) })}
           on:dblactivate={(event) => event.detail && activateInventoryItem(event.detail)}
+          on:inspect={(event) => inspectItem(event.detail.item, event.detail.x, event.detail.y)}
+          on:inspectend={hideTooltip}
         />
       </div>
     {/each}
+  </div>
+
+  <div class="delete-dropzone" role="button" tabindex="-1" on:dragover|preventDefault on:drop={handleDeleteDrop}>
+    Arraste aqui para destruir um item
   </div>
 
   {#if splitTarget}
@@ -70,6 +124,17 @@
       <div class="split-actions">
         <button type="button" on:click={confirmSplit}>Confirmar</button>
         <button type="button" class="ghost" on:click={() => splitTarget = null}>Cancelar</button>
+      </div>
+    </div>
+  {/if}
+
+  {#if deleteTarget}
+    <div class="split-modal danger">
+      <div class="split-title">Destruir Item</div>
+      <p>{deleteTarget.name}</p>
+      <div class="split-actions">
+        <button type="button" on:click={confirmDelete}>Destruir</button>
+        <button type="button" class="ghost" on:click={() => deleteTarget = null}>Cancelar</button>
       </div>
     </div>
   {/if}
@@ -129,6 +194,21 @@
     gap: 10px;
   }
 
+  .delete-dropzone {
+    margin-top: 14px;
+    min-height: 42px;
+    display: grid;
+    place-items: center;
+    border: 1px dashed rgba(205, 116, 100, 0.42);
+    background: linear-gradient(180deg, rgba(36, 14, 12, 0.94), rgba(16, 8, 8, 0.98));
+    color: #efc1b5;
+    font-family: 'Cinzel', serif;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px);
+  }
+
   .inventory-drop-shell {
     min-width: 52px;
     min-height: 52px;
@@ -142,6 +222,13 @@
       radial-gradient(circle at top, rgba(201, 168, 106, 0.07), transparent 34%),
       linear-gradient(180deg, rgba(13, 11, 10, 0.96), rgba(7, 7, 8, 0.98));
     clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 14px, 100% calc(100% - 14px), calc(100% - 14px) 100%, 14px 100%, 0 calc(100% - 14px), 0 14px);
+  }
+
+  .split-modal.danger {
+    border-color: rgba(205, 116, 100, 0.26);
+    background:
+      radial-gradient(circle at top, rgba(205, 116, 100, 0.08), transparent 34%),
+      linear-gradient(180deg, rgba(21, 11, 10, 0.96), rgba(10, 7, 8, 0.98));
   }
 
   .split-title {

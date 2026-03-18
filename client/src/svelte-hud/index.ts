@@ -10,7 +10,7 @@ export function mountHudApp(options: {
   target?: HTMLElement | null;
   enableHud?: boolean;
 }) {
-  const target = options.target || document.getElementById('ui-container');
+  const target = options.target || document.getElementById('svelte-root');
   if (!target) return null;
   const host = document.createElement('div');
   host.id = 'svelte-hud-root';

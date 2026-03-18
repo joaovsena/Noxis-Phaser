@@ -29,6 +29,33 @@
         <path d="M13 12h6" />
         <path d="M13 16h6" />
         <path d="M13 20h4" />
+      {:else if icon === 'chat'}
+        <path d="M8 9h16v10H14l-4 4v-4H8Z" />
+      {:else if icon === 'minimap'}
+        <circle cx="16" cy="16" r="8" />
+        <path d="M16 6v3" />
+        <path d="M16 23v3" />
+        <path d="M6 16h3" />
+        <path d="M23 16h3" />
+        <path d="M16 16l3-3" />
+      {:else if icon === 'party'}
+        <circle cx="11" cy="14" r="4" />
+        <circle cx="21" cy="14" r="4" />
+        <path d="M6 24c1.2-3.5 3.8-5 5-5" />
+        <path d="M16 24c1.2-3.5 3.8-5 5-5" />
+      {:else if icon === 'friends'}
+        <circle cx="12" cy="13" r="4" />
+        <circle cx="20" cy="18" r="3.5" />
+        <path d="M7 24c1.2-3.5 3.8-5 5-5" />
+        <path d="M16 24c.8-2.5 2.4-4 4-4" />
+      {:else if icon === 'guild'}
+        <path d="M16 6l8 3v6c0 5-3.2 9.2-8 11-4.8-1.8-8-6-8-11V9Z" />
+        <path d="M12.5 16l2.5 2.5 4.5-5" />
+      {:else if icon === 'admin'}
+        <path d="M16 6l7 4v8c0 4.3-2.8 7.6-7 9-4.2-1.4-7-4.7-7-9v-8Z" />
+        <path d="M12 13h8" />
+        <path d="M12 17h8" />
+        <path d="M14 21h4" />
       {:else}
         <path d="M16 6l10 10-10 10L6 16Z" />
       {/if}
@@ -41,12 +68,12 @@
 <style>
   button {
     pointer-events: auto;
-    min-width: 72px;
+    min-width: 64px;
     border: 0;
     background: transparent;
     display: grid;
     justify-items: center;
-    gap: 4px;
+    gap: 3px;
     color: #ead9b2;
     transition: transform 140ms ease, filter 160ms ease;
   }
@@ -57,8 +84,8 @@
   }
 
   .icon-frame {
-    width: 36px;
-    height: 36px;
+    width: 32px;
+    height: 32px;
     display: grid;
     place-items: center;
     clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px);
@@ -70,8 +97,8 @@
   }
 
   svg {
-    width: 18px;
-    height: 18px;
+    width: 16px;
+    height: 16px;
     fill: none;
     stroke: #d8bb82;
     stroke-width: 1.8;
@@ -83,7 +110,7 @@
   .label,
   .hotkey {
     font-family: 'Cinzel', serif;
-    font-size: 0.62rem;
+    font-size: 0.56rem;
     line-height: 1;
     text-transform: uppercase;
     letter-spacing: 0.04em;
