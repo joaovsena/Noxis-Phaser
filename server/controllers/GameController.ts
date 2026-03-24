@@ -48,7 +48,7 @@ import {
     SKILL_RESET_HOURGLASS_TEMPLATE,
     BUILTIN_ITEM_TEMPLATE_BY_ID
 } from '../config';
-import { logEvent } from '../utils/logger';
+import { logEvent, logNamedEvent } from '../utils/logger';
 import { perfStats } from '../utils/perfStats';
 
 interface AuthSocket {
@@ -604,15 +604,41 @@ export class GameController {
                 return;
             }
 
+            const flowStartedAt = Date.now();
+            const trace = (event: string, data: Record<string, unknown> = {}) => {
+                logNamedEvent('character-enter', 'INFO', event, {
+                    atMs: Date.now() - flowStartedAt,
+                    authUserId: ws.authUserId || null,
+                    authUsername: ws.authUsername || null,
+                    runtimePlayerId: ws.playerId || null,
+                    ...data
+                });
+            };
+            trace('profile_selected', {
+                requestedSlot: Number.isInteger(requestedSlot) ? requestedSlot : null,
+                resolvedSlot: Number(profile?.slot ?? -1),
+                characters: characters.length
+            });
+
+            const runtimeStartedAt = Date.now();
             const player = this.createRuntimePlayer(username, profile);
+            trace('runtime_created', {
+                elapsedMs: Date.now() - runtimeStartedAt,
+                runtimePlayerId: player.id,
+                mapKey: player.mapKey,
+                mapId: player.mapId
+            });
             player.ws = ws as any;
             this.players.set(player.id, player);
             this.usernameToPlayerId.set(username, player.id);
             ws.playerId = player.id;
             const mapMetadata = getMapMetadata(player.mapKey);
             this.sendDebugStep(ws, 'character_enter: runtime criado');
+            trace('debug_step_sent', { step: 'character_enter: runtime criado' });
 
             this.sendDebugPacket(ws, 1, 'auth_success');
+            trace('debug_packet_sent', { order: 1, packetType: 'auth_success' });
+            const hotbarBindings = this.getPlayerHotbarBindings(player);
             const authSuccessPayload = {
                 type: 'auth_success',
                 playerId: player.id,
@@ -632,15 +658,39 @@ export class GameController {
                     : null,
                 role: player.role,
                 statusIds: STATUS_IDS,
-                hotbarBindings: this.getPlayerHotbarBindings(player)
+                hotbarBindings
             };
             const hotbarStatePayload = {
                 type: 'hotbar.state',
-                bindings: this.getPlayerHotbarBindings(player)
+                bindings: hotbarBindings
             };
+            trace('auth_payload_ready', {
+                hasMapMetadata: Boolean(mapMetadata),
+                hotbarBindings: Object.keys(hotbarBindings || {}).length
+            });
+            const worldStaticStartedAt = Date.now();
             const worldStatic = this.buildWorldStaticSnapshot(player.mapId, player.mapKey);
+            trace('world_static_ready', {
+                elapsedMs: Date.now() - worldStaticStartedAt,
+                mapKey: worldStatic?.mapKey || player.mapKey,
+                mapId: worldStatic?.mapId || player.mapId
+            });
+            const worldStateStartedAt = Date.now();
             const worldState = this.buildWorldSnapshot(player.mapId, player.mapKey);
+            trace('world_state_ready', {
+                elapsedMs: Date.now() - worldStateStartedAt,
+                players: Object.keys(worldState?.players || {}).length,
+                mobs: Array.isArray(worldState?.mobs) ? worldState.mobs.length : 0,
+                groundItems: Array.isArray(worldState?.groundItems) ? worldState.groundItems.length : 0,
+                activeEvents: Array.isArray(worldState?.activeEvents) ? worldState.activeEvents.length : 0,
+                npcs: Array.isArray(worldState?.npcs) ? worldState.npcs.length : 0
+            });
+            const worldStateSerializedStartedAt = Date.now();
             const worldStateSerialized = JSON.stringify(worldState);
+            trace('world_state_serialized', {
+                elapsedMs: Date.now() - worldStateSerializedStartedAt,
+                bytes: Buffer.byteLength(worldStateSerialized, 'utf8')
+            });
             logEvent('INFO', 'character_enter_world_state_meta', {
                 playerId: player.id,
                 mapKey: player.mapKey,
@@ -652,24 +702,55 @@ export class GameController {
                 activeEvents: Array.isArray(worldState?.activeEvents) ? worldState.activeEvents.length : 0,
                 npcs: Array.isArray(worldState?.npcs) ? worldState.npcs.length : 0
             });
+            const inventoryStartedAt = Date.now();
             const inventoryState = this.buildInventoryState(player);
+            trace('inventory_state_ready', {
+                elapsedMs: Date.now() - inventoryStartedAt,
+                items: Array.isArray(inventoryState?.inventory) ? inventoryState.inventory.length : 0
+            });
 
             this.sendDebugPacket(ws, 1, 'bootstrap.auth');
-            this.sendRaw(player.ws, {
+            trace('debug_packet_sent', { order: 1, packetType: 'bootstrap.auth' });
+            const bootstrapAuthPayload = {
                 type: 'bootstrap.auth',
                 authSuccess: authSuccessPayload,
                 hotbarState: hotbarStatePayload
+            };
+            const bootstrapAuthSerializeStartedAt = Date.now();
+            const bootstrapAuthSerialized = JSON.stringify(bootstrapAuthPayload);
+            trace('bootstrap_auth_serialized', {
+                elapsedMs: Date.now() - bootstrapAuthSerializeStartedAt,
+                bytes: Buffer.byteLength(bootstrapAuthSerialized, 'utf8')
+            });
+            const bootstrapAuthSendStartedAt = Date.now();
+            player.ws?.send(bootstrapAuthSerialized);
+            trace('bootstrap_auth_sent', {
+                elapsedMs: Date.now() - bootstrapAuthSendStartedAt,
+                bytes: Buffer.byteLength(bootstrapAuthSerialized, 'utf8')
             });
             logEvent('INFO', 'character_enter_send', { order: 1, type: 'bootstrap.auth', playerId: player.id });
             this.sendDebugStep(ws, 'character_enter: bootstrap.auth enviado');
             await this.sleep(10);
 
             this.sendDebugPacket(ws, 2, 'bootstrap.world');
-            this.sendRaw(player.ws, {
+            trace('debug_packet_sent', { order: 2, packetType: 'bootstrap.world' });
+            const bootstrapWorldPayload = {
                 type: 'bootstrap.world',
                 worldStatic,
                 worldState,
                 inventoryState
+            };
+            const bootstrapWorldSerializeStartedAt = Date.now();
+            const bootstrapWorldSerialized = JSON.stringify(bootstrapWorldPayload);
+            trace('bootstrap_world_serialized', {
+                elapsedMs: Date.now() - bootstrapWorldSerializeStartedAt,
+                bytes: Buffer.byteLength(bootstrapWorldSerialized, 'utf8')
+            });
+            const bootstrapWorldSendStartedAt = Date.now();
+            player.ws?.send(bootstrapWorldSerialized);
+            trace('bootstrap_world_sent', {
+                elapsedMs: Date.now() - bootstrapWorldSendStartedAt,
+                bytes: Buffer.byteLength(bootstrapWorldSerialized, 'utf8')
             });
             logEvent('INFO', 'character_enter_send', { order: 2, type: 'bootstrap.world', playerId: player.id });
             this.sendDebugStep(ws, 'character_enter: bootstrap.world enviado');
@@ -690,11 +771,19 @@ export class GameController {
                 this.sendDebugStep(ws, 'character_enter: admin state enviado');
             }
             await this.hydrateFriendStateForPlayer(player);
+            trace('friend_state_hydrated');
             this.sendFriendState(player);
             this.sendDebugStep(ws, 'character_enter: friend.state enviado');
             ws.pendingPlayerProfiles = [];
             logEvent('INFO', 'user_login', { username, playerId: player.id });
+            trace('character_enter_completed', { totalMs: Date.now() - flowStartedAt });
         } catch (error) {
+            logNamedEvent('character-enter', 'ERROR', 'character_enter_failed', {
+                authUserId: ws.authUserId || null,
+                authUsername: ws.authUsername || null,
+                runtimePlayerId: ws.playerId || null,
+                error: String(error)
+            });
             this.sendDebugStep(ws, `character_enter: erro ${String(error)}`);
             ws.send(JSON.stringify({ type: 'auth_error', message: 'Nao foi possivel entrar no personagem.' }));
             logEvent('ERROR', 'character_enter_error', { error: String(error), userId: ws.authUserId || null });

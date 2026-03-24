@@ -1,4 +1,5 @@
 import type { GameStore } from '../state/GameStore';
+import { bootDiagnostics } from '../debug/BootDiagnostics';
 import { markLoadingPacket, traceLoadingStep } from '../../svelte-hud/stores/gameUi';
 
 const RECONNECT_MS = 2500;
@@ -26,6 +27,7 @@ export class GameSocket {
 
     this.ws.addEventListener('open', () => {
       const readyState = this.ws ? this.ws.readyState : -1;
+      bootDiagnostics.stage('socket:open', `WebSocket conectado. readyState=${readyState}.`);
       traceLoadingStep(`WS conectado. readyState=${readyState}.`);
       markLoadingPacket('wsOpen', `ws_open | readyState ${readyState}`);
       this.store.update({
@@ -40,6 +42,7 @@ export class GameSocket {
       const code = Number(event?.code || 0);
       const reason = String(event?.reason || '').trim();
       const wasClean = Boolean(event?.wasClean);
+      bootDiagnostics.error('socket', 'close', `WS fechado. code=${code} clean=${wasClean ? 'yes' : 'no'} reason=${reason || '-'}.`);
       traceLoadingStep(`WS fechado. code=${code} clean=${wasClean ? 'yes' : 'no'} reason=${reason || '-'}. Reconexao agendada.`);
       markLoadingPacket('wsClose', `ws_close | code ${code} | clean ${wasClean ? 'yes' : 'no'} | reason ${reason || '-'}`);
       this.stopPingLoop();
@@ -51,6 +54,7 @@ export class GameSocket {
     this.ws.addEventListener('error', () => {
       const readyState = this.ws ? this.ws.readyState : -1;
       const bufferedAmount = this.ws ? this.ws.bufferedAmount : -1;
+      bootDiagnostics.error('socket', 'error', `Erro no websocket. readyState=${readyState} buffered=${bufferedAmount}.`);
       traceLoadingStep(`Erro no websocket. readyState=${readyState} buffered=${bufferedAmount}.`);
       markLoadingPacket('wsError', `ws_error | readyState ${readyState} | buffered ${bufferedAmount}`);
       this.store.update({ authMessage: 'Falha ao conectar no websocket.' });
@@ -62,10 +66,6 @@ export class GameSocket {
       const raw = String(event.data);
       const rawTypeMatch = /"type"\s*:\s*"([^"]+)"/.exec(raw);
       const rawType = rawTypeMatch?.[1] || 'unknown';
-      traceLoadingStep(`WS message#${seq} start (${rawType}) | ${raw.length} chars.`);
-      if (rawType === 'world_state') {
-        traceLoadingStep(`WS message#${seq} raw world_state (${raw.length} chars) recebido; iniciando parse.`);
-      }
       const parseStartedAt = performance.now();
       try {
         payload = JSON.parse(raw);
@@ -74,12 +74,22 @@ export class GameSocket {
         return;
       }
       const parseMs = Math.max(0, Math.round((performance.now() - parseStartedAt) * 100) / 100);
-      if (rawType === 'world_state') {
-        traceLoadingStep(`WS message#${seq} parsed world_state em ${parseMs}ms.`);
+      try {
+        const handleStartedAt = performance.now();
+        this.handleMessage(payload);
+        const handleMs = Math.max(0, Math.round((performance.now() - handleStartedAt) * 100) / 100);
+        bootDiagnostics.recordPacket(rawType, {
+          size: raw.length,
+          players: Object.keys(payload?.players || {}).length,
+          mobs: Array.isArray(payload?.mobs) ? payload.mobs.length : 0,
+          parseMs,
+          handleMs
+        });
+      } catch (error) {
+        const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+        bootDiagnostics.error('socket', 'handler-failed', `Falha ao tratar ${rawType}#${seq}: ${message}`);
+        traceLoadingStep(`Falha ao tratar ${rawType}: ${message}`);
       }
-      traceLoadingStep(`WS message#${seq} parsed (${rawType}) em ${parseMs}ms; entrando no handler.`);
-      this.handleMessage(payload);
-      traceLoadingStep(`WS message#${seq} handler concluido (${rawType}).`);
     });
   }
 
@@ -141,6 +151,7 @@ export class GameSocket {
         });
         return;
       case 'auth_character_select':
+        bootDiagnostics.stage('socket:character-select', 'Lista de personagens recebida.');
         traceLoadingStep(`WS <= auth_character_select (${Array.isArray(payload.slots) ? payload.slots.length : 0} slots).`);
         this.store.update({
           characterSlots: Array.isArray(payload.slots) ? payload.slots : [],
@@ -150,35 +161,53 @@ export class GameSocket {
         });
         return;
       case 'debug.step':
-        traceLoadingStep(`WS <= debug.step (${String(payload.step || '-')}).`);
         return;
       case 'debug.packet': {
         const order = Number(payload.order || 0) || 0;
         const packetType = String(payload.packetType || '-');
-        traceLoadingStep(`WS <= debug.packet (#${order} -> ${packetType}).`);
         markLoadingPacket('announcedPacket', `debug.packet | #${order} -> ${packetType}`);
         return;
       }
       case 'bootstrap.auth': {
         const authPayload = payload?.authSuccess && typeof payload.authSuccess === 'object' ? payload.authSuccess : null;
         const hotbarState = payload?.hotbarState && typeof payload.hotbarState === 'object' ? payload.hotbarState : null;
+        if (authPayload?.playerId && !this.store.getState().playerId) {
+          bootDiagnostics.stage('socket:bootstrap-auth', `Bootstrap auth recebido para player ${Number(authPayload.playerId)}.`);
+        }
+        bootDiagnostics.log('socket', 'bootstrap-auth:start', `Aplicando bootstrap.auth | player ${Number(authPayload?.playerId || 0) || '-'} | hotbar ${hotbarState ? 'yes' : 'no'}.`);
         traceLoadingStep(
           `WS <= bootstrap.auth (playerId ${Number(authPayload?.playerId || 0) || '-'} | hotbar ${hotbarState ? 'yes' : 'no'}).`
         );
         if (authPayload) {
           markLoadingPacket('authSuccess', `auth_success | playerId ${Number(authPayload.playerId || 0) || '-'} | mapa ${String(authPayload.mapKey || '-')}/${String(authPayload.mapId || '-')}`);
         }
+        const worldStaticFromAuth = authPayload?.mapTiled || authPayload?.world
+          ? {
+              type: 'world_static' as const,
+              mapCode: authPayload?.mapCode || authPayload?.mapTiled?.mapCode || null,
+              mapKey: authPayload?.mapKey || null,
+              mapId: authPayload?.mapId || null,
+              mapTheme: authPayload?.mapTheme || null,
+              mapTiled: authPayload?.mapTiled || null,
+              world: authPayload?.world || null
+            }
+          : null;
         this.store.update({
           playerId: Number(authPayload?.playerId || 0) || this.store.getState().playerId,
           authPayload: authPayload || this.store.getState().authPayload,
+          worldStatic: worldStaticFromAuth || this.store.getState().worldStatic,
           hotbarBindings: hotbarState?.bindings && typeof hotbarState.bindings === 'object'
             ? hotbarState.bindings
             : authPayload?.hotbarBindings && typeof authPayload.hotbarBindings === 'object'
               ? authPayload.hotbarBindings
               : this.store.getState().hotbarBindings,
-          connectionPhase: authPayload?.playerId ? 'in_game' : this.store.getState().connectionPhase,
-          authMessage: authPayload?.playerId ? 'Personagem carregado.' : this.store.getState().authMessage
+          connectionPhase: this.store.getState().connectionPhase,
+          authMessage: authPayload?.playerId ? 'Autenticado. Aguardando estado do mundo...' : this.store.getState().authMessage
         });
+        bootDiagnostics.stage(
+          'socket:bootstrap-auth:done',
+          `bootstrap.auth aplicado | static ${this.store.getState().worldStatic ? 'yes' : 'no'} | player ${this.store.getState().playerId || '-'} | phase ${this.store.getState().connectionPhase}.`
+        );
         return;
       }
       case 'bootstrap.world':
@@ -186,6 +215,15 @@ export class GameSocket {
         const worldStatic = payload?.worldStatic && typeof payload.worldStatic === 'object' ? payload.worldStatic : null;
         const worldState = payload?.worldState && typeof payload.worldState === 'object' ? payload.worldState : null;
         const inventoryState = payload?.inventoryState && typeof payload.inventoryState === 'object' ? payload.inventoryState : null;
+        bootDiagnostics.stage(
+          `socket:${payload.type}`,
+          `${payload.type} recebido | static ${worldStatic ? 'yes' : 'no'} | state ${worldState ? 'yes' : 'no'} | inv ${inventoryState ? 'yes' : 'no'}.`
+        );
+        bootDiagnostics.log(
+          'socket',
+          'bootstrap-world:start',
+          `Aplicando ${payload.type} | static ${worldStatic ? 'yes' : 'no'} | players ${Object.keys(worldState?.players || {}).length} | mobs ${Array.isArray(worldState?.mobs) ? worldState.mobs.length : 0} | inv ${inventoryState ? 'yes' : 'no'}.`
+        );
         traceLoadingStep(
           `WS <= ${payload.type} (worldStatic ${worldStatic ? 'yes' : 'no'} | worldState ${worldState ? 'yes' : 'no'} | inventory ${inventoryState ? 'yes' : 'no'}).`
         );
@@ -204,11 +242,19 @@ export class GameSocket {
           inventoryState: inventoryState || this.store.getState().inventoryState,
           connectionPhase: this.store.getState().playerId ? 'in_game' : this.store.getState().connectionPhase
         });
+        bootDiagnostics.stage(
+          'socket:bootstrap-world:store-updated',
+          `${payload.type} aplicado | phase ${this.store.getState().connectionPhase} | world ${this.store.getState().worldState ? 'yes' : 'no'} | inv ${this.store.getState().inventoryState ? 'yes' : 'no'} | resolved ${this.store.getState().resolvedWorld ? 'yes' : 'no'}.`
+        );
         this.send({ type: 'bootstrap.ready' });
+        bootDiagnostics.stage('socket:bootstrap-world:ready-sent', 'bootstrap.ready enviado ao servidor.');
         traceLoadingStep('WS => bootstrap.ready enviado.');
         return;
       }
       case 'auth_success':
+        if (!this.store.getState().playerId) {
+          bootDiagnostics.stage('socket:auth-success', `auth_success confirmado para player ${Number(payload.playerId || 0) || '-'}.`);
+        }
         traceLoadingStep(`WS <= auth_success (playerId ${Number(payload.playerId || 0) || '-'} | mapa ${String(payload.mapKey || '-')}/${String(payload.mapId || '-')}).`);
         markLoadingPacket('authSuccess', `auth_success | playerId ${Number(payload.playerId || 0) || '-'} | mapa ${String(payload.mapKey || '-')}/${String(payload.mapId || '-')}`);
         this.store.update({
@@ -233,6 +279,9 @@ export class GameSocket {
         });
         return;
       case 'world_static':
+        if (!this.store.getState().worldStatic) {
+          bootDiagnostics.stage('socket:world-static', `world_static recebido para ${String(payload.mapKey || '-')}/${String(payload.mapId || '-')}.`);
+        }
         traceLoadingStep(`WS <= world_static (${String(payload.mapKey || '-')}/${String(payload.mapId || '-')}).`);
         markLoadingPacket('worldStatic', `world_static | mapa ${String(payload.mapKey || '-')}/${String(payload.mapId || '-')}`);
         this.store.update({
@@ -241,7 +290,12 @@ export class GameSocket {
         });
         return;
       case 'world_state':
-        traceLoadingStep(`WS <= world_state (players ${Object.keys(payload?.players || {}).length} | mobs ${Array.isArray(payload?.mobs) ? payload.mobs.length : 0}).`);
+        if (!this.store.getState().worldState) {
+          bootDiagnostics.stage(
+            'socket:first-world-state',
+            `Primeiro world_state recebido | players ${Object.keys(payload?.players || {}).length} | mobs ${Array.isArray(payload?.mobs) ? payload.mobs.length : 0}.`
+          );
+        }
         markLoadingPacket('worldState', `world_state | players ${Object.keys(payload?.players || {}).length} | mobs ${Array.isArray(payload?.mobs) ? payload.mobs.length : 0}`);
         this.store.update({
           worldState: payload,
@@ -264,6 +318,9 @@ export class GameSocket {
         this.store.pushChatMessage(payload);
         return;
       case 'inventory_state':
+        if (!this.store.getState().inventoryState) {
+          bootDiagnostics.stage('socket:first-inventory', `inventory_state recebido com ${Array.isArray(payload?.inventory) ? payload.inventory.length : 0} itens.`);
+        }
         traceLoadingStep(`WS <= inventory_state (${Array.isArray(payload?.inventory) ? payload.inventory.length : 0} itens).`);
         markLoadingPacket('inventoryState', `inventory_state | itens ${Array.isArray(payload?.inventory) ? payload.inventory.length : 0}`);
         this.store.update({ inventoryState: payload });

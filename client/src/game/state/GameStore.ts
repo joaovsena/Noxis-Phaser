@@ -1,3 +1,4 @@
+import { bootDiagnostics } from '../debug/BootDiagnostics';
 import { traceLoadingStep } from '../../svelte-hud/stores/gameUi';
 
 export type CharacterSlot = {
@@ -153,7 +154,6 @@ export class GameStore extends EventTarget {
     const patchKeys = Object.keys(patch) as Array<keyof GameState>;
     const shouldTrace = patchKeys.some((key) =>
       key === 'worldStatic'
-      || key === 'worldState'
       || key === 'inventoryState'
       || key === 'connectionPhase'
       || key === 'playerId'
@@ -178,9 +178,10 @@ export class GameStore extends EventTarget {
         `GameStore.update dispatch [${patchKeys.join(', ')}] | resolveWorld ${resolveMs}ms | worldStatic ${nextState.worldStatic ? 'ok' : 'no'} | worldState ${nextState.worldState ? 'ok' : 'no'} | inventory ${nextState.inventoryState ? 'ok' : 'no'}.`
       );
     }
+    const totalMs = Math.max(0, Math.round((performance.now() - startedAt) * 100) / 100);
+    bootDiagnostics.recordStoreUpdate(patchKeys.map((key) => String(key)), totalMs, nextState);
     this.dispatchEvent(new CustomEvent<GameState>('change', { detail: this.state }));
     if (shouldTrace) {
-      const totalMs = Math.max(0, Math.round((performance.now() - startedAt) * 100) / 100);
       traceLoadingStep(`GameStore.update done [${patchKeys.join(', ')}] em ${totalMs}ms.`);
     }
   }
@@ -194,7 +195,6 @@ export class GameStore extends EventTarget {
   }
 
   private resolveWorld(worldStatic: WorldStaticState, worldState: WorldState): ResolvedWorldState {
-    const startedAt = performance.now();
     if (!worldStatic && !worldState) return null;
     const staticMapKey = String(worldStatic?.mapKey || '');
     const staticMapId = String(worldStatic?.mapId || '');
@@ -210,17 +210,10 @@ export class GameStore extends EventTarget {
         )
       )
     );
-    const resolved = {
+    return {
       ...((hasMatchingStatic ? worldStatic : null) || { type: 'world_static' as const }),
       ...(worldState || {})
     };
-    const elapsed = Math.max(0, Math.round((performance.now() - startedAt) * 100) / 100);
-    if (worldStatic || worldState) {
-      traceLoadingStep(
-        `resolveWorld done em ${elapsed}ms | static ${worldStatic ? 'ok' : 'no'} | state ${worldState ? 'ok' : 'no'} | match ${hasMatchingStatic ? 'yes' : 'no'}.`
-      );
-    }
-    return resolved;
   }
 
   pushChatMessage(message: any, maxEntries = 120) {

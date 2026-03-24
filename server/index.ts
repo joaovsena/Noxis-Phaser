@@ -8,7 +8,7 @@ import { GameController } from './controllers/GameController';
 import { PersistenceService } from './services/PersistenceService';
 import { MobService } from './services/MobService';
 import { WSHandler } from './controllers/WSHandler';
-import { logEvent } from './utils/logger';
+import { getLogsDir, logEvent, readNamedLogTail } from './utils/logger';
 import { TICK_MS, MAP_IDS, MAP_KEYS, composeMapInstanceId } from './config';
 import prisma from './utils/prisma';
 import { createRedisClient } from './utils/redis';
@@ -43,6 +43,15 @@ app.get('/debug/perf', (_req, res) => {
 app.post('/debug/perf/reset', (_req, res) => {
     perfStats.reset();
     res.status(200).json({ ok: true });
+});
+app.get('/debug/logs/:name', (req, res) => {
+    const name = String(req.params.name || 'server');
+    res.status(200).json({
+        ok: true,
+        name,
+        logsDir: getLogsDir(),
+        lines: readNamedLogTail(name, 300)
+    });
 });
 app.use(express.static(publicDir, { index: false }));
 if (fs.existsSync(clientDistDir)) {

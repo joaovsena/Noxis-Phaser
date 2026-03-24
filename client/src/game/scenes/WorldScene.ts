@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { bootDiagnostics } from '../debug/BootDiagnostics';
 import type { GameStore } from '../state/GameStore';
 import type { GameSocket } from '../net/GameSocket';
 import { loadMapDocument, type LoadedMapDocument } from '../maps/MapDocument';
@@ -102,6 +103,10 @@ const HAND_CURSOR = 'pointer';
 const SWORD_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke='%23f6d37a' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14.5 3.5l6 6'/%3E%3Cpath d='M8 16l9.5-9.5 2 2L10 18'/%3E%3Cpath d='M7 17l-2.5 2.5'/%3E%3Cpath d='M5.5 15.5l3 3'/%3E%3C/g%3E%3C/svg%3E") 8 8, crosshair`;
 const PLAYER_DIRECTIONS: FacingDirection[] = ['s', 'sw', 'w', 'nw', 'n', 'ne', 'e', 'se'];
 const ENABLE_TILE_TEXTURE_RENDER = true;
+const MAP_RENDER_TEXTURE_MAX_EDGE = 4096;
+const MAP_RENDER_TEXTURE_BUDGET_BYTES = 96 * 1024 * 1024;
+const DIAG_DISABLE_WORLD_SCENE_SYNC = typeof window !== 'undefined'
+  && new URLSearchParams(window.location.search).get('diag_scene_sync') === 'off';
 const WORLD_OBJECT_STREAM_RANGE = 2600;
 const REMOTE_PLAYER_STREAM_RANGE = 3200;
 const DIRECTION_COLUMN: Record<FacingDirection, number> = {
@@ -152,6 +157,9 @@ export class WorldScene extends Phaser.Scene {
   private renderOriginX = 0;
   private renderOriginY = 0;
   private lastCursorKey: 'default' | 'hand' | 'sword' = 'default';
+  private mapRenderMode: 'unknown' | 'render-texture' | 'graphics-safe' = 'unknown';
+  private lastMapRenderEstimateBytes = 0;
+  private lastMapLayerTextureSize = { width: 0, height: 0, layers: 0 };
   private syncQueued = false;
   private syncRafId: number | null = null;
   private syncingFromStore = false;
@@ -168,6 +176,8 @@ export class WorldScene extends Phaser.Scene {
   }
 
   async create() {
+    const startedAt = performance.now();
+    bootDiagnostics.stage('scene:create:start', 'WorldScene.create iniciado.');
     this.cameras.main.setBackgroundColor('#08111b');
     this.mapContainer = this.add.container(0, 0);
     this.entityLayer = this.add.container(0, 0);
@@ -207,14 +217,19 @@ export class WorldScene extends Phaser.Scene {
     await this.ensurePlayerAssets();
     this.createPlayerAnimations();
 
-    this.changeHandler = () => this.scheduleSyncFromStore();
-    this.services.store.addEventListener('change', this.changeHandler);
-    this.scheduleSyncFromStore();
+    if (DIAG_DISABLE_WORLD_SCENE_SYNC) {
+      bootDiagnostics.stage('scene:sync-disabled', 'syncFromStore desativado por ?diag_scene_sync=off.');
+    } else {
+      this.changeHandler = () => this.scheduleSyncFromStore();
+      this.services.store.addEventListener('change', this.changeHandler);
+      this.scheduleSyncFromStore();
+    }
 
     this.scale.on('resize', this.handleResize, this);
     this.handleResize(this.scale.gameSize);
 
     this.events.on(Phaser.Scenes.Events.SHUTDOWN, this.onShutdown, this);
+    bootDiagnostics.stage('scene:create:done', `WorldScene.create concluido em ${Math.max(0, Math.round(performance.now() - startedAt))}ms.`);
   }
 
   update(time: number, delta: number) {
@@ -283,6 +298,7 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private scheduleSyncFromStore() {
+    if (DIAG_DISABLE_WORLD_SCENE_SYNC) return;
     this.syncQueued = true;
     if (this.syncRafId !== null) return;
     this.syncRafId = requestAnimationFrame(() => {
@@ -390,13 +406,15 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private async loadAndRenderMap(url: string) {
+    const startedAt = performance.now();
     this.loadingMapUrl = url;
     this.lastMapError = null;
+    bootDiagnostics.stage('scene:map:loading', `Carregando mapa ${url}.`);
     this.publishDebugState('map:loading');
     try {
       this.mapDocument = await loadMapDocument(url);
       this.renderLoadedMap();
-      if (ENABLE_TILE_TEXTURE_RENDER) {
+      if (ENABLE_TILE_TEXTURE_RENDER && this.mapRenderMode === 'render-texture') {
         void this.ensureTileTextures(this.mapDocument)
           .then(() => {
             if (this.mapDocument?.url !== url) return;
@@ -404,11 +422,15 @@ export class WorldScene extends Phaser.Scene {
           })
           .catch((error) => {
             this.lastMapError = `tile_textures:${error instanceof Error ? error.message : String(error)}`;
+            bootDiagnostics.error('scene', 'map:texture-error', this.lastMapError);
             this.publishDebugState('map:texture-error');
           });
+      } else if (ENABLE_TILE_TEXTURE_RENDER) {
+        bootDiagnostics.log('scene', 'map:texture-skip', 'Texturas de tile ignoradas porque o mapa entrou em modo seguro.');
       }
     } catch (error) {
       this.lastMapError = error instanceof Error ? error.message : String(error);
+      bootDiagnostics.error('scene', 'map:error', `Falha ao carregar mapa ${url}: ${this.lastMapError}`);
       this.publishDebugState('map:error');
       if (url !== DEFAULT_MAP_URL) {
         this.loadingMapUrl = null;
@@ -418,6 +440,7 @@ export class WorldScene extends Phaser.Scene {
       throw error;
     } finally {
       this.loadingMapUrl = null;
+      bootDiagnostics.stage('scene:map:loaded', `Mapa ${url} processado em ${Math.max(0, Math.round(performance.now() - startedAt))}ms.`);
       this.publishDebugState('map:loaded');
     }
   }
@@ -443,66 +466,81 @@ export class WorldScene extends Phaser.Scene {
     const originY = this.renderOriginY;
     const layerWidth = Math.max(1, Math.ceil(this.projectedMapWidth));
     const layerHeight = Math.max(1, Math.ceil(this.projectedMapHeight + metrics.tileHeight));
+    const visibleLayers = map.layers.filter((layer) => layer.visible);
+    const estimatedBytes = Math.max(1, layerWidth) * Math.max(1, layerHeight) * 4 * Math.max(1, visibleLayers.length);
+    this.lastMapRenderEstimateBytes = estimatedBytes;
+    this.lastMapLayerTextureSize = { width: layerWidth, height: layerHeight, layers: visibleLayers.length };
 
-    map.layers.filter((layer) => layer.visible).forEach((layer, layerIndex) => {
-      const layerTexture = this.add.renderTexture(0, 0, layerWidth, layerHeight).setOrigin(0, 0);
-      const graphics = this.make.graphics({ x: 0, y: 0, add: false });
-      let usedGraphics = false;
-      let usedTexture = false;
-      for (let row = 0; row < map.height; row += 1) {
-        for (let col = 0; col < map.width; col += 1) {
-          const gid = Number(layer.data[row * map.width + col] || 0);
-          if (!gid) continue;
-          const screenX = (col - row) * halfTileW + originX;
-          const screenY = (col + row) * halfTileH + originY;
-          const imageMeta = map.tileImages[gid];
-          const textureKey = imageMeta ? this.getTileTextureKey(imageMeta.source) : '';
-          if (imageMeta && textureKey && this.textures.exists(textureKey)) {
-            const scale = metrics.tileWidth / Math.max(1, Number(imageMeta.tileWidth || imageMeta.width || map.tileWidth));
-            const image = this.make.image({
-              x: screenX + Number(imageMeta.offsetX || 0) * scale,
-              y: screenY + (Number(imageMeta.tileHeight || map.tileHeight) * scale) + Number(imageMeta.offsetY || 0) * scale,
-              key: textureKey,
-              add: false
-            });
-            image.setOrigin(0.5, 1);
-            image.setScale(scale);
-            layerTexture.draw(image);
-            image.destroy();
-            usedTexture = true;
-            continue;
-          }
-          const color = this.getLayerColor(layer.name, gid, layerIndex);
-          usedGraphics = true;
-          graphics.fillStyle(color, 0.95);
-          graphics.lineStyle(1, 0x0d1621, 0.35);
-          graphics.beginPath();
-          graphics.moveTo(screenX, screenY - halfTileH);
-          graphics.lineTo(screenX + halfTileW, screenY);
-          graphics.lineTo(screenX, screenY + halfTileH);
-          graphics.lineTo(screenX - halfTileW, screenY);
-          graphics.closePath();
-          graphics.fillPath();
-          graphics.strokePath();
-          if (layer.name.toLowerCase().includes('pared') || layer.name.toLowerCase().includes('wall')) {
-            graphics.fillStyle(0x10243a, 0.55);
-            graphics.fillRect(screenX - halfTileW * 0.42, screenY - halfTileH * 1.5, halfTileW * 0.84, halfTileH * 1.3);
+    if (this.shouldUseSafeMapRenderer(layerWidth, layerHeight, visibleLayers.length, estimatedBytes)) {
+      this.mapRenderMode = 'graphics-safe';
+      const estimatedMb = Math.round(estimatedBytes / (1024 * 1024));
+      bootDiagnostics.stage(
+        'scene:map:graphics-safe',
+        `Modo seguro do mapa ativado (${layerWidth}x${layerHeight}, ${visibleLayers.length} camadas, ~${estimatedMb}MB estimados).`
+      );
+      this.renderMapWithGraphicsFallback(map, visibleLayers, halfTileW, halfTileH, originX, originY);
+    } else {
+      this.mapRenderMode = 'render-texture';
+      visibleLayers.forEach((layer, layerIndex) => {
+        const layerTexture = this.add.renderTexture(0, 0, layerWidth, layerHeight).setOrigin(0, 0);
+        const graphics = this.make.graphics({ x: 0, y: 0, add: false });
+        let usedGraphics = false;
+        let usedTexture = false;
+        for (let row = 0; row < map.height; row += 1) {
+          for (let col = 0; col < map.width; col += 1) {
+            const gid = Number(layer.data[row * map.width + col] || 0);
+            if (!gid) continue;
+            const screenX = (col - row) * halfTileW + originX;
+            const screenY = (col + row) * halfTileH + originY;
+            const imageMeta = map.tileImages[gid];
+            const textureKey = imageMeta ? this.getTileTextureKey(imageMeta.source) : '';
+            if (imageMeta && textureKey && this.textures.exists(textureKey)) {
+              const scale = metrics.tileWidth / Math.max(1, Number(imageMeta.tileWidth || imageMeta.width || map.tileWidth));
+              const image = this.make.image({
+                x: screenX + Number(imageMeta.offsetX || 0) * scale,
+                y: screenY + (Number(imageMeta.tileHeight || map.tileHeight) * scale) + Number(imageMeta.offsetY || 0) * scale,
+                key: textureKey,
+                add: false
+              });
+              image.setOrigin(0.5, 1);
+              image.setScale(scale);
+              layerTexture.draw(image);
+              image.destroy();
+              usedTexture = true;
+              continue;
+            }
+            const color = this.getLayerColor(layer.name, gid, layerIndex);
+            usedGraphics = true;
+            graphics.fillStyle(color, 0.95);
+            graphics.lineStyle(1, 0x0d1621, 0.35);
+            graphics.beginPath();
+            graphics.moveTo(screenX, screenY - halfTileH);
+            graphics.lineTo(screenX + halfTileW, screenY);
+            graphics.lineTo(screenX, screenY + halfTileH);
+            graphics.lineTo(screenX - halfTileW, screenY);
+            graphics.closePath();
+            graphics.fillPath();
+            graphics.strokePath();
+            if (layer.name.toLowerCase().includes('pared') || layer.name.toLowerCase().includes('wall')) {
+              graphics.fillStyle(0x10243a, 0.55);
+              graphics.fillRect(screenX - halfTileW * 0.42, screenY - halfTileH * 1.5, halfTileW * 0.84, halfTileH * 1.3);
+            }
           }
         }
-      }
-      if (usedGraphics) {
-        layerTexture.draw(graphics);
-        usedTexture = true;
-      }
-      graphics.destroy();
-      if (usedTexture) {
-        layerTexture.setDepth(layerIndex);
-        this.mapContainer.add(layerTexture);
-        this.mapRenderTextures.push(layerTexture);
-      } else {
-        layerTexture.destroy();
-      }
-    });
+        if (usedGraphics) {
+          layerTexture.draw(graphics);
+          usedTexture = true;
+        }
+        graphics.destroy();
+        if (usedTexture) {
+          layerTexture.setDepth(layerIndex);
+          this.mapContainer.add(layerTexture);
+          this.mapRenderTextures.push(layerTexture);
+        } else {
+          layerTexture.destroy();
+        }
+      });
+    }
 
     const frame = this.add.graphics();
     frame.lineStyle(3, 0x274159, 0.8);
@@ -510,6 +548,54 @@ export class WorldScene extends Phaser.Scene {
     this.mapContainer.add(frame);
     this.handleResize(this.scale.gameSize);
     this.publishDebugState('map:rendered');
+  }
+
+  private shouldUseSafeMapRenderer(layerWidth: number, layerHeight: number, layerCount: number, estimatedBytes: number) {
+    void layerCount;
+    if (layerWidth > MAP_RENDER_TEXTURE_MAX_EDGE || layerHeight > MAP_RENDER_TEXTURE_MAX_EDGE) return true;
+    return estimatedBytes > MAP_RENDER_TEXTURE_BUDGET_BYTES;
+  }
+
+  private renderMapWithGraphicsFallback(
+    map: LoadedMapDocument,
+    visibleLayers: Array<{ name: string; data: number[]; visible: boolean }>,
+    halfTileW: number,
+    halfTileH: number,
+    originX: number,
+    originY: number
+  ) {
+    visibleLayers.forEach((layer, layerIndex) => {
+      const graphics = this.add.graphics();
+      graphics.setDepth(layerIndex);
+      let usedGraphics = false;
+      for (let row = 0; row < map.height; row += 1) {
+        for (let col = 0; col < map.width; col += 1) {
+          const gid = Number(layer.data[row * map.width + col] || 0);
+          if (!gid) continue;
+          const screenX = (col - row) * halfTileW + originX;
+          const screenY = (col + row) * halfTileH + originY;
+          const color = this.getLayerColor(layer.name, gid, layerIndex);
+          usedGraphics = true;
+          graphics.fillStyle(color, 0.96);
+          graphics.beginPath();
+          graphics.moveTo(screenX, screenY - halfTileH);
+          graphics.lineTo(screenX + halfTileW, screenY);
+          graphics.lineTo(screenX, screenY + halfTileH);
+          graphics.lineTo(screenX - halfTileW, screenY);
+          graphics.closePath();
+          graphics.fillPath();
+          if (layer.name.toLowerCase().includes('pared') || layer.name.toLowerCase().includes('wall')) {
+            graphics.fillStyle(0x10243a, 0.52);
+            graphics.fillRect(screenX - halfTileW * 0.42, screenY - halfTileH * 1.5, halfTileW * 0.84, halfTileH * 1.3);
+          }
+        }
+      }
+      if (usedGraphics) {
+        this.mapContainer.add(graphics);
+      } else {
+        graphics.destroy();
+      }
+    });
   }
   private drawEmergencyMapFallback() {
     this.mapContainer.removeAll(true);
@@ -539,6 +625,7 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private async ensureTileTextures(map: LoadedMapDocument) {
+    const startedAt = performance.now();
     const requiredSources = Array.from(new Set(
       Object.values(map.tileImages || {}).map((entry) => String(entry?.source || '')).filter(Boolean)
     ));
@@ -550,9 +637,11 @@ export class WorldScene extends Phaser.Scene {
       return key && !this.textures.exists(key) && !this.loadedTileTextureKeys.has(key);
     });
     if (!pending.length) {
+      bootDiagnostics.log('scene', 'tile-textures', `Nenhuma textura pendente para ${map.url}.`);
       this.publishDebugState('map:textures-ready');
       return;
     }
+    bootDiagnostics.stage('scene:tile-textures:start', `Carregando ${pending.length} texturas de tile para ${map.url}.`);
     await new Promise<void>((resolve) => {
       pending.forEach((source) => {
         const key = this.getTileTextureKey(source);
@@ -575,7 +664,12 @@ export class WorldScene extends Phaser.Scene {
     this.lastTileTextureStats.failed = pending.filter((source) => !this.textures.exists(this.getTileTextureKey(source)));
     if (this.lastTileTextureStats.failed.length) {
       this.lastMapError = `tile_sources_failed:${this.lastTileTextureStats.failed.slice(0, 4).join(',')}`;
+      bootDiagnostics.error('scene', 'tile-textures-failed', this.lastMapError);
     }
+    bootDiagnostics.stage(
+      'scene:tile-textures:done',
+      `Texturas de tile finalizadas em ${Math.max(0, Math.round(performance.now() - startedAt))}ms | ok ${this.lastTileTextureStats.loaded}/${this.lastTileTextureStats.required} | falhas ${this.lastTileTextureStats.failed.length}.`
+    );
     this.publishDebugState('map:textures-finished');
   }
 
@@ -854,6 +948,7 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private syncFromStore() {
+    const startedAt = performance.now();
     if (this.syncingFromStore) {
       this.scheduleSyncFromStore();
       return;
@@ -1057,6 +1152,12 @@ export class WorldScene extends Phaser.Scene {
     this.renderCombatFeedback(state.lastCombatEvent);
     this.renderQueuedCombatBursts(state.combatBursts);
     this.renderQueuedSkillEffects(state.skillEffects);
+    bootDiagnostics.recordSceneSync(Math.max(0, Math.round((performance.now() - startedAt) * 100) / 100), {
+      players: Object.keys(players).length,
+      mobs: mobs.length,
+      npcs: npcs.length,
+      groundItems: groundItems.length
+    });
     } finally {
       this.syncingFromStore = false;
       this.publishDebugState('sync');
@@ -1073,7 +1174,10 @@ export class WorldScene extends Phaser.Scene {
       mapId: state.resolvedWorld?.mapId || null,
       loadingMapUrl: this.loadingMapUrl,
       mapUrl: this.mapDocument?.url || null,
+      mapRenderMode: this.mapRenderMode,
       mapRenderTextures: this.mapRenderTextures.length,
+      mapLayerTextureSize: this.lastMapLayerTextureSize,
+      mapRenderEstimateMb: Number((this.lastMapRenderEstimateBytes / (1024 * 1024)).toFixed(2)),
       tileTexturesRequired: this.lastTileTextureStats.required,
       tileTexturesLoaded: this.lastTileTextureStats.loaded,
       tileTexturesFailed: this.lastTileTextureStats.failed.slice(0, 12),
@@ -1096,10 +1200,12 @@ export class WorldScene extends Phaser.Scene {
 
   private publishDebugState(reason: string) {
     const target = (window as any).__NOXIS_DEBUG__;
+    const snapshot = this.getDebugState();
+    bootDiagnostics.recordScene(reason, snapshot);
     if (!target || typeof target !== 'object') return;
     target.worldScene = this;
     target.worldSceneReason = reason;
-    target.worldSceneDebug = this.getDebugState();
+    target.worldSceneDebug = snapshot;
   }
 
   private createPlayerMarker(id: string, player: any, localPlayerId: number | null) {

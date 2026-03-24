@@ -1,4 +1,5 @@
 import { DEFAULT_MAP_URL, WORLD_TILE_SIZE } from '../config';
+import { bootDiagnostics } from '../debug/BootDiagnostics';
 
 export type LoadedMapDocument = {
   raw: any;
@@ -55,9 +56,17 @@ function resolveTilesetCandidate(mapUrl: string, tilesetUrl: string, source: str
 
 async function loadTilesetXml(tilesetUrl: string) {
   if (!tilesetXmlCache.has(tilesetUrl)) {
-    tilesetXmlCache.set(tilesetUrl, fetch(tilesetUrl)
-      .then((response) => response.ok ? response.text() : null)
-      .catch(() => null));
+    tilesetXmlCache.set(tilesetUrl, (async () => {
+      const startedAt = performance.now();
+      try {
+        const response = await fetch(tilesetUrl);
+        bootDiagnostics.recordFetch(tilesetUrl, `tileset:${response.status}`, performance.now() - startedAt);
+        return response.ok ? response.text() : null;
+      } catch (error) {
+        bootDiagnostics.error('map', 'tileset-xml', `Falha ao carregar tileset ${tilesetUrl}: ${error instanceof Error ? error.message : String(error)}`);
+        return null;
+      }
+    })());
   }
   return tilesetXmlCache.get(tilesetUrl)!;
 }
@@ -117,7 +126,9 @@ async function loadTileImages(raw: any, mapUrl: string) {
 }
 
 async function fetchMapDocument(targetUrl: string): Promise<LoadedMapDocument> {
+  const startedAt = performance.now();
   const response = await fetch(targetUrl);
+  bootDiagnostics.recordFetch(targetUrl, `map:${response.status}`, performance.now() - startedAt);
   if (!response.ok) {
     throw new Error(`map_load_failed:${response.status}`);
   }

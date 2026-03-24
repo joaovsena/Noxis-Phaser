@@ -49,6 +49,15 @@ app.post('/debug/perf/reset', (_req, res) => {
     perfStats_1.perfStats.reset();
     res.status(200).json({ ok: true });
 });
+app.get('/debug/logs/:name', (req, res) => {
+    const name = String(req.params.name || 'server');
+    res.status(200).json({
+        ok: true,
+        name,
+        logsDir: (0, logger_1.getLogsDir)(),
+        lines: (0, logger_1.readNamedLogTail)(name, 300)
+    });
+});
 app.use(express_1.default.static(publicDir, { index: false }));
 if (fs_1.default.existsSync(clientDistDir)) {
     app.use(express_1.default.static(clientDistDir, { index: false }));

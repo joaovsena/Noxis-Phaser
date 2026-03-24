@@ -23,7 +23,7 @@
   import ProgressBar from './components/ProgressBar.svelte';
   import IconButton from './components/IconButton.svelte';
   import Slot from './components/Slot.svelte';
-  import { activateHotbarBinding, adminStore, appStore, attributesStore, beginDrag, clearHotbarBinding, closeAllPanels, closeNpcDialog, commitHotbarBindings, cycleSelectedAutoAttack, dragStore, endDrag, hideTooltip, hotbarBindingsStore, hotbarSlots, hudTransformStyle, loadingStore, mapSettingsStore, npcStore, panelStore, playerMetaStore, returnToCharacterSelect, selectedAutoAttackLabelStore, sendUiMessage, setHotbarBinding, setPvpMode, toggleAfk, togglePanel, traceLoadingStep, worldStore } from './stores/gameUi';
+  import { activateHotbarBinding, adminStore, appStore, attributesStore, beginDrag, clearHotbarBinding, closeAllPanels, closeNpcDialog, commitHotbarBindings, cycleSelectedAutoAttack, dragStore, endDrag, hideTooltip, hotbarBindingsStore, hotbarSlots, hudTransformStyle, loadingStore, mapSettingsStore, npcStore, panelStore, playerMetaStore, returnToCharacterSelect, selectedAutoAttackLabelStore, sendUiMessage, setHotbarBinding, setPvpMode, toggleAfk, togglePanel, worldStore } from './stores/gameUi';
 
   export let enableHud = false;
 
@@ -32,13 +32,17 @@
   let chatVisible = true;
   let minimapVisible = true;
   let pvpMenuOpen = false;
-  let lastUiMode = '';
-  let pendingUiCommitTrace = '';
-
+  const diagnosticParams = typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search)
+    : new URLSearchParams();
+  const minimalInGameHud = diagnosticParams.get('diag_ingame_hud') === 'minimal';
+  const hideMinimap = diagnosticParams.get('diag_hide_minimap') === '1';
+  const hideChat = diagnosticParams.get('diag_hide_chat') === '1';
+  const hideStatusHud = diagnosticParams.get('diag_hide_status') === '1';
   $: inGame = $appStore.connectionPhase === 'in_game';
   $: showAuth = !inGame;
   $: hudReady = inGame && enableHud && $loadingStore.ready;
-  $: showHud = hudReady;
+  $: showHud = hudReady && !minimalInGameHud;
   $: showLoading = inGame && enableHud && $loadingStore.active && !showHud;
   $: showInGameFallback = inGame && enableHud && !showAuth && !showLoading && !showHud;
   $: mapCode = $worldStore.mapCode;
@@ -51,12 +55,6 @@
     `map:${mapCode}/${mapId}`,
     `ws:${$adminStore.socketConnected ? 'on' : 'off'}`
   ].join(' | ');
-  $: uiMode = showAuth ? 'auth' : showLoading ? 'loading' : showHud ? 'hud' : showInGameFallback ? 'fallback' : 'none';
-  $: if (uiMode !== lastUiMode) {
-    traceLoadingStep(`App.svelte modo -> ${uiMode} | phase ${$appStore.connectionPhase} | loading ${$loadingStore.active ? 'on' : 'off'} | ready ${$loadingStore.ready ? 'yes' : 'no'}.`);
-    lastUiMode = uiMode;
-    pendingUiCommitTrace = uiMode;
-  }
 
   function dropOnHotbar(targetKey: string, event: DragEvent) {
     event.preventDefault();
@@ -196,11 +194,6 @@
     };
   });
 
-  afterUpdate(() => {
-    if (!pendingUiCommitTrace) return;
-    traceLoadingStep(`App.svelte commit concluido para modo ${pendingUiCommitTrace}.`);
-    pendingUiCommitTrace = '';
-  });
 </script>
 
 {#if showAuth}
@@ -262,7 +255,9 @@
     </div>
 
     <div class="notify-wrap">
-      <StatusHud />
+      {#if !hideStatusHud}
+        <StatusHud />
+      {/if}
       <NotificationsPanel />
     </div>
 
@@ -270,13 +265,13 @@
       <PartyFramesPanel />
     </div>
 
-    {#if minimapVisible}
+    {#if minimapVisible && !hideMinimap}
     <div class="minimap-wrap" use:draggablePanel>
       <MinimapPanel on:close={() => minimapVisible = false} />
     </div>
     {/if}
 
-    {#if chatVisible}
+    {#if chatVisible && !hideChat}
     <div class="chat-wrap window-wrap" use:draggablePanel>
       <ChatWindow on:close={() => chatVisible = false} />
     </div>
@@ -381,8 +376,12 @@
       {#if $adminStore.isAdmin}
         <IconButton icon="admin" label="Admin" hotkey="H" active={$panelStore.admin} on:press={() => togglePanel('admin')} />
       {/if}
-      <IconButton icon="minimap" label="Minimapa" active={minimapVisible} on:press={() => minimapVisible = !minimapVisible} />
-      <IconButton icon="chat" label="Chat" active={chatVisible} on:press={() => chatVisible = !chatVisible} />
+      {#if !hideMinimap}
+        <IconButton icon="minimap" label="Minimapa" active={minimapVisible} on:press={() => minimapVisible = !minimapVisible} />
+      {/if}
+      {#if !hideChat}
+        <IconButton icon="chat" label="Chat" active={chatVisible} on:press={() => chatVisible = !chatVisible} />
+      {/if}
     </div>
 
     <ReviveOverlay />
@@ -391,8 +390,14 @@
 {:else if showInGameFallback}
   <div class="hud-fallback-debug" style={$hudTransformStyle}>
     <div class="hud-fallback-card">
-      <div class="hud-fallback-title">HUD em estado intermediario</div>
-      <div class="hud-fallback-copy">A autenticacao terminou, mas a interface principal ainda nao foi liberada.</div>
+      <div class="hud-fallback-title">{minimalInGameHud ? 'HUD reduzida para diagnostico' : 'HUD em estado intermediario'}</div>
+      <div class="hud-fallback-copy">
+        {#if minimalInGameHud}
+          A autenticacao terminou e a HUD principal foi omitida por `diag_ingame_hud=minimal`.
+        {:else}
+          A autenticacao terminou, mas a interface principal ainda nao foi liberada.
+        {/if}
+      </div>
       <div class="hud-fallback-flags">{runtimeFlags}</div>
     </div>
   </div>

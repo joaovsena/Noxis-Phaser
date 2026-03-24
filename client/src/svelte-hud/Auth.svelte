@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { afterUpdate } from 'svelte';
   import goldCursorUrl from './assets/gold-pointer.svg';
   import AuthCharacterSlot from './components/AuthCharacterSlot.svelte';
   import WorldLoadingOverlay from './WorldLoadingOverlay.svelte';
@@ -14,18 +13,10 @@
   let createClass = 'knight';
   let createGender = 'male';
   let pendingWorldEntryCancellation = false;
-  let lastAuthView = '';
-  let pendingAuthCommitTrace = '';
 
   $: phase = $appStore.connectionPhase;
   $: selectedSlot = $appStore.selectedCharacterSlot;
   $: canEnter = Number.isInteger(selectedSlot);
-  $: authView = `${phase}|loading:${$loadingStore.active ? 'on' : 'off'}|pending:${$loadingStore.pendingWorldEntry ? 'yes' : 'no'}`;
-  $: if (authView !== lastAuthView) {
-    traceLoadingStep(`Auth.svelte view -> ${authView}.`);
-    lastAuthView = authView;
-    pendingAuthCommitTrace = authView;
-  }
 
   function submitLogin() {
     sendUiMessage({
@@ -105,12 +96,6 @@
     }
     pendingWorldEntryCancellation = shouldCancelPendingWorldEntry;
   }
-
-  afterUpdate(() => {
-    if (!pendingAuthCommitTrace) return;
-    traceLoadingStep(`Auth.svelte commit concluido para ${pendingAuthCommitTrace}.`);
-    pendingAuthCommitTrace = '';
-  });
 </script>
 
 <section

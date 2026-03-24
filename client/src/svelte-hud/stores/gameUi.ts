@@ -1,4 +1,5 @@
 import { derived, get, writable } from 'svelte/store';
+import { bootDiagnostics } from '../../game/debug/BootDiagnostics';
 import type { GameStore } from '../../game/state/GameStore';
 import type { GameSocket } from '../../game/net/GameSocket';
 
@@ -241,14 +242,18 @@ const DEFAULT_LOADING_PACKETS: LoadingPacketState = {
 };
 
 const LOADING_DEBUG_STORAGE_KEY = 'noxis.loading.debug.v1';
+const LOADING_DEBUG_PERSIST_MIN_INTERVAL_MS = 1200;
 
 let runtimeSocket: GameSocket | null = null;
 let runtimeStore: GameStore | null = null;
 let runtimeLoadingState: LoadingUiState = DEFAULT_LOADING;
+let loadingDebugPersistTimer = 0;
+let loadingDebugLastPersistAt = 0;
+let lastAcceptedLoadingTrace = '';
 
 const SKILL_TREE = buildSkillTree();
 
-function persistLoadingDebugSnapshot() {
+function persistLoadingDebugSnapshotNow() {
   if (typeof window === 'undefined') return;
   try {
     const app = get(appStore);
@@ -272,6 +277,23 @@ function persistLoadingDebugSnapshot() {
   } catch {
     // noop
   }
+}
+
+function persistLoadingDebugSnapshot() {
+  if (typeof window === 'undefined') return;
+  const now = Date.now();
+  const remaining = LOADING_DEBUG_PERSIST_MIN_INTERVAL_MS - (now - loadingDebugLastPersistAt);
+  if (remaining <= 0) {
+    loadingDebugLastPersistAt = now;
+    persistLoadingDebugSnapshotNow();
+    return;
+  }
+  if (loadingDebugPersistTimer) return;
+  loadingDebugPersistTimer = window.setTimeout(() => {
+    loadingDebugPersistTimer = 0;
+    loadingDebugLastPersistAt = Date.now();
+    persistLoadingDebugSnapshotNow();
+  }, remaining);
 }
 
 export function getPersistedLoadingDebugSnapshot() {
@@ -307,6 +329,22 @@ function pushLoadingTrace(message: string) {
 }
 
 export function traceLoadingStep(message: string) {
+  const safeMessage = String(message || '');
+  if (safeMessage.startsWith('WS message#')) return;
+  if (
+    !safeMessage.includes('bootstrap.')
+    && !safeMessage.includes('auth_')
+    && !safeMessage.includes('Overlay de loading')
+    && !safeMessage.includes('Solicitacao de entrada')
+    && !safeMessage.includes('Estado minimo do mundo')
+    && !safeMessage.includes('Fase alterada')
+    && !safeMessage.includes('Loading de entrada')
+    && !safeMessage.includes('Falha ao tratar')
+  ) {
+    return;
+  }
+  if (safeMessage === lastAcceptedLoadingTrace) return;
+  lastAcceptedLoadingTrace = safeMessage;
   pushLoadingTrace(message);
 }
 
@@ -768,6 +806,7 @@ export function beginWorldEntryLoading() {
   runtimeLoadingState = next;
   loadingStore.set(next);
   loadingPacketStore.set(DEFAULT_LOADING_PACKETS);
+  lastAcceptedLoadingTrace = '';
   persistLoadingDebugSnapshot();
   pushLoadingTrace('Solicitacao de entrada no mundo iniciada.');
 }
@@ -1119,22 +1158,20 @@ export function bindHudRuntime(gameStore: GameStore, socket: GameSocket) {
 
   const sync = () => {
     const syncStartedAt = performance.now();
-    const state = gameStore.getState();
-    const syncSnapshot = [
-      state.connectionPhase,
-      state.worldStatic ? 'static1' : 'static0',
-      state.worldState ? 'state1' : 'state0',
-      state.inventoryState ? 'inv1' : 'inv0',
-      state.playerId ? `player${state.playerId}` : 'player0'
-    ].join('|');
-    const shouldTraceSyncStart = syncSnapshot !== lastSyncTraceSnapshot;
-    if (shouldTraceSyncStart) {
-      lastSyncTraceSnapshot = syncSnapshot;
-      pushLoadingTrace(
-        `HUD sync start | phase ${state.connectionPhase} | worldStatic ${state.worldStatic ? 'ok' : 'no'} | worldState ${state.worldState ? 'ok' : 'no'} | inventory ${state.inventoryState ? 'ok' : 'no'} | playerId ${state.playerId || '-'}.`
-      );
-    }
-    const player = state.playerId ? state.resolvedWorld?.players?.[String(state.playerId)] || null : null;
+    try {
+      const state = gameStore.getState();
+      const syncSnapshot = [
+        state.connectionPhase,
+        state.worldStatic ? 'static1' : 'static0',
+        state.worldState ? 'state1' : 'state0',
+        state.inventoryState ? 'inv1' : 'inv0',
+        state.playerId ? `player${state.playerId}` : 'player0'
+      ].join('|');
+      const shouldTraceSyncStart = syncSnapshot !== lastSyncTraceSnapshot;
+      if (shouldTraceSyncStart) {
+        lastSyncTraceSnapshot = syncSnapshot;
+      }
+      const player = state.playerId ? state.resolvedWorld?.players?.[String(state.playerId)] || null : null;
     const inventory = Array.isArray(state.inventoryState?.inventory) ? state.inventoryState.inventory : [];
     const equippedBySlot = state.inventoryState?.equippedBySlot || {};
     const wallet = state.inventoryState?.wallet || player?.wallet || null;
@@ -1346,43 +1383,41 @@ export function bindHudRuntime(gameStore: GameStore, socket: GameSocket) {
       || nextLoading.detail !== lastLoadingState.detail
       || nextLoading.pendingWorldEntry !== lastLoadingState.pendingWorldEntry
       || nextLoading.ready !== lastLoadingState.ready;
-    if (loadingChanged) {
-      if (nextLoading.active !== lastLoadingState.active) {
-        pushLoadingTrace(nextLoading.active ? 'Overlay de loading ativado.' : 'Overlay de loading ocultado.');
+      if (loadingChanged) {
+        if (nextLoading.active !== lastLoadingState.active) {
+          pushLoadingTrace(nextLoading.active ? 'Overlay de loading ativado.' : 'Overlay de loading ocultado.');
+        }
+        if (!lastLoadingState.ready && nextLoading.ready) {
+          pushLoadingTrace('Estado minimo do mundo concluido para liberar a HUD.');
+        }
+        lastLoadingState = nextLoading;
+        runtimeLoadingState = nextLoading;
+        loadingStore.set(nextLoading);
       }
-      if (nextLoading.detail !== lastLoadingState.detail) {
-        pushLoadingTrace(nextLoading.detail);
-      }
-      if (!lastLoadingState.ready && nextLoading.ready) {
-        pushLoadingTrace('Estado minimo do mundo concluido para liberar a HUD.');
-      }
-      lastLoadingState = nextLoading;
-      runtimeLoadingState = nextLoading;
-      loadingStore.set(nextLoading);
-    }
 
-    if (state.connectionPhase === 'in_game') {
-      const worldPlayers = Object.keys(state.resolvedWorld?.players || {}).length;
-      const worldMobs = Array.isArray(state.resolvedWorld?.mobs) ? state.resolvedWorld.mobs.length : 0;
-      const loadingSnapshot = [
-        worldReady ? 'world ok' : 'world pendente',
-        mapReady ? 'map ok' : 'map pendente',
-        playerReady ? 'player ok' : 'player pendente',
-        inventoryReady ? 'inventory ok' : 'inventory pendente',
-        `players ${worldPlayers}`,
-        `mobs ${worldMobs}`
-      ].join(' | ');
-      if (loadingSnapshot !== lastLoadingSnapshot) {
-        lastLoadingSnapshot = loadingSnapshot;
-        pushLoadingTrace(loadingSnapshot);
+      if (state.connectionPhase === 'in_game') {
+        const loadingSnapshot = [
+          worldReady ? 'world ok' : 'world pendente',
+          mapReady ? 'map ok' : 'map pendente',
+          playerReady ? 'player ok' : 'player pendente',
+          inventoryReady ? 'inventory ok' : 'inventory pendente'
+        ].join(' | ');
+        if (loadingSnapshot !== lastLoadingSnapshot) {
+          lastLoadingSnapshot = loadingSnapshot;
+          bootDiagnostics.log('hud', 'loading-state', loadingSnapshot);
+        }
       }
-    }
 
+      persistLoadingDebugSnapshot();
+    } catch (error) {
+      const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+      bootDiagnostics.error('hud', 'sync-error', `bindHudRuntime.sync falhou: ${message}`);
+      pushLoadingTrace(`Falha ao tratar HUD de loading: ${message}`);
+    }
     const syncMs = Math.max(0, Math.round((performance.now() - syncStartedAt) * 100) / 100);
-    if (shouldTraceSyncStart || syncMs >= 8) {
-      pushLoadingTrace(`HUD sync done em ${syncMs}ms | phase ${state.connectionPhase}.`);
+    if (syncMs >= 16) {
+      bootDiagnostics.warn('hud', 'slow-sync', `bindHudRuntime.sync lento (${syncMs.toFixed(2)}ms).`);
     }
-    persistLoadingDebugSnapshot();
   };
 
   const syncHudScale = () => {
@@ -1415,6 +1450,10 @@ export function bindHudRuntime(gameStore: GameStore, socket: GameSocket) {
   window.addEventListener('resize', onResize);
 
   return () => {
+    if (loadingDebugPersistTimer) {
+      clearTimeout(loadingDebugPersistTimer);
+      loadingDebugPersistTimer = 0;
+    }
     if (syncFrameId) cancelAnimationFrame(syncFrameId);
     gameStore.removeEventListener('change', onChange as EventListener);
     window.removeEventListener('resize', onResize);

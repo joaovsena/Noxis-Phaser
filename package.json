@@ -17,6 +17,7 @@
     "docker:reset": "powershell -ExecutionPolicy Bypass -File ./scripts/docker-reset.ps1",
     "docker:logs": "powershell -ExecutionPolicy Bypass -File ./scripts/docker-logs.ps1",
     "setup:legacy": "node scripts/setup-legacy-project.js",
+    "debug:boot": "node scripts/debug_boot_headless.js",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:reset": "prisma db push --force-reset",
