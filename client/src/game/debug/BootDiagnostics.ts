@@ -439,8 +439,8 @@ class BootDiagnostics {
     root.style.right = '12px';
     root.style.bottom = '12px';
     root.style.zIndex = '2147483647';
-    root.style.width = 'min(420px, calc(100vw - 24px))';
-    root.style.maxHeight = '42vh';
+    root.style.width = 'min(340px, calc(100vw - 24px))';
+    root.style.maxHeight = '34vh';
     root.style.overflow = 'hidden';
     root.style.pointerEvents = 'none';
     root.style.fontFamily = 'Consolas, Menlo, Monaco, monospace';
@@ -456,7 +456,7 @@ class BootDiagnostics {
     const summary = document.createElement('div');
     const logs = document.createElement('div');
     logs.style.marginTop = '8px';
-    logs.style.maxHeight = '26vh';
+    logs.style.maxHeight = '22vh';
     logs.style.overflow = 'hidden';
     root.appendChild(summary);
     root.appendChild(logs);
@@ -470,6 +470,11 @@ class BootDiagnostics {
   private render() {
     if (!this.overlayRoot || !this.summaryEl || !this.logEl) return;
     const snapshot = this.getSnapshot();
+    const forceVisible = typeof window !== 'undefined'
+      && new URLSearchParams(window.location.search).get('diag_boot_overlay') === '1';
+    const shouldShow = forceVisible || !snapshot.summary.runtimeReady || Boolean(snapshot.summary.lastError);
+    this.overlayRoot.style.display = shouldShow ? 'block' : 'none';
+    if (!shouldShow) return;
     const headerColor = snapshot.summary.lastError ? '#ffb0a8' : '#f4dfb0';
     this.summaryEl.innerHTML = [
       `<div style="color:${headerColor};font-weight:700;margin-bottom:4px;">NOXIS BOOT DIAG</div>`,

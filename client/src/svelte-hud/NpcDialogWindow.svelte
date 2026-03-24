@@ -65,7 +65,7 @@
 </script>
 
 {#if dialog}
-  <Window title={dialog.npc?.name || 'NPC'} subtitle="Interacao" width="460px" on:close={() => dispatch('close')}>
+  <Window title={dialog.npc?.name || 'NPC'} subtitle="Interacao" width="clamp(520px, 54vw, 680px)" maxWidth="680px" maxBodyHeight="min(82vh, 860px)" on:close={() => dispatch('close')}>
     <div class="greeting">{dialog.npc?.greeting || 'Saudacoes, aventureiro.'}</div>
 
     {#if dungeonEntry}
@@ -254,14 +254,30 @@
   .shop-card {
     display: flex;
     justify-content: space-between;
+    flex-wrap: wrap;
     gap: 12px;
-    align-items: center;
+    align-items: start;
     padding: 12px;
     border: 1px solid rgba(201, 168, 106, 0.2);
     background: rgba(10, 10, 10, 0.72);
   }
 
+  .shop-card button {
+    margin-left: auto;
+  }
+
   .shop-card.disabled {
     opacity: 0.56;
+  }
+
+  @media (max-width: 700px) {
+    .shop-head {
+      align-items: start;
+    }
+
+    .shop-head,
+    .tabs {
+      justify-content: flex-start;
+    }
   }
 </style>

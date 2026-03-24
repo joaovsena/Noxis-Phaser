@@ -114,7 +114,7 @@
   });
 </script>
 
-<Window title="Mapa" subtitle="Visao do mundo" width="520px" on:close={() => dispatch('close')}>
+<Window title="Mapa" subtitle="Visao do mundo" width="clamp(560px, 58vw, 700px)" maxWidth="700px" maxBodyHeight="min(80vh, 840px)" on:close={() => dispatch('close')}>
   <div class="map-meta">
     <div class="map-pill">{$worldStore.mapCode}</div>
     <div class="map-coords">{$worldStore.coordsText}</div>

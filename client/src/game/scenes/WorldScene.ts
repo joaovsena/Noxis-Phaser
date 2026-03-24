@@ -47,6 +47,9 @@ type MobMarker = {
   badge: Phaser.GameObjects.Text;
   hpBar: Phaser.GameObjects.Rectangle;
   hpBg: Phaser.GameObjects.Rectangle;
+  outline: Phaser.GameObjects.Arc;
+  fill: Phaser.GameObjects.Arc;
+  glow: Phaser.GameObjects.Arc;
 };
 
 type NpcMarker = {
@@ -54,6 +57,8 @@ type NpcMarker = {
   hitArea: Phaser.GameObjects.Zone;
   badge: Phaser.GameObjects.Text;
   sprite: Phaser.GameObjects.Image | Phaser.GameObjects.Rectangle;
+  outline: Phaser.GameObjects.Rectangle;
+  glow: Phaser.GameObjects.Rectangle;
 };
 
 type GroundItemMarker = {
@@ -61,6 +66,7 @@ type GroundItemMarker = {
   hitArea: Phaser.GameObjects.Zone;
   badge: Phaser.GameObjects.Text;
   diamond: Phaser.GameObjects.Rectangle;
+  glow: Phaser.GameObjects.Rectangle;
 };
 
 type PendingWorldAction = {
@@ -99,7 +105,7 @@ const NPC_INTERACT_RANGE = 170;
 const MOB_INTERACTION_FALLBACK_RANGE = 64;
 const ACTION_REISSUE_MS = 180;
 const ACTION_REISSUE_DISTANCE = 18;
-const HAND_CURSOR = 'pointer';
+const HAND_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath fill='%23f4d788' stroke='%232d1f0d' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' d='M8.5 3.5c.8 0 1.5.7 1.5 1.5V10V4.5c0-.8.7-1.5 1.5-1.5S13 3.7 13 4.5V10V5.5c0-.8.7-1.5 1.5-1.5S16 4.7 16 5.5V11V7c0-.8.7-1.5 1.5-1.5S19 6.2 19 7v6.2c0 3.2-2 6-5 7l-1.5.5C9 21.8 6 19.1 6 15.6V9.5C6 8.7 6.7 8 7.5 8S9 8.7 9 9.5V12'/%3E%3C/svg%3E") 7 2, pointer`;
 const SWORD_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke='%23f6d37a' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14.5 3.5l6 6'/%3E%3Cpath d='M8 16l9.5-9.5 2 2L10 18'/%3E%3Cpath d='M7 17l-2.5 2.5'/%3E%3Cpath d='M5.5 15.5l3 3'/%3E%3C/g%3E%3C/svg%3E") 8 8, crosshair`;
 const PLAYER_DIRECTIONS: FacingDirection[] = ['s', 'sw', 'w', 'nw', 'n', 'ne', 'e', 'se'];
 const ENABLE_TILE_TEXTURE_RENDER = true;
@@ -278,6 +284,7 @@ export class WorldScene extends Phaser.Scene {
 
     this.updateMarkerVisibility();
     this.updateHoverCursor();
+    this.updateInteractionVisuals();
     this.renderPathDebugOverlay();
     this.renderInteractionDebugOverlay();
   }
@@ -865,7 +872,7 @@ export class WorldScene extends Phaser.Scene {
       return;
     }
     this.hoveredInteraction = interaction;
-    this.applyCursor(interaction.kind === 'mob' ? 'sword' : 'hand');
+    this.applyCursor('hand');
   }
 
   private isAutoAttackEnabled() {
@@ -918,14 +925,53 @@ export class WorldScene extends Phaser.Scene {
     });
     this.groundItemMarkers.forEach((marker) => {
       const visible = isVisible(marker.body.x, marker.body.y);
-      const itemId = String(marker.hitArea.getData('interactionId') || '');
-      const hovered = this.hoveredInteraction?.kind === 'groundItem' && this.hoveredInteraction.id === itemId;
-      const selected = this.selectedGroundItemId === itemId;
       marker.body.setVisible(visible);
       marker.hitArea.setVisible(visible);
+    });
+  }
+
+  private updateInteractionVisuals() {
+    this.mobMarkers.forEach((marker, mobId) => {
+      const hovered = this.hoveredInteraction?.kind === 'mob' && this.hoveredInteraction.id === mobId;
+      const selected = this.selectedMobId === mobId;
+      const active = hovered || selected;
+      marker.glow.setVisible(active);
+      marker.glow.setAlpha(selected ? 0.28 : hovered ? 0.18 : 0);
+      marker.glow.setScale(selected ? 1.12 : hovered ? 1.04 : 1);
+      marker.outline.setStrokeStyle(
+        selected ? 3 : hovered ? 3 : 2,
+        selected ? 0xffd36a : hovered ? 0xfff0b3 : 0xf4f8ff,
+        selected ? 0.95 : hovered ? 0.72 : 0.18
+      );
+      marker.fill.setScale(selected ? 1.08 : hovered ? 1.04 : 1);
+      marker.hpBg.setFillStyle(active ? 0x253041 : 0x1a2230, active ? 0.98 : 0.92);
+      marker.badge.setAlpha(active ? 1 : 0.88);
+    });
+
+    this.npcMarkers.forEach((marker, npcId) => {
+      const hovered = this.hoveredInteraction?.kind === 'npc' && this.hoveredInteraction.id === npcId;
+      marker.glow.setVisible(hovered);
+      marker.glow.setAlpha(hovered ? 0.18 : 0);
+      marker.glow.setScale(hovered ? 1.06 : 1);
+      marker.outline.setStrokeStyle(hovered ? 3 : 2, hovered ? 0xffefb3 : 0xd4f1df, hovered ? 0.92 : 0.4);
+      if ('setFillStyle' in marker.sprite) {
+        (marker.sprite as Phaser.GameObjects.Rectangle).setFillStyle(hovered ? 0x96e3b7 : 0x74c69d, 1);
+      }
+      marker.badge.setAlpha(hovered ? 1 : 0.9);
+      marker.body.setScale(hovered ? 1.03 : 1);
+    });
+
+    this.groundItemMarkers.forEach((marker, itemId) => {
+      const hovered = this.hoveredInteraction?.kind === 'groundItem' && this.hoveredInteraction.id === itemId;
+      const selected = this.selectedGroundItemId === itemId;
+      const active = hovered || selected;
+      marker.glow.setVisible(active);
+      marker.glow.setAlpha(selected ? 0.26 : hovered ? 0.18 : 0);
+      marker.glow.setScale(selected ? 1.14 : hovered ? 1.08 : 1);
       marker.diamond.setFillStyle(selected ? 0xf3d58a : hovered ? 0xffebaa : 0xd8b56f, selected ? 1 : 0.96);
-      marker.diamond.setStrokeStyle(selected || hovered ? 2 : 1, selected ? 0xfff7cf : 0xa46f2c, selected ? 0.95 : 0.7);
-      marker.badge.setAlpha(selected || hovered ? 1 : 0.82);
+      marker.diamond.setStrokeStyle(active ? 2 : 1, selected ? 0xfff7cf : hovered ? 0xffe09b : 0xa46f2c, active ? 0.95 : 0.7);
+      marker.diamond.setScale(selected ? 1.08 : hovered ? 1.04 : 1);
+      marker.badge.setAlpha(active ? 1 : 0.82);
     });
   }
   private getLayerColor(layerName: string, gid: number, layerIndex: number) {
@@ -1007,6 +1053,8 @@ export class WorldScene extends Phaser.Scene {
       visibleMobIds.add(mobId);
       let marker = this.mobMarkers.get(mobId);
       if (!marker) {
+        const glow = this.add.circle(0, 0, 22, 0xffd36a, 0.18);
+        glow.setVisible(false);
         const outline = this.add.circle(0, 0, 18, 0x08111b, 0);
         outline.setStrokeStyle(2, 0xf4f8ff, 0.18);
         const bodyFill = this.add.circle(0, 0, 14, this.getMobColor(mob.kind), 1);
@@ -1019,7 +1067,7 @@ export class WorldScene extends Phaser.Scene {
           backgroundColor: 'rgba(8,17,27,0.68)',
           padding: { x: 6, y: 2 }
         }).setOrigin(0.5);
-        const body = this.add.container(0, 0, [outline, hpBg, hpBar, bodyFill, badge]);
+        const body = this.add.container(0, 0, [glow, outline, hpBg, hpBar, bodyFill, badge]);
         body.setSize(48, 48);
         const hitArea = this.add.zone(0, 0, 40, 40);
         hitArea.setInteractive(new Phaser.Geom.Circle(0, 0, 20), Phaser.Geom.Circle.Contains);
@@ -1027,7 +1075,7 @@ export class WorldScene extends Phaser.Scene {
         hitArea.setData('interactionId', mobId);
         this.entityLayer.add(body);
         this.entityLayer.add(hitArea);
-        marker = { body, hitArea, badge, hpBar, hpBg };
+        marker = { body, hitArea, badge, hpBar, hpBg, outline, fill: bodyFill, glow };
         this.mobMarkers.set(mobId, marker);
       }
 
@@ -1038,7 +1086,7 @@ export class WorldScene extends Phaser.Scene {
       marker.body.setDepth(projected.y);
       marker.hitArea.setPosition(projected.x, projected.y);
       marker.hitArea.setDepth(projected.y + 0.5);
-      marker.body.list[0]?.setStrokeStyle?.(this.selectedMobId === mobId ? 3 : 2, this.selectedMobId === mobId ? 0xffd36a : 0xf4f8ff, this.selectedMobId === mobId ? 0.95 : 0.18);
+      marker.fill.setFillStyle(this.getMobColor(mob.kind), 1);
     });
 
     Array.from(this.mobMarkers.keys()).forEach((id) => {
@@ -1061,6 +1109,8 @@ export class WorldScene extends Phaser.Scene {
       visibleNpcIds.add(npcId);
       let marker = this.npcMarkers.get(npcId);
       if (!marker) {
+        const glow = this.add.rectangle(0, 0, 34, 44, 0xffefb3, 0.18);
+        glow.setVisible(false);
         const bodyFill = this.add.rectangle(0, 0, 24, 34, 0x74c69d, 1);
         const outline = this.add.rectangle(0, 0, 28, 38, 0x08111b, 0);
         outline.setStrokeStyle(2, 0xd4f1df, 0.4);
@@ -1071,7 +1121,7 @@ export class WorldScene extends Phaser.Scene {
           backgroundColor: 'rgba(8,17,27,0.68)',
           padding: { x: 6, y: 2 }
         }).setOrigin(0.5);
-        const body = this.add.container(0, 0, [outline, bodyFill, badge]);
+        const body = this.add.container(0, 0, [glow, outline, bodyFill, badge]);
         body.setSize(30, 40);
         const hitArea = this.add.zone(0, 0, 34, 46);
         hitArea.setInteractive(new Phaser.Geom.Rectangle(-17, -23, 34, 46), Phaser.Geom.Rectangle.Contains);
@@ -1079,7 +1129,7 @@ export class WorldScene extends Phaser.Scene {
         hitArea.setData('interactionId', npcId);
         this.entityLayer.add(body);
         this.entityLayer.add(hitArea);
-        marker = { body, hitArea, badge, sprite: bodyFill };
+        marker = { body, hitArea, badge, sprite: bodyFill, outline, glow };
         this.npcMarkers.set(npcId, marker);
       }
 
@@ -1107,6 +1157,8 @@ export class WorldScene extends Phaser.Scene {
       visibleGroundItemIds.add(itemId);
       let marker = this.groundItemMarkers.get(itemId);
       if (!marker) {
+        const glow = this.add.rectangle(0, 0, 22, 22, 0xffe3a3, 0.18).setAngle(45);
+        glow.setVisible(false);
         const diamond = this.add.rectangle(0, 0, 16, 16, 0xd8b56f, 1).setAngle(45);
         diamond.setStrokeStyle(1, 0xa46f2c, 0.7);
         const badge = this.add.text(0, -20, String(item.name || item.templateId || 'Item'), {
@@ -1116,7 +1168,7 @@ export class WorldScene extends Phaser.Scene {
           backgroundColor: 'rgba(8,17,27,0.62)',
           padding: { x: 4, y: 2 }
         }).setOrigin(0.5);
-        const body = this.add.container(0, 0, [diamond, badge]);
+        const body = this.add.container(0, 0, [glow, diamond, badge]);
         body.setSize(24, 24);
         const hitArea = this.add.zone(0, 0, 26, 26);
         hitArea.setInteractive(new Phaser.Geom.Rectangle(-13, -13, 26, 26), Phaser.Geom.Rectangle.Contains);
@@ -1124,7 +1176,7 @@ export class WorldScene extends Phaser.Scene {
         hitArea.setData('interactionId', itemId);
         this.entityLayer.add(body);
         this.entityLayer.add(hitArea);
-        marker = { body, hitArea, badge, diamond };
+        marker = { body, hitArea, badge, diamond, glow };
         this.groundItemMarkers.set(itemId, marker);
       }
       const projected = this.worldToScreen(Number(item.x || 0), Number(item.y || 0));

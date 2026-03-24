@@ -23,7 +23,7 @@
   }
 </script>
 
-<Window title="Quests" subtitle="Jornada ativa" width="360px" on:close={() => dispatch('close')}>
+<Window title="Quests" subtitle="Jornada ativa" width="clamp(400px, 38vw, 520px)" maxWidth="520px" maxBodyHeight="min(80vh, 840px)" on:close={() => dispatch('close')}>
   <div class="quest-list">
     {#if $questStore.quests.length}
       {#each $questStore.quests as quest}
@@ -59,6 +59,8 @@
   }
 
   .quest-card {
+    display: grid;
+    gap: 6px;
     padding: 12px;
     clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px);
     border: 1px solid rgba(201, 168, 106, 0.2);
@@ -92,8 +94,8 @@
   }
 
   .objective-row {
-    display: flex;
-    justify-content: space-between;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 10px;
   }
 

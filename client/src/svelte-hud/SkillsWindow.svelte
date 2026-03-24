@@ -37,7 +37,7 @@
   }
 </script>
 
-<Window title="Habilidades" subtitle="Progressao de classe" width="920px" on:close={() => dispatch('close')}>
+<Window title="Habilidades" subtitle="Progressao de classe" width="clamp(920px, 82vw, 1120px)" maxWidth="1120px" maxBodyHeight="min(82vh, 880px)" on:close={() => dispatch('close')}>
   <div class="skills-shell">
     <aside class="skills-sidebar">
       <div class="skills-summary-card">
@@ -174,7 +174,7 @@
 <style>
   .skills-shell {
     display: grid;
-    grid-template-columns: 240px minmax(0, 1fr) 280px;
+    grid-template-columns: minmax(220px, 240px) minmax(0, 1fr) minmax(260px, 280px);
     gap: 16px;
     min-height: 560px;
   }
@@ -286,7 +286,7 @@
 
   .vertical-tree {
     padding-right: 8px;
-    max-height: 540px;
+    max-height: min(58vh, 620px);
     overflow-y: auto;
   }
 
@@ -471,7 +471,17 @@
     background: rgba(15, 18, 22, 0.96) !important;
   }
 
-  @media (max-width: 1100px) {
+  @media (max-width: 1260px) {
+    .skills-shell {
+      grid-template-columns: minmax(220px, 240px) minmax(0, 1fr);
+    }
+
+    .skill-detail-card {
+      grid-column: 1 / -1;
+    }
+  }
+
+  @media (max-width: 980px) {
     .skills-shell {
       grid-template-columns: 1fr;
     }

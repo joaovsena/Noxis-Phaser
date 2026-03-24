@@ -1,5 +1,6 @@
 import { mount } from 'svelte';
 import App from './App.svelte';
+import './hud-theme.css';
 import { bindHudRuntime } from './stores/gameUi';
 import type { GameStore } from '../game/state/GameStore';
 import type { GameSocket } from '../game/net/GameSocket';

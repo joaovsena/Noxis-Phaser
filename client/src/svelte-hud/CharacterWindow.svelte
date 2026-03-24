@@ -17,7 +17,7 @@
     necklace: 'Colar'
   };
 
-  const orderedSlots = ['helmet', 'chest', 'pants', 'gloves', 'boots', 'ring', 'weapon', 'necklace'];
+  const orderedSlots = ['helmet', 'weapon', 'chest', 'necklace', 'gloves', 'ring', 'pants', 'boots'];
   let pending = { str: 0, int: 0, dex: 0, vit: 0 };
   let lastSnapshot = '';
 
@@ -88,202 +88,280 @@
   onDestroy(() => clearPending());
 </script>
 
-<Window title="Personagem" subtitle="Equipamentos e atributos" width="420px" on:close={() => dispatch('close')}>
-  <div class="hero-strip">
-    <div class="hero-core">{$playerStats.className}</div>
-    <div class="hero-meta">
-      <div class="hero-level">Nivel {$playerStats.level}</div>
-      <div class="hero-xp">XP {$playerStats.xp} / {$playerStats.xpToNext}</div>
-    </div>
-  </div>
-
-  <div class="points-bar">
-    <span>Pontos disponiveis {$playerStats.unspentPoints}</span>
-    {#if pendingCost() > 0}
-      <span class="pending-cost">Em preparo: {pendingCost()}</span>
-    {/if}
-  </div>
-
-  <div class="equipment-grid">
-    {#each orderedSlots as slotKey}
-      <div class="equip-shell" role="group" aria-label={slotLabels[slotKey]} on:dragover|preventDefault on:drop={(event) => handleEquipDrop(slotKey, event)}>
-        <div class="equip-label">{slotLabels[slotKey]}</div>
-        <Slot
-          item={$equippedSlots[slotKey]}
-          size={56}
-          on:dragstart={(event) => event.detail && beginDrag({ source: 'equipment', itemId: String(event.detail.id), slot: slotKey })}
-          on:dblactivate={(event) => event.detail && unequipItem(event.detail)}
-          on:inspect={(event) => inspectEquipped(event.detail.item, event.detail.x, event.detail.y)}
-          on:inspectend={hideTooltip}
-        />
+<Window title="Personagem" subtitle="Equipamentos e atributos" width="clamp(640px, 62vw, 760px)" maxWidth="760px" maxBodyHeight="min(82vh, 860px)" on:close={() => dispatch('close')}>
+  <div class="character-shell">
+    <div class="hero-strip">
+      <div class="hero-core">{$playerStats.className.slice(0, 2).toUpperCase()}</div>
+      <div class="hero-meta">
+        <div class="hud-kicker">Classe</div>
+        <div class="hero-level">{$playerStats.className}</div>
+        <div class="hero-xp">Nivel {$playerStats.level} | XP {$playerStats.xp} / {$playerStats.xpToNext}</div>
       </div>
-    {/each}
-  </div>
+      <div class="points-card">
+        <div class="hud-kicker">Pontos</div>
+        <div class="points-value">{$playerStats.unspentPoints}</div>
+        {#if pendingCost() > 0}
+          <div class="points-pending">Preparado: {pendingCost()}</div>
+        {/if}
+      </div>
+    </div>
 
-  <div class="stats-grid">
-    <div class="stat-card">
-      <div class="stat-head">Base</div>
-      {#each [
-        ['str', 'FOR', $playerStats.base.str || 0],
-        ['int', 'INT', $playerStats.base.int || 0],
-        ['dex', 'DES', $playerStats.base.dex || 0],
-        ['vit', 'VIT', $playerStats.base.vit || 0]
-      ] as [key, label, value]}
-        <div class="stat-row">
-          <span>{label} {value + Number(pending[key] || 0)}{#if Number(pending[key] || 0) > 0} <strong class="bonus">+{pending[key]}</strong>{/if}</span>
-          <div class="stat-actions">
-            <button type="button" class="ghost mini" on:click={() => maxOut(key as keyof typeof pending)}>^</button>
-            <button type="button" class="mini" on:click={() => allocateOne(key as keyof typeof pending)}>+</button>
-            <button type="button" class="ghost mini" on:click={() => removeOne(key as keyof typeof pending)}>-</button>
-          </div>
+    <div class="equipment-layout">
+      <section class="equipment-panel">
+        <div class="panel-title">Equipamento</div>
+        <div class="equipment-grid">
+          {#each orderedSlots as slotKey}
+            <div class="equip-shell" role="group" aria-label={slotLabels[slotKey]} on:dragover|preventDefault on:drop={(event) => handleEquipDrop(slotKey, event)}>
+              <div class="equip-label">{slotLabels[slotKey]}</div>
+              <Slot
+                item={$equippedSlots[slotKey]}
+                size={62}
+                on:dragstart={(event) => event.detail && beginDrag({ source: 'equipment', itemId: String(event.detail.id), slot: slotKey })}
+                on:dblactivate={(event) => event.detail && unequipItem(event.detail)}
+                on:inspect={(event) => inspectEquipped(event.detail.item, event.detail.x, event.detail.y)}
+                on:inspectend={hideTooltip}
+              />
+            </div>
+          {/each}
         </div>
-      {/each}
+      </section>
+
+      <section class="stats-panel">
+        <div class="panel-title">Atributos</div>
+        <div class="stats-grid">
+          {#each [
+            ['str', 'FOR', $playerStats.base.str || 0],
+            ['int', 'INT', $playerStats.base.int || 0],
+            ['dex', 'DES', $playerStats.base.dex || 0],
+            ['vit', 'VIT', $playerStats.base.vit || 0]
+          ] as [key, label, value]}
+            <div class="stat-card">
+              <div class="stat-top">
+                <span>{label}</span>
+                <strong>{value + Number(pending[key] || 0)}</strong>
+              </div>
+              {#if Number(pending[key] || 0) > 0}
+                <div class="pending-bonus">+{pending[key]} pendente</div>
+              {/if}
+              <div class="stat-actions">
+                <button class="hud-btn mini ghost" type="button" on:click={() => maxOut(key as keyof typeof pending)}>Max</button>
+                <button class="hud-btn mini" type="button" on:click={() => allocateOne(key as keyof typeof pending)}>+</button>
+                <button class="hud-btn mini ghost" type="button" on:click={() => removeOne(key as keyof typeof pending)}>-</button>
+              </div>
+            </div>
+          {/each}
+        </div>
+      </section>
     </div>
-    <div class="stat-card">
-      <div class="stat-head">Combate</div>
-      <div>PATK {Math.floor(previewCombat.physicalAttack)}</div>
-      <div>MATK {Math.floor(previewCombat.magicAttack)}</div>
-      <div>PDEF {previewCombat.physicalDefense.toFixed(1)}</div>
-      <div>MDEF {previewCombat.magicDefense.toFixed(1)}</div>
-      <div>ACC {previewCombat.accuracy.toFixed(1)}</div>
-      <div>EVA {previewCombat.evasion.toFixed(1)}</div>
-      <div>MSPD {previewCombat.moveSpeed}</div>
-      <div>ASPD {previewCombat.attackSpeed}%</div>
-    </div>
+
+    <section class="combat-panel">
+      <div class="panel-title">Resumo de combate</div>
+      <div class="combat-grid">
+        <div class="combat-line"><span>PATK</span><strong>{Math.floor(previewCombat.physicalAttack)}</strong></div>
+        <div class="combat-line"><span>MATK</span><strong>{Math.floor(previewCombat.magicAttack)}</strong></div>
+        <div class="combat-line"><span>PDEF</span><strong>{previewCombat.physicalDefense.toFixed(1)}</strong></div>
+        <div class="combat-line"><span>MDEF</span><strong>{previewCombat.magicDefense.toFixed(1)}</strong></div>
+        <div class="combat-line"><span>ACC</span><strong>{previewCombat.accuracy.toFixed(1)}</strong></div>
+        <div class="combat-line"><span>EVA</span><strong>{previewCombat.evasion.toFixed(1)}</strong></div>
+        <div class="combat-line"><span>MSPD</span><strong>{previewCombat.moveSpeed}</strong></div>
+        <div class="combat-line"><span>ASPD</span><strong>{previewCombat.attackSpeed}%</strong></div>
+      </div>
+    </section>
   </div>
 
-  <div class="footer-actions">
-    <button type="button" disabled={pendingCost() <= 0} on:click={applyPending}>Aplicar</button>
-    <button type="button" class="ghost" disabled={pendingCost() <= 0} on:click={clearPending}>Limpar</button>
-  </div>
+  <svelte:fragment slot="footer">
+    <div class="footer-actions">
+      <button class="hud-btn" type="button" disabled={pendingCost() <= 0} on:click={applyPending}>Aplicar pontos</button>
+      <button class="hud-btn ghost" type="button" disabled={pendingCost() <= 0} on:click={clearPending}>Limpar</button>
+      <span class="footer-hint">Restantes apos preparo: {remainingPoints()}</span>
+    </div>
+  </svelte:fragment>
 </Window>
 
 <style>
+  .character-shell,
+  .hero-strip,
+  .equipment-layout,
+  .stats-grid,
+  .equipment-grid,
+  .combat-grid {
+    display: grid;
+    gap: 12px;
+  }
+
   .hero-strip {
-    display: flex;
+    grid-template-columns: 88px minmax(0, 1fr) minmax(132px, 156px);
     align-items: center;
-    gap: 14px;
-    margin-bottom: 14px;
   }
 
   .hero-core,
+  .points-card,
+  .equipment-panel,
+  .stats-panel,
+  .combat-panel,
   .stat-card {
-    clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 14px, 100% calc(100% - 14px), calc(100% - 14px) 100%, 14px 100%, 0 calc(100% - 14px), 0 14px);
-    border: 1px solid rgba(201, 168, 106, 0.24);
-    background: linear-gradient(180deg, rgba(15, 12, 10, 0.96), rgba(8, 8, 8, 0.98));
+    border-radius: 16px;
+    border: 1px solid rgba(201, 168, 106, 0.18);
+    background: rgba(7, 9, 12, 0.62);
   }
 
   .hero-core {
-    min-width: 82px;
-    min-height: 82px;
+    min-width: 88px;
+    min-height: 88px;
     display: grid;
     place-items: center;
-    padding: 8px;
-    font-family: 'Cinzel', serif;
+    font-family: var(--hud-font-display);
     text-transform: uppercase;
-    color: #f2dfb7;
+    color: var(--hud-gold);
+    font-size: 1.4rem;
   }
 
   .hero-meta {
     display: grid;
     gap: 6px;
-    color: rgba(228, 218, 194, 0.8);
-    font-size: 0.82rem;
   }
 
   .hero-level {
-    font-family: 'Cinzel', serif;
+    color: var(--hud-gold);
+    font-family: var(--hud-font-display);
     text-transform: uppercase;
-    color: #efdcb3;
   }
 
-  .points-bar,
-  .stat-row,
-  .stat-actions,
-  .footer-actions {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .points-bar,
-  .footer-actions {
-    justify-content: space-between;
-    margin-bottom: 14px;
-    color: rgba(228, 218, 194, 0.8);
+  .hero-xp,
+  .points-pending,
+  .footer-hint {
+    color: var(--hud-text-soft);
     font-size: 0.8rem;
   }
 
-  .pending-cost,
-  .bonus {
-    color: #f0dfbc;
+  .points-card {
+    padding: 12px;
+    text-align: center;
+  }
+
+  .points-value {
+    margin-top: 6px;
+    color: var(--hud-warning);
+    font-family: var(--hud-font-display);
+    font-size: 1.2rem;
+  }
+
+  .equipment-layout {
+    grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .equipment-panel,
+  .stats-panel,
+  .combat-panel {
+    padding: 14px;
+  }
+
+  .panel-title {
+    margin-bottom: 12px;
+    color: var(--hud-gold);
+    font-family: var(--hud-font-display);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
   }
 
   .equipment-grid {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 10px;
-    margin-bottom: 14px;
+    grid-template-columns: repeat(2, minmax(92px, 1fr));
+    gap: 14px 18px;
   }
 
   .equip-shell {
     display: grid;
-    gap: 6px;
     justify-items: center;
+    gap: 8px;
   }
 
-  .equip-label,
-  .stat-head {
-    font-family: 'Cinzel', serif;
-    font-size: 0.64rem;
-    letter-spacing: 0.08em;
+  .equip-label {
+    color: var(--hud-text-soft);
+    font-size: 0.72rem;
     text-transform: uppercase;
-    color: rgba(201, 168, 106, 0.76);
   }
 
   .stats-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
+    grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
   }
 
   .stat-card {
     padding: 12px;
-    display: grid;
-    gap: 6px;
-    color: rgba(233, 223, 200, 0.78);
-    font-size: 0.78rem;
   }
 
-  .stat-row {
+  .stat-top,
+  .stat-actions,
+  .combat-line,
+  .footer-actions {
+    display: flex;
+    align-items: center;
     justify-content: space-between;
+    gap: 8px;
+  }
+
+  .stat-top {
+    color: var(--hud-gold);
+    font-family: var(--hud-font-display);
+  }
+
+  .pending-bonus {
+    margin-top: 4px;
+    color: var(--hud-warning);
+    font-size: 0.72rem;
   }
 
   .stat-actions {
-    margin-left: auto;
+    margin-top: 10px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 38px 38px;
+    justify-content: stretch;
   }
 
-  .mini,
-  .footer-actions button {
-    min-height: 32px;
-    border: 1px solid rgba(201, 168, 106, 0.28);
-    background: linear-gradient(180deg, rgba(33, 24, 14, 0.96), rgba(12, 10, 8, 0.98));
-    color: #ecdcb8;
-    padding: 0 10px;
-    font-family: 'Cinzel', serif;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px);
+  .stat-actions :global(.hud-btn) {
+    min-width: 0;
   }
 
-  .ghost {
-    background: rgba(16, 20, 24, 0.95) !important;
+  .combat-grid {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   }
 
-  @media (max-width: 560px) {
-    .equipment-grid,
+  .combat-line {
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: rgba(11, 13, 18, 0.62);
+    color: var(--hud-text-soft);
+  }
+
+  .combat-line strong {
+    color: var(--hud-gold);
+  }
+
+  .footer-actions {
+    flex-wrap: wrap;
+  }
+
+  @media (max-width: 980px) {
+    .equipment-layout {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 760px) {
+    .hero-strip,
+    .combat-grid,
     .stats-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .hero-strip {
+      grid-template-columns: 74px minmax(0, 1fr);
+    }
+
+    .points-card {
+      grid-column: 1 / -1;
     }
   }
 </style>

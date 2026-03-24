@@ -1,9 +1,11 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import { onDestroy, onMount } from 'svelte';
-  import { adminStore, hudScaleStore, leaveDungeon, mapSettingsStore, playerMetaStore, resetHudScale, selectedAutoAttackStore, selectedMobStore, sendAdminCommand, setHudScale, setInteractionDebugEnabled, setMapSetting, setMobPeacefulEnabled, setPathDebugEnabled, setSelectedAutoAttack, skillsStore, switchInstance, toggleMapSettings, worldStore } from './stores/gameUi';
+  import { leaveDungeon, mapSettingsStore, playerMetaStore, selectedAutoAttackStore, selectedMobStore, setMapSetting, setSelectedAutoAttack, skillsStore, switchInstance, toggleMapSettings, worldStore } from './stores/gameUi';
 
   const dispatch = createEventDispatcher<{ close: void }>();
+  export let fixed = false;
+  export let showClose = true;
   let canvasEl: HTMLCanvasElement | null = null;
   let drawQueued = false;
   let rafId = 0;
@@ -121,20 +123,30 @@
   });
 </script>
 
-<section class="minimap-shell">
-  <div class="header" data-window-drag-handle="true">
+<section class={`minimap-shell ${fixed ? 'fixed' : ''}`}>
+  <div class="header" data-window-drag-handle={fixed ? undefined : 'true'}>
     <div>
       <div class="eyebrow">Minimapa</div>
-      <div class="title">{$worldStore.mapCode}</div>
+      <div class="title">{$worldStore.mapCode} / {$worldStore.mapId}</div>
     </div>
     <div class="header-right">
       <div class="coords">{$worldStore.coordsText}</div>
       <button class="mini-btn" type="button" aria-label="Configurar minimapa" on:click={() => toggleMapSettings()}>&#9881;</button>
-      <button class="close-btn" type="button" aria-label="Fechar minimapa" on:click={() => dispatch('close')}>x</button>
+      {#if showClose}
+        <button class="close-btn" type="button" aria-label="Fechar minimapa" on:click={() => dispatch('close')}>x</button>
+      {/if}
     </div>
   </div>
 
-  <canvas bind:this={canvasEl} class="canvas" width="260" height="180" on:click={handleCanvasClick}></canvas>
+  <canvas bind:this={canvasEl} class="canvas" width="214" height="132" on:click={handleCanvasClick}></canvas>
+
+  <div class="legend-row">
+    <span class="legend-pill player">Jogadores</span>
+    <span class="legend-pill mob">Mobs</span>
+    <span class="legend-pill npc">NPCs</span>
+    <span class="legend-pill portal">Portais</span>
+    <span class="legend-pill event">Eventos</span>
+  </div>
 
   <div class="instance-row">
     <label for="instance-select-svelte">Instancia</label>
@@ -143,14 +155,14 @@
         <option value={instanceId}>{instanceId}</option>
       {/each}
     </select>
+    {#if $playerMetaStore.isDungeon}
+      <button class="dungeon-leave-btn" type="button" on:click={leaveDungeon}>Sair</button>
+    {/if}
   </div>
-
-  {#if $playerMetaStore.isDungeon}
-    <button class="dungeon-leave-btn" type="button" on:click={leaveDungeon}>Sair da Dungeon</button>
-  {/if}
 
   {#if $mapSettingsStore.open}
     <div class="settings-panel">
+      <div class="settings-title">Filtros do mapa</div>
       <label class="setting-line">
         <input type="checkbox" checked={$mapSettingsStore.autoAttackEnabled} on:change={(event) => setMapSetting('autoAttackEnabled', (event.currentTarget as HTMLInputElement).checked)} />
         <span>Ataque automatico</span>
@@ -175,29 +187,6 @@
         <input type="checkbox" checked={$mapSettingsStore.showEvents} on:change={(event) => setMapSetting('showEvents', (event.currentTarget as HTMLInputElement).checked)} />
         <span>Eventos</span>
       </label>
-      {#if $adminStore.isAdmin}
-        <label class="setting-line">
-          <input type="checkbox" checked={$adminStore.pathDebugEnabled} on:change={(event) => setPathDebugEnabled((event.currentTarget as HTMLInputElement).checked)} />
-          <span>Debug Path</span>
-        </label>
-        <label class="setting-line">
-          <input type="checkbox" checked={$adminStore.interactionDebugEnabled} on:change={(event) => setInteractionDebugEnabled((event.currentTarget as HTMLInputElement).checked)} />
-          <span>Debug Interacao</span>
-        </label>
-        <label class="setting-line">
-          <input type="checkbox" checked={$adminStore.mobPeacefulEnabled} on:change={(event) => setMobPeacefulEnabled((event.currentTarget as HTMLInputElement).checked)} />
-          <span>Mobs pacificos</span>
-        </label>
-        <div class="hud-scale-panel">
-          <div class="hud-scale-top">
-            <span>Escala HUD</span>
-            <span>{Math.round($hudScaleStore * 100)}%</span>
-          </div>
-          <input type="range" min="70" max="140" step="1" value={Math.round($hudScaleStore * 100)} on:input={(event) => setHudScale(Number((event.currentTarget as HTMLInputElement).value) / 100)} />
-          <button class="mini-action" type="button" on:click={resetHudScale}>Reset HUD</button>
-          <button class="mini-action warning" type="button" on:click={() => sendAdminCommand('dungeon.debug')}>Debug Dungeon</button>
-        </div>
-      {/if}
       <div class="auto-attack-row">
         <span>Auto ataque</span>
         <select value={$selectedAutoAttackStore} on:change={(event) => setSelectedAutoAttack((event.currentTarget as HTMLSelectElement).value)}>
@@ -212,13 +201,12 @@
 
 <style>
   .minimap-shell {
-    pointer-events: auto;
-    width: 292px;
-    padding: 14px;
+    width: 100%;
+    padding: 10px;
     position: relative;
     overflow: hidden;
-    clip-path: polygon(16px 0, calc(100% - 16px) 0, 100% 16px, 100% calc(100% - 16px), calc(100% - 16px) 100%, 16px 100%, 0 calc(100% - 16px), 0 16px);
     border: 1px solid rgba(201, 168, 106, 0.34);
+    border-radius: 18px;
     background:
       radial-gradient(circle at top, rgba(201, 168, 106, 0.08), transparent 34%),
       linear-gradient(180deg, rgba(17, 15, 12, 0.97), rgba(8, 8, 8, 0.98));
@@ -231,15 +219,15 @@
     content: '';
     position: absolute;
     inset: 8px;
-    clip-path: inherit;
     border: 1px solid rgba(201, 168, 106, 0.1);
+    border-radius: 12px;
     pointer-events: none;
   }
 
   .header,
+  .legend-row,
   .instance-row,
-  .settings-panel,
-  .dungeon-leave-btn {
+  .settings-panel {
     position: relative;
     z-index: 1;
   }
@@ -247,9 +235,13 @@
   .header {
     display: flex;
     justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 12px;
+    gap: 8px;
+    margin-bottom: 8px;
     cursor: grab;
+  }
+
+  .minimap-shell.fixed .header {
+    cursor: default;
   }
 
   .header-right {
@@ -272,32 +264,25 @@
     font-family: 'Cinzel', serif;
     letter-spacing: 0.06em;
     text-transform: uppercase;
+    font-size: 0.76rem;
   }
 
   .coords {
     align-self: end;
-    font-size: 0.72rem;
+    font-size: 0.6rem;
     color: rgba(234, 224, 202, 0.78);
   }
 
-  .canvas,
-  .instance-row select,
-  .mini-btn,
-  .close-btn,
-  .dungeon-leave-btn,
-  .settings-panel select {
-    clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px);
-  }
-
   .mini-btn,
   .close-btn,
   .dungeon-leave-btn,
   .instance-row select,
-  .settings-panel select {
+  .auto-attack-row select {
     border: 1px solid rgba(201, 168, 106, 0.24);
     background: linear-gradient(180deg, rgba(28, 22, 15, 0.94), rgba(10, 8, 7, 0.98));
     color: #e8d5aa;
     font-family: 'Cinzel', serif;
+    border-radius: 10px;
   }
 
   .mini-btn,
@@ -309,91 +294,100 @@
     line-height: 1;
   }
 
+  .close-btn {
+    color: #efc1b5;
+  }
+
   .canvas {
+    position: relative;
+    z-index: 1;
     width: 100%;
     display: block;
+    border-radius: 14px;
     border: 1px solid rgba(201, 168, 106, 0.22);
     background: #0c120b;
     cursor: pointer;
   }
 
+  .legend-row,
+  .instance-row,
+  .settings-panel,
+  .auto-attack-row {
+    margin-top: 8px;
+  }
+
+  .legend-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .legend-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 20px;
+    padding: 0 6px;
+    border-radius: 999px;
+    border: 1px solid rgba(201, 168, 106, 0.16);
+    background: rgba(9, 12, 16, 0.68);
+    color: rgba(234, 224, 202, 0.78);
+    font-size: 0.56rem;
+  }
+
+  .legend-pill::before {
+    content: '';
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: currentColor;
+    opacity: 0.96;
+  }
+
+  .legend-pill.player { color: #d8dfe8; }
+  .legend-pill.mob { color: #e24b4b; }
+  .legend-pill.npc { color: #4fd09a; }
+  .legend-pill.portal { color: #8f78ff; }
+  .legend-pill.event { color: #ffd166; }
+
   .instance-row,
   .auto-attack-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    margin-top: 10px;
-    color: rgba(234, 224, 202, 0.78);
-    font-size: 0.76rem;
-  }
-
-  .hud-scale-panel {
     display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 8px;
-    margin-top: 10px;
-    padding-top: 8px;
-    border-top: 1px solid rgba(201, 168, 106, 0.12);
-  }
-
-  .hud-scale-top {
-    display: flex;
-    justify-content: space-between;
-    gap: 10px;
+    align-items: center;
     color: rgba(234, 224, 202, 0.78);
     font-size: 0.76rem;
-  }
-
-  .hud-scale-panel input[type="range"] {
-    width: 100%;
-  }
-
-  .mini-action {
-    min-height: 32px;
-    border: 1px solid rgba(201, 168, 106, 0.24);
-    background: linear-gradient(180deg, rgba(28, 22, 15, 0.94), rgba(10, 8, 7, 0.98));
-    color: #e8d5aa;
-    font-family: 'Cinzel', serif;
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px);
-  }
-
-  .mini-action.warning {
-    border-color: rgba(217, 154, 95, 0.3);
-    color: #f0c790;
   }
 
   .instance-row label,
-  .auto-attack-row span {
+  .auto-attack-row span,
+  .settings-title {
     font-family: 'Cinzel', serif;
+    color: #f0dfbc;
     text-transform: uppercase;
+    font-size: 0.56rem;
     letter-spacing: 0.08em;
-    color: rgba(201, 168, 106, 0.72);
   }
 
   .instance-row select,
-  .settings-panel select {
-    min-height: 34px;
-    padding: 0 10px;
+  .auto-attack-row select {
+    min-height: 28px;
+    padding: 0 8px;
   }
 
   .dungeon-leave-btn {
-    margin-top: 10px;
-    width: 100%;
-    min-height: 38px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
+    min-height: 28px;
+    padding: 0 10px;
   }
 
   .settings-panel {
-    margin-top: 10px;
-    padding: 10px;
-    border: 1px solid rgba(201, 168, 106, 0.2);
-    background: rgba(10, 10, 10, 0.72);
+    padding: 8px;
+    border-radius: 14px;
+    border: 1px solid rgba(201, 168, 106, 0.18);
+    background: rgba(7, 9, 11, 0.7);
     display: grid;
-    gap: 8px;
+    gap: 10px;
   }
 
   .setting-line {
@@ -401,6 +395,6 @@
     align-items: center;
     gap: 8px;
     color: rgba(233, 223, 200, 0.82);
-    font-size: 0.78rem;
+    font-size: 0.66rem;
   }
 </style>

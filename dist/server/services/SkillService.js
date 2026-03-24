@@ -153,8 +153,7 @@ class SkillService {
             });
         }
         if (skill.target === 'self') {
-            if (Number(player.hp || 0) !== hpBeforeCast)
-                this.sendStatsUpdated(player);
+            this.sendStatsUpdated(player);
             return;
         }
         const basePower = Math.max(0.05, this.getSkillPowerWithLevel(skill, skillLevel));
@@ -230,8 +229,7 @@ class SkillService {
             player.attackTargetId = String(targetMob.id);
         }
         player.lastCombatAt = now;
-        if (Number(player.hp || 0) !== hpBeforeCast)
-            this.sendStatsUpdated(player);
+        this.sendStatsUpdated(player);
     }
     applyMobDamageOverTime(player, targetMob, mapInstanceId, config) {
         const key = `${config.dotKey}:${player.id}:${String(targetMob.id)}`;

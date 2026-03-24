@@ -5,6 +5,11 @@
   export let hotkey = '';
   export let size = 52;
   export let searchHidden = false;
+  export let pressed = false;
+  export let unavailable = false;
+  export let cooldownRemainingMs = 0;
+  export let cooldownTotalMs = 0;
+  export let variant: 'default' | 'bottom-bar' = 'default';
 
   const dispatch = createEventDispatcher<{
     activate: any;
@@ -61,10 +66,21 @@
     if (!item) return;
     dispatch('inspect', { item, x: event.clientX, y: event.clientY });
   }
+
+  $: safeCooldownRemainingMs = Math.max(0, Number(cooldownRemainingMs || 0));
+  $: safeCooldownTotalMs = Math.max(0, Number(cooldownTotalMs || 0));
+  $: cooldownRatio = safeCooldownRemainingMs > 0
+    ? Math.max(0, Math.min(1, safeCooldownRemainingMs / Math.max(1, safeCooldownTotalMs || safeCooldownRemainingMs)))
+    : 0;
+  $: cooldownLabel = safeCooldownRemainingMs >= 10000
+    ? `${Math.ceil(safeCooldownRemainingMs / 1000)}`
+    : safeCooldownRemainingMs > 0
+      ? `${(safeCooldownRemainingMs / 1000).toFixed(safeCooldownRemainingMs >= 3000 ? 0 : 1)}`
+      : '';
 </script>
 
 <button
-  class={`slot-shell ${rarityClass()} ${searchHidden ? 'search-hidden' : ''}`}
+  class={`slot-shell ${variant} ${rarityClass()} ${searchHidden ? 'search-hidden' : ''} ${pressed ? 'pressed' : ''} ${unavailable ? 'unavailable' : ''}`}
   style={`width:${size}px;height:${size}px;`}
   draggable={Boolean(item)}
   on:click={handleClick}
@@ -75,6 +91,10 @@
   type="button"
 >
   <div class="slot-chrome"></div>
+  {#if safeCooldownRemainingMs > 0}
+    <div class="cooldown-mask" style={`transform: scaleY(${cooldownRatio});`}></div>
+    <span class="cooldown-label">{cooldownLabel}</span>
+  {/if}
   {#if item}
     {#if item.iconUrl}
       <img src={item.iconUrl} alt={item.name || 'Item'} />
@@ -108,11 +128,63 @@
     box-shadow: 0 0 0 1px rgba(201, 168, 106, 0.16), 0 0 12px rgba(201, 168, 106, 0.18);
   }
 
+  .slot-shell.pressed {
+    transform: translateY(1px) scale(0.985);
+    border-color: rgba(255, 225, 168, 0.66);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 240, 206, 0.08),
+      0 0 14px rgba(201, 168, 106, 0.16);
+  }
+
+  .slot-shell.unavailable {
+    filter: grayscale(0.12) saturate(0.7);
+  }
+
+  .slot-shell.bottom-bar {
+    border-color: rgba(201, 168, 106, 0.18);
+    background:
+      radial-gradient(circle at top, rgba(255, 231, 183, 0.04), transparent 38%),
+      linear-gradient(180deg, rgba(20, 16, 12, 0.84), rgba(8, 8, 10, 0.9));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  }
+
+  .slot-shell.bottom-bar:hover {
+    transform: translateY(-1px);
+    border-color: rgba(226, 190, 121, 0.34);
+    box-shadow: 0 0 0 1px rgba(201, 168, 106, 0.08), 0 0 10px rgba(201, 168, 106, 0.12);
+  }
+
+  .slot-shell.bottom-bar.pressed {
+    transform: translateY(1px) scale(0.99);
+  }
+
   .slot-chrome {
     position: absolute;
     inset: 4px;
     clip-path: inherit;
     border: 1px solid rgba(201, 168, 106, 0.08);
+    pointer-events: none;
+  }
+
+  .cooldown-mask {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    transform-origin: center bottom;
+    background: linear-gradient(180deg, rgba(3, 5, 8, 0.12), rgba(5, 7, 10, 0.88));
+    pointer-events: none;
+  }
+
+  .cooldown-label {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    display: grid;
+    place-items: center;
+    font-family: 'Cinzel', serif;
+    font-size: 0.74rem;
+    color: #fff3d5;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.92);
     pointer-events: none;
   }
 
@@ -137,7 +209,7 @@
   .qty,
   .hotkey {
     position: absolute;
-    z-index: 1;
+    z-index: 4;
     font-size: 0.66rem;
     color: #f5e8c8;
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.92);

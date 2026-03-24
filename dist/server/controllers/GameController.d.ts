@@ -200,6 +200,8 @@ export declare class GameController {
     private sanitizeNetworkItem;
     private sanitizeGroundItemForNetwork;
     private sanitizeMobForNetwork;
+    private serializeSkillCooldowns;
+    private serializeActiveSkillEffects;
     private computePublicPlayerSignature;
     private getStaticWorldSnapshot;
     private normalizeHotbarBinding;

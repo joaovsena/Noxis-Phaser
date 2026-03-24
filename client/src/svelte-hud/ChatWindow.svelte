@@ -4,6 +4,7 @@
   import { chatStore, sendChatMessage } from './stores/gameUi';
 
   type ChatScope = 'local' | 'map' | 'global';
+  type ChatTab = 'all' | 'system' | 'local' | 'map' | 'global';
   type ChatEntry = {
     id?: string | number;
     at?: number;
@@ -14,18 +15,34 @@
   };
 
   const dispatch = createEventDispatcher<{ close: void }>();
-  const scopes: Array<{ id: ChatScope; label: string }> = [
+  const readTabs: Array<{ id: ChatTab; label: string }> = [
+    { id: 'all', label: 'Geral' },
+    { id: 'system', label: 'Sistema' },
     { id: 'local', label: 'Local' },
     { id: 'map', label: 'Mapa' },
     { id: 'global', label: 'Global' }
   ];
+  const sendScopes: Array<{ id: ChatScope | 'party' | 'guild' | 'whisper'; label: string; enabled: boolean }> = [
+    { id: 'local', label: 'Local', enabled: true },
+    { id: 'map', label: 'Mapa', enabled: true },
+    { id: 'global', label: 'Global', enabled: true },
+    { id: 'party', label: 'Party', enabled: false },
+    { id: 'guild', label: 'Guild', enabled: false },
+    { id: 'whisper', label: 'Whisper', enabled: false }
+  ];
 
-  let scope: ChatScope = 'local';
+  let readTab: ChatTab = 'all';
+  let sendScope: ChatScope = 'local';
   let message = '';
+  let collapsed = false;
+  let focused = false;
   let logEl: HTMLDivElement | null = null;
   let visibleMessages: ChatEntry[] = [];
   let scrollRaf = 0;
   let lastScrollSignature = '';
+  export let fixed = false;
+  export let showCollapse = true;
+  export let showClose = true;
 
   function formatTime(at: unknown) {
     const raw = Number(at || 0);
@@ -46,18 +63,22 @@
   function submitMessage() {
     const text = message.trim();
     if (!text) return;
-    sendChatMessage(scope, text);
+    sendChatMessage(sendScope, text);
     message = '';
     scheduleScroll();
   }
 
-  $: visibleMessages = $chatStore.messages
-    .filter((entry) => entry?.type === 'system' || String(entry?.scope || 'local') === scope)
-    .slice(-60) as ChatEntry[];
+  $: visibleMessages = ($chatStore.messages || [])
+    .filter((entry) => {
+      if (readTab === 'all') return true;
+      if (readTab === 'system') return entry?.type === 'system';
+      return entry?.type !== 'system' && String(entry?.scope || 'local') === readTab;
+    })
+    .slice(-90) as ChatEntry[];
 
   $: {
     const lastEntry = visibleMessages[visibleMessages.length - 1];
-    const nextSignature = `${scope}|${visibleMessages.length}|${String(lastEntry?.id || lastEntry?.at || lastEntry?.text || '-')}`;
+    const nextSignature = `${readTab}|${visibleMessages.length}|${String(lastEntry?.id || lastEntry?.at || lastEntry?.text || '-')}`;
     if (logEl && nextSignature !== lastScrollSignature) {
       lastScrollSignature = nextSignature;
       scheduleScroll();
@@ -73,77 +94,116 @@
   });
 </script>
 
-<section class="chat-shell">
-  <div class="chat-header" data-window-drag-handle="true">
+<div class={`chat-shell ${focused ? 'focused' : ''} ${fixed ? 'fixed' : ''}`}>
+  <div class="chat-header" data-window-drag-handle={fixed ? undefined : 'true'}>
     <div class="title-block">
-      <div class="eyebrow">Comunicacao</div>
+      <div class="hud-kicker">Comunicacao</div>
       <h2>Chat</h2>
     </div>
-    <button class="close-btn" type="button" aria-label="Fechar chat" on:click={() => dispatch('close')}>x</button>
+    <div class="header-actions">
+      <div class="message-count">{visibleMessages.length}</div>
+      {#if showCollapse}
+        <button class="mini-btn" type="button" aria-label={collapsed ? 'Expandir chat' : 'Minimizar chat'} on:click={() => collapsed = !collapsed}>
+          {collapsed ? '+' : '-'}
+        </button>
+      {/if}
+      {#if showClose}
+        <button class="mini-btn close-btn" type="button" aria-label="Fechar chat" on:click={() => dispatch('close')}>x</button>
+      {/if}
+    </div>
   </div>
 
-  <div class="chat-scopes" role="tablist" aria-label="Escopo do chat">
-    {#each scopes as entry}
-      <button
-        class:active={scope === entry.id}
-        class="scope-btn"
-        type="button"
-        on:click={() => scope = entry.id}
-      >
-        {entry.label}
-      </button>
-    {/each}
-  </div>
-
-  <div bind:this={logEl} class="chat-log" role="log" aria-live="polite">
-    {#if visibleMessages.length}
-      {#each visibleMessages as entry (entry.id || `${entry.at}-${entry.text}`)}
-        <div class={`chat-line ${entry.type === 'system' ? 'system' : ''}`}>
-          <span class="time">{formatTime(entry.at)}</span>
-          <span class="tag">[{entry.type === 'system' ? 'sistema' : (entry.scope || 'local')}]</span>
-          {#if entry.type === 'system'}
-            <span class="text">{entry.text}</span>
-          {:else}
-            <span class="author">{entry.from || 'Anon'}:</span>
-            <span class="text">{entry.text}</span>
-          {/if}
-        </div>
+  {#if !collapsed}
+    <div class="read-tabs" role="tablist" aria-label="Filtros do chat">
+      {#each readTabs as entry}
+        <button
+          class:active={readTab === entry.id}
+          class="tab-btn"
+          type="button"
+          on:click={() => readTab = entry.id}
+        >
+          {entry.label}
+        </button>
       {/each}
-    {:else}
-      <div class="empty-state">Nenhuma mensagem neste canal.</div>
-    {/if}
-  </div>
+    </div>
 
-  <form class="chat-entry" on:submit|preventDefault={submitMessage}>
-    <input
-      bind:value={message}
-      type="text"
-      maxlength="180"
-      autocomplete="off"
-      spellcheck="false"
-      placeholder="Escreva e pressione Enter..."
-    />
-    <button class="submit-btn" type="submit">Enviar</button>
-  </form>
-</section>
+    <div bind:this={logEl} class="chat-log hud-scroll" role="log" aria-live="polite">
+      {#if visibleMessages.length}
+        {#each visibleMessages as entry (entry.id || `${entry.at}-${entry.text}`)}
+          <div class={`chat-line ${entry.type === 'system' ? 'system' : ''}`}>
+            <span class="time">{formatTime(entry.at)}</span>
+            <span class="tag">[{entry.type === 'system' ? 'sistema' : (entry.scope || 'local')}]</span>
+            {#if entry.type === 'system'}
+              <span class="text">{entry.text}</span>
+            {:else}
+              <span class="author">{entry.from || 'Anon'}:</span>
+              <span class="text">{entry.text}</span>
+            {/if}
+          </div>
+        {/each}
+      {:else}
+        <div class="hud-empty">Nenhuma mensagem neste filtro.</div>
+      {/if}
+    </div>
+
+    <div class="send-tabs" aria-label="Canal de envio">
+      {#each sendScopes as entry}
+        <button
+          class:active={sendScope === entry.id}
+          class={`scope-btn ${!entry.enabled ? 'disabled' : ''}`}
+          type="button"
+          disabled={!entry.enabled}
+          on:click={() => entry.enabled && (sendScope = entry.id as ChatScope)}
+        >
+          {entry.label}
+        </button>
+      {/each}
+    </div>
+
+    <form class="chat-entry" on:submit|preventDefault={submitMessage}>
+      <input
+        bind:value={message}
+        class="hud-input"
+        type="text"
+        maxlength="180"
+        autocomplete="off"
+        spellcheck="false"
+        placeholder={`Falar em ${sendScope}...`}
+        on:focus={() => focused = true}
+        on:blur={() => focused = false}
+      />
+      <button class="hud-btn" type="submit">Enviar</button>
+    </form>
+  {/if}
+</div>
 
 <style>
   .chat-shell {
-    pointer-events: auto;
-    width: min(420px, calc(100vw - 24px));
+    width: min(292px, calc(100vw - 24px));
     display: grid;
-    gap: 10px;
-    padding: 14px;
+    gap: 6px;
+    padding: 10px;
     position: relative;
     overflow: hidden;
     contain: layout paint;
-    border: 1px solid rgba(201, 168, 106, 0.3);
-    border-radius: 12px;
+    border: 1px solid rgba(201, 168, 106, 0.28);
+    border-radius: 16px;
     background:
       radial-gradient(circle at top, rgba(201, 168, 106, 0.08), transparent 32%),
       linear-gradient(180deg, rgba(16, 13, 11, 0.97), rgba(8, 8, 8, 0.98));
     box-shadow:
       0 18px 34px rgba(0, 0, 0, 0.28),
+      inset 0 0 0 1px rgba(255, 239, 206, 0.03);
+    transition: opacity 180ms ease, transform 180ms ease;
+  }
+
+  .chat-shell:not(:hover):not(.focused) {
+    opacity: 0.62;
+  }
+
+  .chat-shell.fixed {
+    box-shadow:
+      0 12px 24px rgba(0, 0, 0, 0.24),
       inset 0 0 0 1px rgba(255, 239, 206, 0.03);
   }
 
@@ -152,13 +212,14 @@
     position: absolute;
     inset: 8px;
     border: 1px solid rgba(201, 168, 106, 0.08);
-    border-radius: 8px;
+    border-radius: 12px;
     pointer-events: none;
   }
 
   .chat-header,
-  .chat-scopes,
+  .read-tabs,
   .chat-log,
+  .send-tabs,
   .chat-entry {
     position: relative;
     z-index: 1;
@@ -168,7 +229,7 @@
     display: flex;
     align-items: start;
     justify-content: space-between;
-    gap: 12px;
+    gap: 8px;
     cursor: grab;
   }
 
@@ -176,76 +237,93 @@
     cursor: grabbing;
   }
 
+  .chat-shell.fixed .chat-header,
+  .chat-shell.fixed .chat-header:active {
+    cursor: default;
+  }
+
   .title-block {
     display: grid;
     gap: 4px;
   }
 
-  .eyebrow {
-    font-family: 'Cinzel', serif;
-    font-size: 0.58rem;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: rgba(201, 168, 106, 0.72);
-  }
-
   h2 {
     margin: 0;
     color: #f0dfbc;
-    font-family: 'Cinzel', serif;
+    font-family: var(--hud-font-display);
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    font-size: 0.96rem;
+    font-size: 0.76rem;
   }
 
-  .chat-scopes {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  .header-actions {
+    display: flex;
+    align-items: center;
     gap: 8px;
   }
 
-  .scope-btn,
-  .close-btn,
-  .submit-btn,
-  .chat-entry input {
-    min-height: 38px;
-    border: 1px solid rgba(201, 168, 106, 0.22);
-    border-radius: 8px;
+  .message-count {
+    color: var(--hud-text-soft);
+    font-size: 0.68rem;
   }
 
-  .scope-btn,
-  .close-btn,
-  .submit-btn {
-    background: linear-gradient(180deg, rgba(28, 22, 15, 0.94), rgba(10, 8, 7, 0.98));
-    color: #ecdcb8;
-    font-family: 'Cinzel', serif;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-  }
-
-  .scope-btn.active {
-    box-shadow: 0 0 0 1px rgba(201, 168, 106, 0.14), 0 0 16px rgba(201, 168, 106, 0.12);
-  }
-
-  .close-btn {
-    width: 24px;
-    min-height: 24px;
-    height: 24px;
+  .mini-btn {
+    width: 22px;
+    height: 22px;
     display: grid;
     place-items: center;
+    border-radius: 9px;
+    border: 1px solid rgba(201, 168, 106, 0.22);
+    background: rgba(18, 14, 12, 0.92);
+    color: #e8d5aa;
     line-height: 1;
   }
 
+  .close-btn {
+    color: #efc1b5;
+  }
+
+  .read-tabs,
+  .send-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .tab-btn,
+  .scope-btn {
+    min-height: 24px;
+    padding: 0 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(201, 168, 106, 0.18);
+    background: rgba(11, 14, 18, 0.76);
+    color: var(--hud-text-soft);
+    font-size: 0.58rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .tab-btn.active,
+  .scope-btn.active {
+    color: var(--hud-gold);
+    border-color: rgba(201, 168, 106, 0.42);
+    box-shadow: 0 0 0 1px rgba(201, 168, 106, 0.12), 0 0 12px rgba(201, 168, 106, 0.1);
+  }
+
+  .scope-btn.disabled {
+    opacity: 0.42;
+  }
+
   .chat-log {
-    min-height: 190px;
-    max-height: 190px;
+    min-height: 124px;
+    max-height: 156px;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 7px;
-    padding: 10px 12px;
-    border: 1px solid rgba(201, 168, 106, 0.18);
-    border-radius: 10px;
+    gap: 5px;
+    padding: 8px 9px;
+    border: 1px solid rgba(201, 168, 106, 0.16);
+    border-radius: 12px;
     background: rgba(7, 9, 11, 0.84);
   }
 
@@ -254,52 +332,38 @@
     flex-wrap: wrap;
     gap: 6px;
     color: rgba(234, 224, 202, 0.8);
-    font-size: 0.78rem;
+    font-size: 0.68rem;
     line-height: 1.38;
     word-break: break-word;
   }
 
-  .chat-line.system {
-    color: #eacb83;
+  .chat-line.system .tag,
+  .chat-line.system .text {
+    color: var(--hud-warning);
   }
 
-  .time,
-  .tag,
-  .author {
-    color: #c9a86a;
+  .time {
+    color: rgba(188, 175, 152, 0.7);
+  }
+
+  .tag {
+    color: #88c9ff;
+    text-transform: uppercase;
+    font-size: 0.56rem;
   }
 
   .author {
+    color: #f0dfbc;
     font-weight: 600;
   }
 
   .text {
-    min-width: 0;
-  }
-
-  .empty-state {
-    color: rgba(214, 202, 177, 0.5);
-    font-size: 0.8rem;
+    color: rgba(239, 231, 215, 0.84);
   }
 
   .chat-entry {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 104px;
-    gap: 10px;
-  }
-
-  .chat-entry input {
-    padding: 0 12px;
-    background: rgba(8, 10, 12, 0.96);
-    color: #f2e7c6;
-  }
-
-  .chat-entry input::placeholder {
-    color: rgba(194, 181, 157, 0.38);
-  }
-
-  .chat-entry input:focus {
-    outline: none;
-    box-shadow: 0 0 0 1px rgba(201, 168, 106, 0.14), 0 0 16px rgba(201, 168, 106, 0.1);
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
   }
 </style>

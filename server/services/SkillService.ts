@@ -198,7 +198,7 @@ export class SkillService {
         }
 
         if (skill.target === 'self') {
-            if (Number(player.hp || 0) !== hpBeforeCast) this.sendStatsUpdated(player);
+            this.sendStatsUpdated(player);
             return;
         }
 
@@ -274,7 +274,7 @@ export class SkillService {
             player.attackTargetId = String(targetMob.id);
         }
         player.lastCombatAt = now;
-        if (Number(player.hp || 0) !== hpBeforeCast) this.sendStatsUpdated(player);
+        this.sendStatsUpdated(player);
     }
 
     private applyMobDamageOverTime(

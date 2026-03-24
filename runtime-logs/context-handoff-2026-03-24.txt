@@ -1,0 +1,103 @@
+Noxis-Phaser handoff
+Data: 2026-03-24
+Workspace: c:\Users\joaovictor.martins\Desktop\Noxis-Phaser
+
+Resumo do contexto
+- Projeto MMORPG 2.5D isometrico.
+- Mundo em Phaser, HUD em Svelte.
+- Bootstrap via websocket, estado central em GameStore, HUD espelhada por stores em client/src/svelte-hud/stores/gameUi.ts.
+- O trabalho recente foi focado em HUD, bootstrap, diagnostico de travamentos e polimento de UX.
+
+Problemas que ja foram investigados e corrigidos
+- Freeze no login/entrada no mundo apos migracao para Svelte:
+  - Foi instrumentado diagnostico de boot.
+  - O principal culpado identificado foi o chat montando pesado no bootstrap.
+  - Chat foi refeito para um painel mais leve.
+- Tela branca no boot:
+  - Corrigida ordem de inicializacao de hotbarSlots/skillsStore em gameUi.ts.
+- Painel de alvo:
+  - Agora so aparece quando existe alvo selecionado.
+- Atalho de selecionar alvo mais proximo com apostrofo ('):
+  - Foi implementado no cliente.
+- Hover de interacao no mundo:
+  - Mobs, NPCs e itens no chao agora ganham glow no hover.
+  - Cursor virou mao customizada ao passar em cima.
+
+Mudancas principais de HUD feitas nesta sessao
+- HUD fixa reorganizada:
+  - Personagem no topo esquerdo.
+  - Alvo no topo central.
+  - Minimapa no topo direito.
+  - Chat no canto inferior esquerdo.
+  - Barra inferior central com XP + menus + hotbar.
+- Janelas revisadas para melhor responsividade/dimensionamento:
+  - Window.svelte
+  - CharacterWindow.svelte
+  - Inventory.svelte
+  - SkillsWindow.svelte
+  - MapWindow.svelte
+  - PartyWindow.svelte
+  - FriendsWindow.svelte
+  - NpcDialogWindow.svelte
+  - QuestWindow.svelte
+  - GuildWindow.svelte
+  - AdminWindow.svelte
+- Barra inferior refatorada:
+  - BottomBar.svelte agora usa base continua de XP.
+  - Menus laterais como icones mais soltos.
+  - Hotbar central separada visualmente dos menus.
+  - IconButton.svelte ganhou variante bottom-float e opcao showLabel.
+
+Arquivos mais importantes alterados recentemente
+- client/src/svelte-hud/App.svelte
+- client/src/svelte-hud/BottomBar.svelte
+- client/src/svelte-hud/components/IconButton.svelte
+- client/src/svelte-hud/components/Window.svelte
+- client/src/svelte-hud/CharacterWindow.svelte
+- client/src/svelte-hud/Inventory.svelte
+- client/src/svelte-hud/SkillsWindow.svelte
+- client/src/svelte-hud/MapWindow.svelte
+- client/src/svelte-hud/PartyWindow.svelte
+- client/src/svelte-hud/FriendsWindow.svelte
+- client/src/svelte-hud/NpcDialogWindow.svelte
+- client/src/svelte-hud/QuestWindow.svelte
+- client/src/svelte-hud/GuildWindow.svelte
+- client/src/svelte-hud/AdminWindow.svelte
+- client/src/svelte-hud/stores/gameUi.ts
+- client/src/game/scenes/WorldScene.ts
+- client/src/game/debug/BootDiagnostics.ts
+
+Estado atual da barra inferior
+- Melhorou, mas ainda pode receber mais polish visual.
+- Pedido mais recente do usuario:
+  - Menus mais colados.
+  - Habilidades mais destacadas no centro.
+  - Menus mais avulsos acima da barra de XP, proximos da referencia enviada.
+- Ultima versao implementada:
+  - Menus sao icones sem label visivel.
+  - Hotbar esta separada no centro.
+  - XP e a base inferior continua.
+
+Estado atual do alvo/combate
+- Painel de alvo so aparece quando ha alvo selecionado.
+- Apostrofo seleciona o mob vivo mais proximo.
+- Hover em mobs/NPCs/ground items destaca com glow e cursor de mao.
+
+Validacoes recentes executadas
+- npm run build:client -> OK
+- docker compose up --build -d app -> OK
+- npm run debug:boot -> OK
+
+Ultimo relatorio de boot conhecido
+- runtime-logs/headless-boot-report-1774385678637.json
+
+Sugestao para retomar em outro chat
+- Abrir um novo chat e colar algo assim:
+  "Continue o trabalho de HUD do projeto Noxis-Phaser. Leia primeiro runtime-logs/context-handoff-2026-03-24.txt e siga a partir dele."
+- Se quiser reduzir ainda mais a perda de contexto, mencionar tambem:
+  - que a barra inferior ainda precisa de polish
+  - que o objetivo visual segue MMORPG classico com menus laterais leves e hotbar central dominante
+
+Observacoes finais
+- O handoff resume o estado util do projeto melhor do que depender da memoria de um chat longo.
+- Iniciar novo chat usando este arquivo como ponto de partida e a opcao mais segura ao trocar de maquina.

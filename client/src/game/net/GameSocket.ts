@@ -440,6 +440,8 @@ export class GameSocket {
             stats: payload.stats || players[String(playerId)].stats,
             allocatedStats: payload.allocatedStats || players[String(playerId)].allocatedStats,
             skillLevels: payload.skillLevels || players[String(playerId)].skillLevels,
+            skillCooldowns: payload.skillCooldowns || players[String(playerId)].skillCooldowns,
+            activeSkillEffects: payload.activeSkillEffects || players[String(playerId)].activeSkillEffects,
             skillPointsAvailable: payload.skillPointsAvailable ?? players[String(playerId)].skillPointsAvailable,
             unspentPoints: payload.unspentPoints ?? players[String(playerId)].unspentPoints,
             level: payload.level ?? players[String(playerId)].level,
@@ -466,6 +468,20 @@ export class GameSocket {
         return;
       }
       case 'player.pvpModeUpdated':
+        this.store.update({
+          worldState: this.store.getState().worldState
+            ? {
+                ...this.store.getState().worldState!,
+                players: {
+                  ...(this.store.getState().worldState?.players || {}),
+                  [String(payload.playerId || this.store.getState().playerId || '')]: {
+                    ...this.store.getState().worldState?.players?.[String(payload.playerId || this.store.getState().playerId || '')],
+                    pvpMode: payload.mode || this.store.getState().worldState?.players?.[String(payload.playerId || this.store.getState().playerId || '')]?.pvpMode
+                  }
+                }
+              }
+            : this.store.getState().worldState
+        });
         return;
       default:
         return;

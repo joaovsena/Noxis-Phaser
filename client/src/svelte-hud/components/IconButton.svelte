@@ -5,11 +5,14 @@
   export let hotkey = '';
   export let icon = 'inventory';
   export let active = false;
+  export let variant: 'default' | 'bottom-bar' | 'bottom-float' = 'default';
+  export let showHotkey = true;
+  export let showLabel = true;
 
   const dispatch = createEventDispatcher<{ press: void }>();
 </script>
 
-<button class:active type="button" on:click={() => dispatch('press')}>
+<button class={`icon-button ${variant} ${showLabel ? '' : 'icon-only'}`} class:active aria-label={label} title={label} type="button" on:click={() => dispatch('press')}>
   <span class="icon-frame" aria-hidden="true">
     <svg viewBox="0 0 32 32" role="img">
       {#if icon === 'character'}
@@ -61,31 +64,33 @@
       {/if}
     </svg>
   </span>
-  <span class="label">{label}</span>
-  {#if hotkey}<span class="hotkey">({hotkey})</span>{/if}
+  {#if showLabel}
+    <span class="label">{label}</span>
+  {/if}
+  {#if showHotkey && hotkey}<span class="hotkey">({hotkey})</span>{/if}
 </button>
 
 <style>
-  button {
+  .icon-button {
     pointer-events: auto;
-    min-width: 64px;
+    min-width: 54px;
     border: 0;
     background: transparent;
     display: grid;
     justify-items: center;
-    gap: 3px;
+    gap: 2px;
     color: #ead9b2;
     transition: transform 140ms ease, filter 160ms ease;
   }
 
-  button:hover {
+  .icon-button:hover {
     transform: translateY(-1px) scale(1.035);
     filter: drop-shadow(0 0 12px rgba(201, 168, 106, 0.24));
   }
 
   .icon-frame {
-    width: 32px;
-    height: 32px;
+    width: 28px;
+    height: 28px;
     display: grid;
     place-items: center;
     clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px);
@@ -97,8 +102,8 @@
   }
 
   svg {
-    width: 16px;
-    height: 16px;
+    width: 14px;
+    height: 14px;
     fill: none;
     stroke: #d8bb82;
     stroke-width: 1.8;
@@ -110,7 +115,7 @@
   .label,
   .hotkey {
     font-family: 'Cinzel', serif;
-    font-size: 0.56rem;
+    font-size: 0.5rem;
     line-height: 1;
     text-transform: uppercase;
     letter-spacing: 0.04em;
@@ -126,5 +131,75 @@
       0 0 0 1px rgba(201, 168, 106, 0.18),
       0 0 16px rgba(201, 168, 106, 0.24),
       inset 0 0 0 1px rgba(255, 241, 210, 0.05);
+  }
+
+  .icon-button.bottom-bar {
+    min-width: 52px;
+    gap: 3px;
+    padding: 0;
+  }
+
+  .icon-button.bottom-bar .icon-frame {
+    width: 22px;
+    height: 22px;
+    clip-path: none;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .icon-button.bottom-bar svg {
+    width: 14px;
+    height: 14px;
+    stroke: rgba(228, 200, 139, 0.92);
+  }
+
+  .icon-button.bottom-bar .label,
+  .icon-button.bottom-bar .hotkey {
+    font-size: 0.46rem;
+    letter-spacing: 0.06em;
+    color: rgba(235, 219, 183, 0.86);
+  }
+
+  .icon-button.bottom-bar.active .icon-frame {
+    border: 0;
+    box-shadow: none;
+  }
+
+  .icon-button.bottom-bar.active svg {
+    stroke: #f6ddb0;
+    filter: drop-shadow(0 0 8px rgba(201, 168, 106, 0.32));
+  }
+
+  .icon-button.bottom-float {
+    min-width: 22px;
+    gap: 0;
+    padding: 0 1px;
+  }
+
+  .icon-button.bottom-float .icon-frame {
+    width: 20px;
+    height: 20px;
+    clip-path: none;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .icon-button.bottom-float svg {
+    width: 15px;
+    height: 15px;
+    stroke: rgba(233, 209, 154, 0.94);
+    filter: drop-shadow(0 0 6px rgba(201, 168, 106, 0.18));
+  }
+
+  .icon-button.bottom-float.active svg {
+    stroke: #ffe3ad;
+    filter: drop-shadow(0 0 10px rgba(201, 168, 106, 0.32));
+  }
+
+  .icon-button.icon-only .label,
+  .icon-button.icon-only .hotkey {
+    display: none;
   }
 </style>

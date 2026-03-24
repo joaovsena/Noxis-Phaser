@@ -435,27 +435,6 @@ export const equippedSlots = derived(inventoryStore, ($inventoryStore) => ({
   necklace: $inventoryStore.equippedBySlot?.necklace || null
 }));
 
-export const hotbarSlots = derived(
-  [hotbarBindingsStore, inventoryStore],
-  ([$hotbarBindingsStore, $inventoryStore]) => HOTBAR_KEYS.map((key) => {
-    const binding = $hotbarBindingsStore?.[key] || null;
-    let iconUrl = '';
-    let label = key.toUpperCase();
-    if (binding?.type === 'item') {
-      const item = findItemById($inventoryStore, String(binding.itemId || ''));
-      iconUrl = resolveIcon(item || binding);
-      label = String(binding.itemName || item?.name || 'Item');
-    }
-    if (binding?.type === 'action' && binding.actionId === 'skill_cast') {
-      label = String(binding.skillName || humanizeSkillId(String(binding.skillId || '')));
-    }
-    if (binding?.type === 'action' && binding.actionId === 'basic_attack') {
-      label = 'Atk Basico';
-    }
-    return { key, binding, iconUrl, label };
-  })
-);
-
 export const playerStats = derived(attributesStore, ($attributesStore) => {
   const player = $attributesStore.player || {};
   const base = player?.allocatedStats && typeof player.allocatedStats === 'object'
@@ -566,9 +545,104 @@ export const skillsStore = derived(attributesStore, ($attributesStore) => {
   };
 });
 
+export const hotbarSlots = derived(
+  [hotbarBindingsStore, inventoryStore, attributesStore, selectedAutoAttackStore, skillsStore],
+  ([$hotbarBindingsStore, $inventoryStore, $attributesStore, $selectedAutoAttackStore, $skillsStore]) => HOTBAR_KEYS.map((key) => {
+    const binding = $hotbarBindingsStore?.[key] || null;
+    let iconUrl = '';
+    let label = key.toUpperCase();
+    let skillId = '';
+    let cooldownMs = 0;
+    if (binding?.type === 'item') {
+      const item = findItemById($inventoryStore, String(binding.itemId || ''));
+      iconUrl = resolveIcon(item || binding);
+      label = String(binding.itemName || item?.name || 'Item');
+    }
+    if (binding?.type === 'action' && binding.actionId === 'skill_cast') {
+      skillId = String(binding.skillId || '');
+      label = String(binding.skillName || humanizeLabelId(skillId));
+      cooldownMs = Math.max(0, Number(getSkillTreeEntry(skillId)?.cooldownMs || 0));
+    }
+    if (binding?.type === 'action' && binding.actionId === 'basic_attack') {
+      const autoAttack = resolveAutoAttackDef($selectedAutoAttackStore, $skillsStore);
+      skillId = String(autoAttack.id || 'class_primary');
+      label = String(autoAttack.label || 'Atk Basico');
+      cooldownMs = Math.max(0, Number(getSkillTreeEntry(skillId)?.cooldownMs || 2200));
+    }
+    const cooldownEndsAt = skillId
+      ? Math.max(0, Number($attributesStore.player?.skillCooldowns?.[skillId] || 0))
+      : 0;
+    return {
+      key,
+      binding,
+      iconUrl,
+      label,
+      skillId,
+      cooldownMs,
+      cooldownEndsAt,
+      ready: cooldownEndsAt <= Date.now()
+    };
+  })
+);
+
 export const selectedAutoAttackLabelStore = derived(
   [selectedAutoAttackStore, skillsStore],
   ([$selectedAutoAttackStore, $skillsStore]) => resolveAutoAttackDef($selectedAutoAttackStore, $skillsStore).label
+);
+
+export const playerBuffsStore = derived(attributesStore, ($attributesStore) =>
+  normalizeActiveEffects($attributesStore.player?.activeSkillEffects)
+);
+
+export const targetBuffsStore = derived(selectedPlayerStore, ($selectedPlayerStore) =>
+  normalizeActiveEffects($selectedPlayerStore?.activeSkillEffects)
+);
+
+export const questTrackerStore = derived(questStore, ($questStore) =>
+  ($questStore.quests || []).slice(0, 4).map((quest: any) => ({
+    id: String(quest?.id || ''),
+    title: String(quest?.title || quest?.id || 'Quest'),
+    status: String(quest?.status || 'ativa'),
+    objectives: Array.isArray(quest?.objectives)
+      ? quest.objectives.map((objective: any) => ({
+          id: String(objective?.id || ''),
+          text: String(objective?.text || objective?.id || 'Objetivo'),
+          current: Number(objective?.current || 0),
+          required: Math.max(1, Number(objective?.required || 1))
+        }))
+      : []
+  }))
+);
+
+export const activeEventsStore = derived(worldStore, ($worldStore) =>
+  Array.isArray($worldStore.world?.activeEvents)
+    ? $worldStore.world.activeEvents.map((entry: any) => ({
+        id: String(entry?.id || entry?.eventId || ''),
+        title: String(entry?.name || entry?.title || entry?.eventName || 'Evento ativo'),
+        stage: String(entry?.stage || entry?.status || 'ativo'),
+        x: Number(entry?.x || 0),
+        y: Number(entry?.y || 0)
+      }))
+    : []
+);
+
+export const combatContextStore = derived(
+  [worldStore, selectedMobStore, selectedPlayerStore, selectedAutoAttackStore, skillsStore],
+  ([$worldStore, $selectedMobStore, $selectedPlayerStore, $selectedAutoAttackStore, $skillsStore]) => {
+    const player = $worldStore.player;
+    const target = $selectedMobStore || $selectedPlayerStore;
+    const autoAttack = resolveAutoAttackDef($selectedAutoAttackStore, $skillsStore);
+    const range = Math.max(0, Number(getSkillTreeEntry(String(autoAttack.id || 'class_primary'))?.range || 100));
+    const targetDistance = player && target
+      ? Math.hypot(Number(target.x || 0) - Number(player.x || 0), Number(target.y || 0) - Number(player.y || 0))
+      : 0;
+    return {
+      preferredSkillLabel: String(autoAttack.label || 'Atk Basico'),
+      preferredRange: range,
+      targetDistance,
+      inRange: Boolean(player && target && targetDistance <= range)
+    };
+  }
 );
 
 export const hudTransformStyle = derived(
@@ -677,8 +751,44 @@ function buildSkillTree(): SkillTreeNode[] {
   return out;
 }
 
-function humanizeSkillId(id: string) {
+function humanizeLabelId(id: string) {
   return String(id || 'habilidade').replace(/[_-]+/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+function normalizeActiveEffects(rawEffects: any): Array<{
+  id: string;
+  label: string;
+  shortLabel: string;
+  expiresAt: number;
+  beneficial: boolean;
+}> {
+  const now = Date.now();
+  const effects = Array.isArray(rawEffects) ? rawEffects : [];
+  return effects
+    .filter((entry: any) => Number(entry?.expiresAt || 0) > now)
+    .map((entry: any) => {
+      const id = String(entry?.id || '');
+      const label = humanizeLabelId(id);
+      const beneficial = Boolean(
+        Number(entry?.attackMul || 0) > 1
+        || Number(entry?.defenseMul || 0) > 1
+        || Number(entry?.magicDefenseMul || 0) > 1
+        || Number(entry?.moveMul || 0) > 1
+        || Number(entry?.attackSpeedMul || 0) > 1
+        || Number(entry?.damageReduction || 0) > 0
+        || Number(entry?.lifesteal || 0) > 0
+        || Boolean(entry?.stealth)
+      );
+      const compact = label.length > 14 ? `${label.slice(0, 12)}..` : label;
+      return {
+        id,
+        label,
+        shortLabel: compact,
+        expiresAt: Number(entry?.expiresAt || 0),
+        beneficial
+      };
+    })
+    .sort((left, right) => left.expiresAt - right.expiresAt);
 }
 
 function findItemById(inventory: InventoryUiState, itemId: string) {
@@ -778,6 +888,34 @@ export function clearCurrentTarget() {
   selectionStore.set({ selectedMobId: null, selectedPlayerId: null });
   runtimeStore?.update({ selectedMobId: null, selectedPlayerId: null });
   sendUiMessage({ type: 'combat.clearTarget' });
+}
+
+export function selectNearestTarget() {
+  const state = runtimeStore?.getState();
+  const player = state?.resolvedWorld?.players?.[String(state?.playerId || '')] || state?.worldState?.players?.[String(state?.playerId || '')] || null;
+  const mobs = Array.isArray(state?.resolvedWorld?.mobs) ? state.resolvedWorld.mobs : [];
+  if (!player || !mobs.length) return false;
+
+  const playerX = Number(player.x || 0);
+  const playerY = Number(player.y || 0);
+  const nearestMob = mobs
+    .filter((entry: any) => entry && Number(entry.hp || 0) > 0)
+    .map((entry: any) => ({
+      mob: entry,
+      distance: Math.hypot(Number(entry.x || 0) - playerX, Number(entry.y || 0) - playerY)
+    }))
+    .sort((left, right) => left.distance - right.distance)[0];
+
+  if (!nearestMob?.mob?.id) return false;
+  const mobId = String(nearestMob.mob.id);
+  selectionStore.set({ selectedMobId: mobId, selectedPlayerId: null });
+  runtimeStore?.update({ selectedMobId: mobId, selectedPlayerId: null });
+  if (Boolean(get(mapSettingsStore).autoAttackEnabled)) {
+    sendUiMessage({ type: 'target_mob', mobId });
+  } else {
+    sendUiMessage({ type: 'combat.clearTarget' });
+  }
+  return true;
 }
 
 export function selectCharacterSlot(slot: number) {
@@ -1031,7 +1169,7 @@ export function assignSkillToHotbar(skillId: string, skillName: string) {
   const normalized = normalizeHotbarBindings(get(hotbarBindingsStore));
   const existingKey = HOTBAR_KEYS.find((key) => normalized[key]?.type === 'action' && normalized[key]?.skillId === safeSkillId);
   const targetKey = existingKey || HOTBAR_KEYS.find((key) => !normalized[key]) || HOTBAR_KEYS[0];
-  normalized[targetKey] = { type: 'action', actionId: 'skill_cast', skillId: safeSkillId, skillName: String(skillName || humanizeSkillId(safeSkillId)) };
+  normalized[targetKey] = { type: 'action', actionId: 'skill_cast', skillId: safeSkillId, skillName: String(skillName || humanizeLabelId(safeSkillId)) };
   commitHotbarBindings(normalized);
   return targetKey;
 }

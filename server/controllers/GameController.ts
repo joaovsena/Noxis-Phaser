@@ -1962,9 +1962,11 @@ export class GameController {
             xpToNext: xpRequired(player.level),
             stats: player.stats,
             skillLevels: this.normalizeSkillLevels(player.skillLevels || {}),
+            skillCooldowns: this.serializeSkillCooldowns(player),
             skillPointsAvailable: this.getAvailableSkillPoints(player),
             allocatedStats: this.normalizeAllocatedStats(player.allocatedStats),
-            unspentPoints: Number.isInteger(player.unspentPoints) ? player.unspentPoints : 0
+            unspentPoints: Number.isInteger(player.unspentPoints) ? player.unspentPoints : 0,
+            activeSkillEffects: this.serializeActiveSkillEffects(player)
         };
         this.publicPlayerCache.set(player.id, { signature, snapshot });
         return snapshot;
@@ -2060,13 +2062,49 @@ export class GameController {
         };
     }
 
+    private serializeSkillCooldowns(player: PlayerRuntime, now: number = Date.now()) {
+        const raw = player?.skillCooldowns && typeof player.skillCooldowns === 'object'
+            ? player.skillCooldowns
+            : {};
+        const out: Record<string, number> = {};
+        for (const [skillId, endsAt] of Object.entries(raw)) {
+            const safeEndsAt = Number(endsAt || 0);
+            if (!Number.isFinite(safeEndsAt) || safeEndsAt <= now) continue;
+            out[String(skillId)] = safeEndsAt;
+        }
+        return out;
+    }
+
+    private serializeActiveSkillEffects(player: PlayerRuntime, now: number = Date.now()) {
+        const raw = Array.isArray(player?.activeSkillEffects)
+            ? player.activeSkillEffects
+            : [];
+        return raw
+            .filter((entry: any) => Number(entry?.expiresAt || 0) > now)
+            .map((entry: any) => ({
+                id: String(entry?.id || ''),
+                expiresAt: Number(entry?.expiresAt || 0),
+                attackMul: Number(entry?.attackMul || 0),
+                defenseMul: Number(entry?.defenseMul || 0),
+                magicDefenseMul: Number(entry?.magicDefenseMul || 0),
+                moveMul: Number(entry?.moveMul || 0),
+                attackSpeedMul: Number(entry?.attackSpeedMul || 0),
+                critAdd: Number(entry?.critAdd || 0),
+                evasionAdd: Number(entry?.evasionAdd || 0),
+                damageReduction: Number(entry?.damageReduction || 0),
+                lifesteal: Number(entry?.lifesteal || 0),
+                reflect: Number(entry?.reflect || 0),
+                stealth: Boolean(entry?.stealth)
+            }));
+    }
+
     private computePublicPlayerSignature(player: PlayerRuntime) {
         const movePathSignature = Array.isArray(player.movePath)
             ? player.movePath.slice(0, 8).map((pt: any) => `${Math.round(Number(pt?.x || 0))},${Math.round(Number(pt?.y || 0))}`).join(';')
             : '';
         const effectsSignature = Array.isArray(player.activeSkillEffects)
             ? player.activeSkillEffects
-                .map((fx: any) => `${String(fx?.id || '')}:${Number(fx?.endsAt || 0)}`)
+                .map((fx: any) => `${String(fx?.id || '')}:${Number(fx?.expiresAt || 0)}`)
                 .sort()
                 .join('|')
             : '';
@@ -3252,6 +3290,8 @@ export class GameController {
             stats: player.stats,
             allocatedStats: this.normalizeAllocatedStats(player.allocatedStats),
             skillLevels: this.normalizeSkillLevels(player.skillLevels || {}),
+            skillCooldowns: this.serializeSkillCooldowns(player),
+            activeSkillEffects: this.serializeActiveSkillEffects(player),
             skillPointsAvailable: this.getAvailableSkillPoints(player),
             unspentPoints: Number.isInteger(player.unspentPoints) ? player.unspentPoints : 0,
             level: player.level,

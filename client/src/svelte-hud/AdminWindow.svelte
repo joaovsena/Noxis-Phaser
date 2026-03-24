@@ -1,7 +1,8 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import Window from './components/Window.svelte';
-  import { adminStore, sendAdminCommand, setInteractionDebugEnabled, setMobPeacefulEnabled, setPathDebugEnabled } from './stores/gameUi';
+  import StatusHud from './StatusHud.svelte';
+  import { adminStore, hudScaleStore, resetHudScale, sendAdminCommand, setHudScale, setInteractionDebugEnabled, setMobPeacefulEnabled, setPathDebugEnabled } from './stores/gameUi';
 
   const dispatch = createEventDispatcher<{ close: void }>();
   let command = '';
@@ -15,87 +16,92 @@
 </script>
 
 {#if $adminStore.isAdmin}
-  <Window title="Admin" subtitle="Controle e depuracao" width="420px" on:close={() => dispatch('close')}>
-    <section class="stack">
-      <label class="field">
-        <span>Comando</span>
-        <div class="row">
-          <input bind:value={command} type="text" placeholder="dungeon.debug" on:keydown={(event) => event.key === 'Enter' && submitCommand()} />
-          <button type="button" on:click={submitCommand}>Enviar</button>
-        </div>
-      </label>
+  <Window title="Admin" subtitle="Ferramentas internas" width="clamp(460px, 42vw, 540px)" maxWidth="540px" maxBodyHeight="min(80vh, 840px)" on:close={() => dispatch('close')}>
+    <div class="admin-shell">
+      <section class="hud-section compact">
+        <div class="section-title">Estado da sessao</div>
+        <StatusHud />
+      </section>
 
-      <div class="toggle-grid">
-        <label class="toggle">
-          <input type="checkbox" checked={$adminStore.pathDebugEnabled} on:change={(event) => setPathDebugEnabled((event.currentTarget as HTMLInputElement).checked)} />
-          <span>Debug de caminho</span>
-        </label>
-        <label class="toggle">
-          <input type="checkbox" checked={$adminStore.interactionDebugEnabled} on:change={(event) => setInteractionDebugEnabled((event.currentTarget as HTMLInputElement).checked)} />
-          <span>Debug de interacao</span>
-        </label>
-        <label class="toggle">
-          <input type="checkbox" checked={$adminStore.mobPeacefulEnabled} on:change={(event) => setMobPeacefulEnabled((event.currentTarget as HTMLInputElement).checked)} />
-          <span>Mobs pacificos</span>
-        </label>
-      </div>
+      <section class="hud-section compact">
+        <div class="section-title">Console</div>
+        <div class="command-row">
+          <input bind:value={command} class="hud-input" type="text" placeholder="dungeon.debug" on:keydown={(event) => event.key === 'Enter' && submitCommand()} />
+          <button class="hud-btn" type="button" on:click={submitCommand}>Enviar</button>
+        </div>
+      </section>
+
+      <section class="hud-section compact">
+        <div class="section-title">Ferramentas</div>
+        <div class="toggle-grid">
+          <label class="toggle">
+            <input type="checkbox" checked={$adminStore.pathDebugEnabled} on:change={(event) => setPathDebugEnabled((event.currentTarget as HTMLInputElement).checked)} />
+            <span>Debug de caminho</span>
+          </label>
+          <label class="toggle">
+            <input type="checkbox" checked={$adminStore.interactionDebugEnabled} on:change={(event) => setInteractionDebugEnabled((event.currentTarget as HTMLInputElement).checked)} />
+            <span>Debug de interacao</span>
+          </label>
+          <label class="toggle">
+            <input type="checkbox" checked={$adminStore.mobPeacefulEnabled} on:change={(event) => setMobPeacefulEnabled((event.currentTarget as HTMLInputElement).checked)} />
+            <span>Mobs pacificos</span>
+          </label>
+        </div>
+      </section>
+
+      <section class="hud-section compact">
+        <div class="section-title">Escala da HUD</div>
+        <div class="scale-row">
+          <input type="range" min="70" max="140" step="1" value={Math.round($hudScaleStore * 100)} on:input={(event) => setHudScale(Number((event.currentTarget as HTMLInputElement).value) / 100)} />
+          <span>{Math.round($hudScaleStore * 100)}%</span>
+          <button class="hud-btn mini ghost" type="button" on:click={resetHudScale}>Reset</button>
+        </div>
+      </section>
 
       {#if $adminStore.result?.message}
-        <div class:danger={$adminStore.result?.ok === false} class="result">{$adminStore.result.message}</div>
+        <section class={`hud-section compact ${$adminStore.result?.ok === false ? 'danger' : ''}`}>
+          <div class="section-title">Resultado</div>
+          <div class="result">{$adminStore.result.message}</div>
+        </section>
       {/if}
-    </section>
+    </div>
   </Window>
 {/if}
 
 <style>
-  .stack {
+  .admin-shell {
     display: grid;
-    gap: 14px;
+    gap: 12px;
   }
 
-  .field,
+  .compact {
+    padding: 12px 14px;
+  }
+
+  .section-title {
+    margin-bottom: 10px;
+    color: var(--hud-gold);
+    font-family: var(--hud-font-display);
+    font-size: 0.74rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .command-row,
+  .scale-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .scale-row {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+
   .toggle-grid {
     display: grid;
     gap: 8px;
-  }
-
-  .field span {
-    font-family: 'Cinzel', serif;
-    color: #f0dfbc;
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-  }
-
-  .row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 8px;
-  }
-
-  input,
-  button,
-  .result {
-    clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px);
-  }
-
-  input {
-    min-height: 40px;
-    border: 1px solid rgba(201, 168, 106, 0.26);
-    background: linear-gradient(180deg, rgba(8, 9, 10, 0.96), rgba(4, 6, 7, 0.98));
-    color: #f2e7c6;
-    padding: 0 12px;
-  }
-
-  button {
-    min-height: 40px;
-    border: 1px solid rgba(201, 168, 106, 0.3);
-    background: linear-gradient(180deg, rgba(57, 41, 20, 0.96), rgba(27, 20, 11, 0.98));
-    color: #f3e2bc;
-    padding: 0 14px;
-    font-family: 'Cinzel', serif;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
   }
 
   .toggle {
@@ -107,14 +113,17 @@
   }
 
   .result {
-    padding: 10px 12px;
-    border: 1px solid rgba(201, 168, 106, 0.18);
-    background: rgba(10, 10, 10, 0.68);
     color: rgba(233, 223, 200, 0.82);
   }
 
   .danger {
     border-color: rgba(205, 116, 100, 0.24);
-    color: #efc1b5;
+  }
+
+  @media (max-width: 640px) {
+    .command-row,
+    .scale-row {
+      grid-template-columns: 1fr;
+    }
   }
 </style>

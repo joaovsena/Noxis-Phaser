@@ -22,147 +22,122 @@
   }
 </script>
 
-<Window title="Amigos" subtitle="Rede social" width="420px" on:close={() => dispatch('close')}>
-  <div class="actions">
-    <input bind:value={targetName} type="text" maxlength="20" placeholder="Nome do jogador" />
-    <button type="button" on:click={requestFriend}>Adicionar</button>
-    <button type="button" class="ghost" on:click={refreshFriends}>Atualizar</button>
+<Window title="Amigos" subtitle="Rede social" width="clamp(440px, 44vw, 520px)" maxWidth="520px" maxBodyHeight="min(80vh, 840px)" on:close={() => dispatch('close')}>
+  <div class="friends-shell">
+    <div class="toolbar">
+      <input bind:value={targetName} class="hud-input" type="text" maxlength="20" placeholder="Nome do jogador" />
+      <button class="hud-btn" type="button" on:click={requestFriend}>Adicionar</button>
+      <button class="hud-btn ghost" type="button" on:click={refreshFriends}>Atualizar</button>
+    </div>
+
+    <section class="hud-section compact">
+      <div class="section-title">Lista</div>
+      {#if friends.length}
+        <div class="hud-list">
+          {#each friends as entry}
+            <div class="row-card">
+              <div>
+                <div class="row-title">{entry.name || entry.playerName || 'Amigo'}</div>
+                <div class={`hud-meta ${entry.online ? 'online' : ''}`}>{entry.online ? 'online' : 'offline'}</div>
+              </div>
+              <button class="hud-btn mini ghost" type="button" on:click={() => removeFriend(entry.friendPlayerId || entry.playerId || entry.id)}>Remover</button>
+            </div>
+          {/each}
+        </div>
+      {:else}
+        <div class="hud-empty">Nenhum amigo cadastrado.</div>
+      {/if}
+    </section>
+
+    <section class="hud-section compact">
+      <div class="section-title">Pedidos recebidos</div>
+      {#if incoming.length}
+        <div class="hud-list">
+          {#each incoming as entry}
+            <div class="row-card">
+              <div class="row-title">{entry.fromName || entry.from || 'Pedido'}</div>
+              <div class="actions">
+                <button class="hud-btn mini" type="button" on:click={() => respondFriendRequest(String(entry.requestId || entry.id || ''), true)}>Aceitar</button>
+                <button class="hud-btn mini ghost" type="button" on:click={() => respondFriendRequest(String(entry.requestId || entry.id || ''), false)}>Recusar</button>
+              </div>
+            </div>
+          {/each}
+        </div>
+      {:else}
+        <div class="hud-empty">Sem pedidos pendentes.</div>
+      {/if}
+    </section>
+
+    <section class="hud-section compact">
+      <div class="section-title">Pedidos enviados</div>
+      {#if outgoing.length}
+        <div class="hud-list">
+          {#each outgoing as entry}
+            <div class="row-card">
+              <div class="row-title">{entry.toName || entry.to || 'Pedido enviado'}</div>
+            </div>
+          {/each}
+        </div>
+      {:else}
+        <div class="hud-empty">Nenhum convite enviado.</div>
+      {/if}
+    </section>
   </div>
-
-  <section class="stack">
-    <div class="section-title">Lista</div>
-    {#if friends.length}
-      {#each friends as entry}
-        <div class="row">
-          <div class="friend-main">
-            <span>{entry.name || entry.playerName || 'Amigo'}</span>
-            <span class="meta">{entry.online ? 'online' : 'offline'}</span>
-          </div>
-          <button type="button" class="ghost compact" on:click={() => removeFriend(entry.friendPlayerId || entry.playerId || entry.id)}>Remover</button>
-        </div>
-      {/each}
-    {:else}
-      <div class="empty-state">Nenhum amigo cadastrado.</div>
-    {/if}
-  </section>
-
-  <section class="stack">
-    <div class="section-title">Pedidos recebidos</div>
-    {#if incoming.length}
-      {#each incoming as entry}
-        <div class="row">
-          <span>{entry.fromName || entry.from || 'Pedido'}</span>
-          <div class="request-actions">
-            <button type="button" class="compact" on:click={() => respondFriendRequest(String(entry.requestId || entry.id || ''), true)}>Aceitar</button>
-            <button type="button" class="ghost compact" on:click={() => respondFriendRequest(String(entry.requestId || entry.id || ''), false)}>Recusar</button>
-          </div>
-        </div>
-      {/each}
-    {:else}
-      <div class="empty-state">Sem pedidos pendentes.</div>
-    {/if}
-  </section>
-
-  <section class="stack">
-    <div class="section-title">Pedidos enviados</div>
-    {#if outgoing.length}
-      {#each outgoing as entry}
-        <div class="row">
-          <span>{entry.toName || entry.to || 'Pedido enviado'}</span>
-        </div>
-      {/each}
-    {:else}
-      <div class="empty-state">Nenhum convite enviado.</div>
-    {/if}
-  </section>
 </Window>
 
 <style>
-  .actions,
-  .stack {
+  .friends-shell {
     display: grid;
-    gap: 10px;
+    gap: 12px;
   }
 
-  .stack + .stack {
-    margin-top: 14px;
-  }
-
-  .section-title {
-    font-family: 'Cinzel', serif;
-    color: #f0dfbc;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    font-size: 0.76rem;
-  }
-
-  .row,
-  .actions input,
-  .actions button,
-  .request-actions button {
-    clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px);
-  }
-
-  .row {
-    display: flex;
-    justify-content: space-between;
-    gap: 10px;
-    align-items: center;
-    padding: 12px;
-    border: 1px solid rgba(201, 168, 106, 0.2);
-    background: rgba(10, 10, 10, 0.72);
-    color: rgba(233, 223, 200, 0.82);
-    font-size: 0.8rem;
-  }
-
-  .meta,
-  .empty-state {
-    color: rgba(233, 223, 200, 0.72);
-    font-size: 0.78rem;
-  }
-
+  .toolbar,
   .actions {
-    grid-template-columns: minmax(0, 1fr) 116px 116px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
   }
 
-  .actions input {
-    min-height: 40px;
-    border: 1px solid rgba(201, 168, 106, 0.26);
-    background: linear-gradient(180deg, rgba(8, 9, 10, 0.96), rgba(4, 6, 7, 0.98));
-    color: #f2e7c6;
-    padding: 0 12px;
+  .toolbar :global(.hud-input) {
+    flex: 1;
   }
 
-  .actions button {
-    min-height: 40px;
-    border: 1px solid rgba(201, 168, 106, 0.3);
-    background: linear-gradient(180deg, rgba(57, 41, 20, 0.96), rgba(27, 20, 11, 0.98));
-    color: #f3e2bc;
-    padding: 0 14px;
-    font-family: 'Cinzel', serif;
+  .compact {
+    padding: 12px 14px;
+  }
+
+  .section-title,
+  .row-title {
+    color: var(--hud-gold);
+    font-family: var(--hud-font-display);
     text-transform: uppercase;
     letter-spacing: 0.06em;
   }
 
-  .ghost {
-    background: rgba(16, 20, 24, 0.95) !important;
+  .section-title {
+    margin-bottom: 12px;
+    font-size: 0.74rem;
   }
 
-  .friend-main,
-  .request-actions {
-    display: flex;
-    gap: 8px;
+  .row-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
     align-items: center;
+    padding: 12px;
+    border-radius: 14px;
+    border: 1px solid rgba(201, 168, 106, 0.18);
+    background: rgba(7, 9, 12, 0.58);
   }
 
-  .friend-main {
-    flex-direction: column;
-    align-items: flex-start;
+  .online {
+    color: var(--hud-positive);
   }
 
-  .compact {
-    min-height: 34px !important;
-    padding: 0 10px !important;
-    font-size: 0.68rem;
+  @media (max-width: 640px) {
+    .row-card {
+      grid-template-columns: 1fr;
+      align-items: start;
+    }
   }
 </style>

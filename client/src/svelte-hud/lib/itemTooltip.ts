@@ -47,3 +47,34 @@ export function bonusEntries(item: any) {
     ? Object.entries(item.bonuses).filter(([, value]) => Number(value || 0) !== 0)
     : [];
 }
+
+export function inventoryCategory(item: any) {
+  const type = String(item?.type || '').toLowerCase();
+  const name = String(item?.name || item?.templateId || '').toLowerCase();
+  if (inferEquipSlot(item)) return 'equipment';
+  if (type.includes('potion') || type.includes('consum') || type.includes('food') || type.includes('scroll')) return 'consumables';
+  if (type.includes('quest') || name.includes('quest') || name.includes('missao')) return 'quest';
+  if (
+    type.includes('material')
+    || type.includes('ore')
+    || type.includes('resource')
+    || type.includes('craft')
+    || type.includes('gem')
+    || type.includes('reagent')
+  ) return 'materials';
+  return 'misc';
+}
+
+export function compareBonusEntries(item: any, equipped: any) {
+  const current = new Map(bonusEntries(item).map(([key, value]) => [String(key), Number(value || 0)]));
+  const baseline = new Map(bonusEntries(equipped).map(([key, value]) => [String(key), Number(value || 0)]));
+  const keys = new Set<string>([...current.keys(), ...baseline.keys()]);
+  return [...keys]
+    .map((key) => ({
+      key,
+      value: Number(current.get(key) || 0),
+      equipped: Number(baseline.get(key) || 0),
+      diff: Number(current.get(key) || 0) - Number(baseline.get(key) || 0)
+    }))
+    .filter((entry) => entry.value !== 0 || entry.equipped !== 0 || entry.diff !== 0);
+}
