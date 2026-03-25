@@ -3,7 +3,17 @@ import { bootDiagnostics } from '../debug/BootDiagnostics';
 import type { GameStore } from '../state/GameStore';
 import type { GameSocket } from '../net/GameSocket';
 import { loadMapDocument, type LoadedMapDocument } from '../maps/MapDocument';
-import { DEFAULT_MAP_URL } from '../config';
+import {
+  classifyMapTile,
+  hexToColorNumber,
+  inferMapTheme,
+  MAP_VISUAL_PALETTES,
+  mergeMapVisualCell,
+  resolveMapBaseColor,
+  resolveMapOverlayColor,
+  type MapVisualTheme
+} from '../maps/MapVisuals';
+import { DEFAULT_MAP_URL, resolveMapTmjUrl } from '../config';
 
 type SceneServices = {
   store: GameStore;
@@ -16,6 +26,8 @@ type PlayerAnimState = 'idle' | 'walk' | 'attack-unarmed' | 'attack-weapon' | 'd
 type PlayerMarker = {
   body: Phaser.GameObjects.Container;
   badge: Phaser.GameObjects.Text;
+  speechBubble: Phaser.GameObjects.Graphics;
+  speechText: Phaser.GameObjects.Text;
   sprite: Phaser.GameObjects.Sprite | Phaser.GameObjects.Arc;
   outline: Phaser.GameObjects.Shape;
   usingSpriteSheet: boolean;
@@ -32,6 +44,7 @@ type PlayerMarker = {
   lastServerSyncAt: number;
   lastFacing: FacingDirection;
   lastLabel: string;
+  lastSpeechId: string | null;
   lastDead: boolean;
   attackUntil: number;
   hasWeapon: boolean;
@@ -39,6 +52,8 @@ type PlayerMarker = {
   lastMoveAckReqId: number;
   lastFacingChangeAt: number;
   lastAnimKey: string;
+  speechUntil: number;
+  speechAnchorY: number;
 };
 
 type MobMarker = {
@@ -47,18 +62,31 @@ type MobMarker = {
   badge: Phaser.GameObjects.Text;
   hpBar: Phaser.GameObjects.Rectangle;
   hpBg: Phaser.GameObjects.Rectangle;
-  outline: Phaser.GameObjects.Arc;
-  fill: Phaser.GameObjects.Arc;
-  glow: Phaser.GameObjects.Arc;
+  outline: Phaser.GameObjects.Ellipse;
+  figure: Phaser.GameObjects.Container;
+  glow: Phaser.GameObjects.Ellipse;
+};
+
+type PetMarker = {
+  body: Phaser.GameObjects.Container;
+  badge: Phaser.GameObjects.Text;
+  hpBar: Phaser.GameObjects.Rectangle;
+  hpBg: Phaser.GameObjects.Rectangle;
+  figure: Phaser.GameObjects.Container;
+  shadow: Phaser.GameObjects.Ellipse;
+  ownerText: Phaser.GameObjects.Text;
+  moveStyle: string;
+  bobTween?: Phaser.Tweens.Tween;
+  wingTweens?: Phaser.Tweens.Tween[];
 };
 
 type NpcMarker = {
   body: Phaser.GameObjects.Container;
   hitArea: Phaser.GameObjects.Zone;
   badge: Phaser.GameObjects.Text;
-  sprite: Phaser.GameObjects.Image | Phaser.GameObjects.Rectangle;
-  outline: Phaser.GameObjects.Rectangle;
-  glow: Phaser.GameObjects.Rectangle;
+  figure: Phaser.GameObjects.Container;
+  outline: Phaser.GameObjects.Ellipse;
+  glow: Phaser.GameObjects.Ellipse;
 };
 
 type GroundItemMarker = {
@@ -67,6 +95,14 @@ type GroundItemMarker = {
   badge: Phaser.GameObjects.Text;
   diamond: Phaser.GameObjects.Rectangle;
   glow: Phaser.GameObjects.Rectangle;
+};
+
+type PortalMarker = {
+  body: Phaser.GameObjects.Container;
+  badge: Phaser.GameObjects.Text;
+  glow: Phaser.GameObjects.Ellipse;
+  ring: Phaser.GameObjects.Ellipse;
+  figure: Phaser.GameObjects.Container;
 };
 
 type PendingWorldAction = {
@@ -99,12 +135,15 @@ const FACING_MIN_VECTOR = 10;
 const ISO_AXIAL_RATIO = 2;
 const PLAYER_SPRITE_Y_OFFSET = 34;
 const PLAYER_BADGE_Y = -94;
+const PLAYER_SPEECH_MAX_WIDTH = 168;
+const PLAYER_SPEECH_MIN_MS = 2200;
+const PLAYER_SPEECH_MAX_MS = 5200;
 const PLAYER_SHEET_COLUMNS = 8;
 const ITEM_PICKUP_RANGE = 110;
 const NPC_INTERACT_RANGE = 170;
-const MOB_INTERACTION_FALLBACK_RANGE = 64;
 const ACTION_REISSUE_MS = 180;
 const ACTION_REISSUE_DISTANCE = 18;
+const TARGET_RELEASE_DISTANCE = 980;
 const HAND_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath fill='%23f4d788' stroke='%232d1f0d' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' d='M8.5 3.5c.8 0 1.5.7 1.5 1.5V10V4.5c0-.8.7-1.5 1.5-1.5S13 3.7 13 4.5V10V5.5c0-.8.7-1.5 1.5-1.5S16 4.7 16 5.5V11V7c0-.8.7-1.5 1.5-1.5S19 6.2 19 7v6.2c0 3.2-2 6-5 7l-1.5.5C9 21.8 6 19.1 6 15.6V9.5C6 8.7 6.7 8 7.5 8S9 8.7 9 9.5V12'/%3E%3C/svg%3E") 7 2, pointer`;
 const SWORD_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke='%23f6d37a' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14.5 3.5l6 6'/%3E%3Cpath d='M8 16l9.5-9.5 2 2L10 18'/%3E%3Cpath d='M7 17l-2.5 2.5'/%3E%3Cpath d='M5.5 15.5l3 3'/%3E%3C/g%3E%3C/svg%3E") 8 8, crosshair`;
 const PLAYER_DIRECTIONS: FacingDirection[] = ['s', 'sw', 'w', 'nw', 'n', 'ne', 'e', 'se'];
@@ -136,9 +175,11 @@ export class WorldScene extends Phaser.Scene {
   private interactionDebugOverlay!: Phaser.GameObjects.Graphics;
   private localPlayerAnchor!: Phaser.GameObjects.Arc;
   private playerMarkers = new Map<string, PlayerMarker>();
+  private petMarkers = new Map<string, PetMarker>();
   private mobMarkers = new Map<string, MobMarker>();
   private npcMarkers = new Map<string, NpcMarker>();
   private groundItemMarkers = new Map<string, GroundItemMarker>();
+  private portalMarkers = new Map<string, PortalMarker>();
   private pendingWorldAction: PendingWorldAction | null = null;
   private selectedMobId: string | null = null;
   private selectedGroundItemId: string | null = null;
@@ -157,6 +198,7 @@ export class WorldScene extends Phaser.Scene {
   private playerAssetsReady = false;
   private entityDepthDirty = false;
   private lastDepthSortAt = 0;
+  private processedLocalChatIds = new Set<string>();
   private renderTileSize = 100;
   private renderTileWidth = 48;
   private renderTileHeight = 24;
@@ -191,7 +233,7 @@ export class WorldScene extends Phaser.Scene {
       if (pointer.rightButtonDown()) return;
       if (this.handleWorldInteractionClick(pointer.worldX, pointer.worldY)) return;
       if (currentlyOver.length > 0) return;
-      this.clearPendingSelection(true);
+      this.clearTransientSelection();
       this.queueMoveFromScreenPoint(pointer.worldX, pointer.worldY);
     });
     this.input.on('gameobjectdown', (pointer: Phaser.Input.Pointer, gameObject: Phaser.GameObjects.GameObject) => {
@@ -273,6 +315,7 @@ export class WorldScene extends Phaser.Scene {
       this.localPlayerAnchor.setPosition(localMarker.currentX, localMarker.currentY);
       this.localPlayerAnchor.setVisible(true);
       this.processPendingWorldAction(localMarker, state);
+      this.releaseDistantMobTarget(localMarker, state);
     }
 
     if (movedAny) this.entityDepthDirty = true;
@@ -285,6 +328,7 @@ export class WorldScene extends Phaser.Scene {
     this.updateMarkerVisibility();
     this.updateHoverCursor();
     this.updateInteractionVisuals();
+    this.updatePlayerSpeechBubbles(time);
     this.renderPathDebugOverlay();
     this.renderInteractionDebugOverlay();
   }
@@ -516,22 +560,8 @@ export class WorldScene extends Phaser.Scene {
               usedTexture = true;
               continue;
             }
-            const color = this.getLayerColor(layer.name, gid, layerIndex);
             usedGraphics = true;
-            graphics.fillStyle(color, 0.95);
-            graphics.lineStyle(1, 0x0d1621, 0.35);
-            graphics.beginPath();
-            graphics.moveTo(screenX, screenY - halfTileH);
-            graphics.lineTo(screenX + halfTileW, screenY);
-            graphics.lineTo(screenX, screenY + halfTileH);
-            graphics.lineTo(screenX - halfTileW, screenY);
-            graphics.closePath();
-            graphics.fillPath();
-            graphics.strokePath();
-            if (layer.name.toLowerCase().includes('pared') || layer.name.toLowerCase().includes('wall')) {
-              graphics.fillStyle(0x10243a, 0.55);
-              graphics.fillRect(screenX - halfTileW * 0.42, screenY - halfTileH * 1.5, halfTileW * 0.84, halfTileH * 1.3);
-            }
+            this.drawFallbackTile(graphics, map, layer.name, gid, layerIndex, screenX, screenY, halfTileW, halfTileH, 0.95);
           }
         }
         if (usedGraphics) {
@@ -581,20 +611,8 @@ export class WorldScene extends Phaser.Scene {
           if (!gid) continue;
           const screenX = (col - row) * halfTileW + originX;
           const screenY = (col + row) * halfTileH + originY;
-          const color = this.getLayerColor(layer.name, gid, layerIndex);
           usedGraphics = true;
-          graphics.fillStyle(color, 0.96);
-          graphics.beginPath();
-          graphics.moveTo(screenX, screenY - halfTileH);
-          graphics.lineTo(screenX + halfTileW, screenY);
-          graphics.lineTo(screenX, screenY + halfTileH);
-          graphics.lineTo(screenX - halfTileW, screenY);
-          graphics.closePath();
-          graphics.fillPath();
-          if (layer.name.toLowerCase().includes('pared') || layer.name.toLowerCase().includes('wall')) {
-            graphics.fillStyle(0x10243a, 0.52);
-            graphics.fillRect(screenX - halfTileW * 0.42, screenY - halfTileH * 1.5, halfTileW * 0.84, halfTileH * 1.3);
-          }
+          this.drawFallbackTile(graphics, map, layer.name, gid, layerIndex, screenX, screenY, halfTileW, halfTileH, 0.96);
         }
       }
       if (usedGraphics) {
@@ -879,6 +897,11 @@ export class WorldScene extends Phaser.Scene {
     return Boolean(this.services.store.getState().autoAttackEnabled);
   }
 
+  private clearTransientSelection() {
+    this.pendingWorldAction = null;
+    this.selectedGroundItemId = null;
+  }
+
   private clearPendingSelection(clearCombatTarget = false) {
     this.pendingWorldAction = null;
     this.selectedGroundItemId = null;
@@ -887,6 +910,23 @@ export class WorldScene extends Phaser.Scene {
     if (clearCombatTarget) {
       this.services.socket.send({ type: 'combat.clearTarget' });
     }
+  }
+
+  private releaseDistantMobTarget(localMarker: PlayerMarker, state: ReturnType<GameStore['getState']>) {
+    const selectedMobId = String(this.selectedMobId || state.selectedMobId || '');
+    if (!selectedMobId) return;
+    const selectedMob = Array.isArray(state.resolvedWorld?.mobs)
+      ? state.resolvedWorld.mobs.find((entry: any) => String(entry?.id || '') === selectedMobId) || null
+      : null;
+    if (!selectedMob) return;
+    const distance = Phaser.Math.Distance.Between(
+      localMarker.currentWorldX,
+      localMarker.currentWorldY,
+      Number(selectedMob.x || 0),
+      Number(selectedMob.y || 0)
+    );
+    if (distance <= TARGET_RELEASE_DISTANCE) return;
+    this.clearPendingSelection(true);
   }
 
   private applyCursor(cursor: 'default' | 'hand' | 'sword') {
@@ -916,6 +956,9 @@ export class WorldScene extends Phaser.Scene {
     this.playerMarkers.forEach((marker) => {
       marker.body.setVisible(isVisible(marker.currentX, marker.currentY));
     });
+    this.petMarkers.forEach((marker) => {
+      marker.body.setVisible(isVisible(marker.body.x, marker.body.y));
+    });
     this.mobMarkers.forEach((marker) => {
       const visible = isVisible(marker.body.x, marker.body.y);
       marker.body.setVisible(visible);
@@ -927,6 +970,9 @@ export class WorldScene extends Phaser.Scene {
       const visible = isVisible(marker.body.x, marker.body.y);
       marker.body.setVisible(visible);
       marker.hitArea.setVisible(visible);
+    });
+    this.portalMarkers.forEach((marker) => {
+      marker.body.setVisible(isVisible(marker.body.x, marker.body.y));
     });
   }
 
@@ -943,7 +989,7 @@ export class WorldScene extends Phaser.Scene {
         selected ? 0xffd36a : hovered ? 0xfff0b3 : 0xf4f8ff,
         selected ? 0.95 : hovered ? 0.72 : 0.18
       );
-      marker.fill.setScale(selected ? 1.08 : hovered ? 1.04 : 1);
+      marker.figure.setScale(selected ? 1.08 : hovered ? 1.04 : 1);
       marker.hpBg.setFillStyle(active ? 0x253041 : 0x1a2230, active ? 0.98 : 0.92);
       marker.badge.setAlpha(active ? 1 : 0.88);
     });
@@ -954,11 +1000,9 @@ export class WorldScene extends Phaser.Scene {
       marker.glow.setAlpha(hovered ? 0.18 : 0);
       marker.glow.setScale(hovered ? 1.06 : 1);
       marker.outline.setStrokeStyle(hovered ? 3 : 2, hovered ? 0xffefb3 : 0xd4f1df, hovered ? 0.92 : 0.4);
-      if ('setFillStyle' in marker.sprite) {
-        (marker.sprite as Phaser.GameObjects.Rectangle).setFillStyle(hovered ? 0x96e3b7 : 0x74c69d, 1);
-      }
       marker.badge.setAlpha(hovered ? 1 : 0.9);
-      marker.body.setScale(hovered ? 1.03 : 1);
+      marker.figure.setScale(hovered ? 1.04 : 1);
+      marker.body.setScale(1);
     });
 
     this.groundItemMarkers.forEach((marker, itemId) => {
@@ -974,13 +1018,111 @@ export class WorldScene extends Phaser.Scene {
       marker.badge.setAlpha(active ? 1 : 0.82);
     });
   }
-  private getLayerColor(layerName: string, gid: number, layerIndex: number) {
-    const name = layerName.toLowerCase();
-    if (name.includes('ch') || name.includes('ground')) return 0x284a61;
-    if (name.includes('pare') || name.includes('wall')) return 0x536d84;
-    if (name.includes('obj')) return 0xb78844;
-    const seed = (gid * 37 + layerIndex * 17) % 3;
-    return [0x2f5065, 0x395d70, 0x4e6f78][seed] || 0x395d70;
+
+  private getMapVisualTheme(map?: LoadedMapDocument): MapVisualTheme {
+    const sourceMap = map || this.mapDocument;
+    const state = this.services.store.getState();
+    return inferMapTheme({
+      mapCode: state.resolvedWorld?.mapCode || state.worldStatic?.mapCode || null,
+      mapUrl: sourceMap?.url || null,
+      tileSources: Object.values(sourceMap?.tileImages || {}).map((entry) => String(entry?.source || ''))
+    });
+  }
+
+  private getFallbackTileDescriptor(map: LoadedMapDocument, layerName: string, gid: number, layerIndex: number) {
+    const theme = this.getMapVisualTheme(map);
+    const palette = MAP_VISUAL_PALETTES[theme] || MAP_VISUAL_PALETTES.generic;
+    const imageMeta = map.tileImages?.[gid];
+    const cell = mergeMapVisualCell(
+      { base: 'void', overlay: null, blocked: false },
+      classifyMapTile(String(imageMeta?.source || ''), layerName, theme)
+    );
+    if (cell.base === 'void') {
+      const name = String(layerName || '').toLowerCase();
+      if (name.includes('wall') || name.includes('pare')) {
+        cell.base = 'ground';
+        cell.overlay = theme === 'forest' ? 'tree' : 'rock';
+        cell.blocked = true;
+      } else if (name.includes('obj')) {
+        cell.base = 'ground';
+        cell.overlay = 'structure';
+      } else {
+        cell.base = 'ground';
+      }
+    }
+    const fallbackSeed = (gid * 37 + layerIndex * 17) % 3;
+    const fallbackStroke = ['#1b232c', '#232923', '#251b18'][fallbackSeed] || palette.baseStroke;
+    return {
+      cell,
+      fill: hexToColorNumber(resolveMapBaseColor(theme, cell.base)),
+      stroke: hexToColorNumber(palette.baseStroke || fallbackStroke),
+      accent: hexToColorNumber(resolveMapOverlayColor(theme, cell.overlay || 'rock')),
+      highlight: hexToColorNumber(palette.highlight)
+    };
+  }
+
+  private drawFallbackTile(
+    graphics: Phaser.GameObjects.Graphics,
+    map: LoadedMapDocument,
+    layerName: string,
+    gid: number,
+    layerIndex: number,
+    screenX: number,
+    screenY: number,
+    halfTileW: number,
+    halfTileH: number,
+    alpha: number
+  ) {
+    const visual = this.getFallbackTileDescriptor(map, layerName, gid, layerIndex);
+    const cell = visual.cell;
+    graphics.fillStyle(visual.fill, alpha);
+    graphics.lineStyle(1, visual.stroke, cell.blocked ? 0.28 : 0.18);
+    graphics.beginPath();
+    graphics.moveTo(screenX, screenY - halfTileH);
+    graphics.lineTo(screenX + halfTileW, screenY);
+    graphics.lineTo(screenX, screenY + halfTileH);
+    graphics.lineTo(screenX - halfTileW, screenY);
+    graphics.closePath();
+    graphics.fillPath();
+    graphics.strokePath();
+
+    if (cell.base === 'water' || cell.base === 'lava' || cell.base === 'swamp') {
+      graphics.fillStyle(visual.highlight, 0.14);
+      graphics.beginPath();
+      graphics.moveTo(screenX, screenY - halfTileH * 0.7);
+      graphics.lineTo(screenX + halfTileW * 0.7, screenY);
+      graphics.lineTo(screenX, screenY + halfTileH * 0.7);
+      graphics.lineTo(screenX - halfTileW * 0.7, screenY);
+      graphics.closePath();
+      graphics.fillPath();
+    }
+
+    if (cell.overlay === 'tree') {
+      graphics.fillStyle(visual.accent, 0.92);
+      graphics.fillTriangle(
+        screenX,
+        screenY - halfTileH * 1.2,
+        screenX - halfTileW * 0.28,
+        screenY - halfTileH * 0.1,
+        screenX + halfTileW * 0.28,
+        screenY - halfTileH * 0.1
+      );
+    } else if (cell.overlay === 'grave' || cell.overlay === 'bones') {
+      graphics.fillStyle(visual.accent, 0.88);
+      graphics.fillRect(screenX - halfTileW * 0.12, screenY - halfTileH * 0.95, halfTileW * 0.24, halfTileH * 0.42);
+    } else if (cell.overlay === 'ruins') {
+      graphics.fillStyle(visual.accent, 0.88);
+      graphics.fillRect(screenX - halfTileW * 0.22, screenY - halfTileH * 1.02, halfTileW * 0.18, halfTileH * 0.54);
+      graphics.fillRect(screenX + halfTileW * 0.02, screenY - halfTileH * 0.84, halfTileW * 0.16, halfTileH * 0.34);
+    } else if (cell.overlay === 'rock' || cell.overlay === 'structure') {
+      graphics.fillStyle(visual.accent, 0.9);
+      graphics.fillRect(screenX - halfTileW * 0.18, screenY - halfTileH * 1.05, halfTileW * 0.36, halfTileH * 0.56);
+    }
+
+    if (cell.blocked && (cell.overlay === 'rock' || cell.overlay === 'ruins' || cell.overlay === 'structure' || layerName.toLowerCase().includes('wall') || layerName.toLowerCase().includes('pare'))) {
+      graphics.fillStyle(visual.stroke, 0.42);
+      graphics.fillRect(screenX - halfTileW * 0.42, screenY - halfTileH * 1.5, halfTileW * 0.84, halfTileH * 1.3);
+    }
   }
 
   private isWithinStreamRange(localPlayer: any, entry: any, maxDistance: number) {
@@ -1004,7 +1146,8 @@ export class WorldScene extends Phaser.Scene {
     const state = this.services.store.getState();
     const world = state.resolvedWorld;
     this.selectedMobId = state.selectedMobId;
-    const mapUrl = String(world?.mapTiled?.tmjUrl || this.mapDocument?.url || DEFAULT_MAP_URL);
+    const resolvedMapUrl = world?.mapCode || world?.mapKey ? resolveMapTmjUrl(world?.mapCode, world?.mapKey) : '';
+    const mapUrl = String(world?.mapTiled?.tmjUrl || resolvedMapUrl || this.mapDocument?.url || DEFAULT_MAP_URL);
     if (!this.mapDocument || this.mapDocument.url !== mapUrl) {
       if (this.loadingMapUrl === mapUrl) return;
       void this.loadAndRenderMap(mapUrl)
@@ -1018,14 +1161,18 @@ export class WorldScene extends Phaser.Scene {
     }
 
     const players = world?.players || {};
+    const pets = Array.isArray((world as any)?.pets) ? (world as any).pets : [];
     const mobs = Array.isArray(world?.mobs) ? world.mobs : [];
     const npcs = Array.isArray(world?.npcs) ? world.npcs : [];
     const groundItems = Array.isArray(world?.groundItems) ? world.groundItems : [];
+    const portals = Array.isArray(world?.portals) ? world.portals : [];
     const localPlayer = state.playerId ? players[String(state.playerId)] : null;
     const visibleIds = new Set<string>();
+    const visiblePetIds = new Set<string>();
     const visibleMobIds = new Set<string>();
     const visibleNpcIds = new Set<string>();
     const visibleGroundItemIds = new Set<string>();
+    const visiblePortalIds = new Set<string>();
 
     Object.entries(players).forEach(([id, player]) => {
       if (id !== String(state.playerId) && !this.isWithinStreamRange(localPlayer, player, REMOTE_PLAYER_STREAM_RANGE)) return;
@@ -1038,11 +1185,43 @@ export class WorldScene extends Phaser.Scene {
       this.syncPlayerMarker(marker, id, player, state);
     });
 
+    this.syncLocalChatBubbles(state.chatMessages);
+
     Array.from(this.playerMarkers.keys()).forEach((id) => {
       if (visibleIds.has(id)) return;
       const marker = this.playerMarkers.get(id);
       marker?.body.destroy(true);
       this.playerMarkers.delete(id);
+      this.entityDepthDirty = true;
+    });
+
+    pets.forEach((pet: any) => {
+      const petId = String(pet.id || '');
+      if (!petId) return;
+      if (!this.isWithinStreamRange(localPlayer, pet, WORLD_OBJECT_STREAM_RANGE)) return;
+      visiblePetIds.add(petId);
+      let marker = this.petMarkers.get(petId);
+      if (!marker) {
+        marker = this.createPetMarker(pet);
+        this.petMarkers.set(petId, marker);
+      }
+      const hpRatio = Math.max(0, Math.min(1, Number(pet.hp || 0) / Math.max(1, Number(pet.maxHp || 1))));
+      marker.badge.setText(`${String(pet.name || 'Pet')} Lv.${Number(pet.level || 1)}`);
+      marker.ownerText.setText(String(pet.ownerName || 'Aventureiro'));
+      marker.hpBar.width = 42 * hpRatio;
+      const projected = this.worldToScreen(Number(pet.x || 0), Number(pet.y || 0));
+      const yOffset = String(pet.moveStyle || '').toLowerCase() === 'flying' ? -20 : -6;
+      marker.body.setPosition(projected.x, projected.y + yOffset);
+      marker.body.setDepth(projected.y + yOffset);
+    });
+
+    Array.from(this.petMarkers.keys()).forEach((id) => {
+      if (visiblePetIds.has(id)) return;
+      const marker = this.petMarkers.get(id);
+      marker?.bobTween?.stop();
+      marker?.wingTweens?.forEach((tween) => tween.stop());
+      marker?.body.destroy(true);
+      this.petMarkers.delete(id);
       this.entityDepthDirty = true;
     });
 
@@ -1053,13 +1232,13 @@ export class WorldScene extends Phaser.Scene {
       visibleMobIds.add(mobId);
       let marker = this.mobMarkers.get(mobId);
       if (!marker) {
-        const glow = this.add.circle(0, 0, 22, 0xffd36a, 0.18);
+        const glow = this.add.ellipse(0, 4, 54, 26, 0xffd36a, 0.18);
         glow.setVisible(false);
-        const outline = this.add.circle(0, 0, 18, 0x08111b, 0);
+        const outline = this.add.ellipse(0, 4, 38, 16, 0x08111b, 0);
         outline.setStrokeStyle(2, 0xf4f8ff, 0.18);
-        const bodyFill = this.add.circle(0, 0, 14, this.getMobColor(mob.kind), 1);
-        const hpBg = this.add.rectangle(0, -26, 44, 6, 0x1a2230, 0.92);
-        const hpBar = this.add.rectangle(-22, -26, 44, 6, 0x4bd06d, 1).setOrigin(0, 0.5);
+        const figure = this.createMobFigure(mob);
+        const hpBg = this.add.rectangle(0, -30, 48, 6, 0x1a2230, 0.92);
+        const hpBar = this.add.rectangle(-24, -30, 48, 6, 0x4bd06d, 1).setOrigin(0, 0.5);
         const badge = this.add.text(0, -42, String(mob.kind || 'Mob'), {
           fontFamily: 'Segoe UI',
           fontSize: '13px',
@@ -1067,26 +1246,25 @@ export class WorldScene extends Phaser.Scene {
           backgroundColor: 'rgba(8,17,27,0.68)',
           padding: { x: 6, y: 2 }
         }).setOrigin(0.5);
-        const body = this.add.container(0, 0, [glow, outline, hpBg, hpBar, bodyFill, badge]);
-        body.setSize(48, 48);
+        const body = this.add.container(0, 0, [glow, outline, figure, hpBg, hpBar, badge]);
+        body.setSize(56, 56);
         const hitArea = this.add.zone(0, 0, 40, 40);
         hitArea.setInteractive(new Phaser.Geom.Circle(0, 0, 20), Phaser.Geom.Circle.Contains);
         hitArea.setData('interactionKind', 'mob');
         hitArea.setData('interactionId', mobId);
         this.entityLayer.add(body);
         this.entityLayer.add(hitArea);
-        marker = { body, hitArea, badge, hpBar, hpBg, outline, fill: bodyFill, glow };
+        marker = { body, hitArea, badge, hpBar, hpBg, outline, figure, glow };
         this.mobMarkers.set(mobId, marker);
       }
 
       marker.badge.setText(`${this.getMobLabel(mob.kind)}${mob.level ? ` Lv.${Number(mob.level)}` : ''}`);
-      marker.hpBar.width = 44 * Math.max(0, Math.min(1, Number(mob.hp || 0) / Math.max(1, Number(mob.maxHp || 1))));
+      marker.hpBar.width = 48 * Math.max(0, Math.min(1, Number(mob.hp || 0) / Math.max(1, Number(mob.maxHp || 1))));
       const projected = this.worldToScreen(Number(mob.x || 0), Number(mob.y || 0));
       marker.body.setPosition(projected.x, projected.y);
       marker.body.setDepth(projected.y);
       marker.hitArea.setPosition(projected.x, projected.y);
       marker.hitArea.setDepth(projected.y + 0.5);
-      marker.fill.setFillStyle(this.getMobColor(mob.kind), 1);
     });
 
     Array.from(this.mobMarkers.keys()).forEach((id) => {
@@ -1109,11 +1287,11 @@ export class WorldScene extends Phaser.Scene {
       visibleNpcIds.add(npcId);
       let marker = this.npcMarkers.get(npcId);
       if (!marker) {
-        const glow = this.add.rectangle(0, 0, 34, 44, 0xffefb3, 0.18);
+        const glow = this.add.ellipse(0, 8, 46, 28, 0xffefb3, 0.18);
         glow.setVisible(false);
-        const bodyFill = this.add.rectangle(0, 0, 24, 34, 0x74c69d, 1);
-        const outline = this.add.rectangle(0, 0, 28, 38, 0x08111b, 0);
+        const outline = this.add.ellipse(0, 8, 34, 18, 0x08111b, 0);
         outline.setStrokeStyle(2, 0xd4f1df, 0.4);
+        const figure = this.createNpcFigure(npc);
         const badge = this.add.text(0, -34, String(npc.name || 'NPC'), {
           fontFamily: 'Segoe UI',
           fontSize: '13px',
@@ -1121,15 +1299,15 @@ export class WorldScene extends Phaser.Scene {
           backgroundColor: 'rgba(8,17,27,0.68)',
           padding: { x: 6, y: 2 }
         }).setOrigin(0.5);
-        const body = this.add.container(0, 0, [glow, outline, bodyFill, badge]);
-        body.setSize(30, 40);
+        const body = this.add.container(0, 0, [glow, outline, figure, badge]);
+        body.setSize(40, 52);
         const hitArea = this.add.zone(0, 0, 34, 46);
         hitArea.setInteractive(new Phaser.Geom.Rectangle(-17, -23, 34, 46), Phaser.Geom.Rectangle.Contains);
         hitArea.setData('interactionKind', 'npc');
         hitArea.setData('interactionId', npcId);
         this.entityLayer.add(body);
         this.entityLayer.add(hitArea);
-        marker = { body, hitArea, badge, sprite: bodyFill, outline, glow };
+        marker = { body, hitArea, badge, figure, outline, glow };
         this.npcMarkers.set(npcId, marker);
       }
 
@@ -1147,6 +1325,57 @@ export class WorldScene extends Phaser.Scene {
       marker?.hitArea.destroy();
       marker?.body.destroy(true);
       this.npcMarkers.delete(id);
+      this.entityDepthDirty = true;
+    });
+
+    portals.forEach((portal: any) => {
+      const portalId = String(
+        portal.id
+        || `${String(portal.toMapKey || portal.dungeonTemplateId || 'portal')}:${Number(portal.x || 0)}:${Number(portal.y || 0)}`
+      );
+      const centerX = Number(portal.x || 0) + Number(portal.w || 0) / 2;
+      const centerY = Number(portal.y || 0) + Number(portal.h || 0) / 2;
+      if (!this.isWithinStreamRange(localPlayer, { x: centerX, y: centerY }, WORLD_OBJECT_STREAM_RANGE)) return;
+      visiblePortalIds.add(portalId);
+      let marker = this.portalMarkers.get(portalId);
+      if (!marker) {
+        const glow = this.add.ellipse(0, 6, 88, 34, 0x8f78ff, 0.16);
+        const ring = this.add.ellipse(0, 6, 58, 18, 0x000000, 0);
+        ring.setStrokeStyle(2, 0xded2ff, 0.58);
+        const figure = this.createPortalFigure(portal);
+        const badge = this.add.text(0, -42, this.getPortalLabel(portal), {
+          fontFamily: 'Segoe UI',
+          fontSize: '12px',
+          color: '#efe8ff',
+          backgroundColor: 'rgba(8,17,27,0.54)',
+          padding: { x: 5, y: 2 }
+        }).setOrigin(0.5);
+        const body = this.add.container(0, 0, [glow, ring, figure, badge]);
+        body.setSize(92, 74);
+        this.entityLayer.add(body);
+        this.tweens.add({
+          targets: [glow, figure],
+          alpha: { from: 0.68, to: 1 },
+          duration: 1100,
+          yoyo: true,
+          repeat: -1,
+          ease: 'Sine.InOut'
+        });
+        marker = { body, badge, glow, ring, figure };
+        this.portalMarkers.set(portalId, marker);
+      }
+
+      marker.badge.setText(this.getPortalLabel(portal));
+      const projected = this.worldToScreen(centerX, centerY);
+      marker.body.setPosition(projected.x, projected.y - 2);
+      marker.body.setDepth(projected.y - 2);
+    });
+
+    Array.from(this.portalMarkers.keys()).forEach((id) => {
+      if (visiblePortalIds.has(id)) return;
+      const marker = this.portalMarkers.get(id);
+      marker?.body.destroy(true);
+      this.portalMarkers.delete(id);
       this.entityDepthDirty = true;
     });
 
@@ -1206,6 +1435,7 @@ export class WorldScene extends Phaser.Scene {
     this.renderQueuedSkillEffects(state.skillEffects);
     bootDiagnostics.recordSceneSync(Math.max(0, Math.round((performance.now() - startedAt) * 100) / 100), {
       players: Object.keys(players).length,
+      pets: pets.length,
       mobs: mobs.length,
       npcs: npcs.length,
       groundItems: groundItems.length
@@ -1235,9 +1465,11 @@ export class WorldScene extends Phaser.Scene {
       tileTexturesFailed: this.lastTileTextureStats.failed.slice(0, 12),
       lastMapError: this.lastMapError,
       playerMarkers: this.playerMarkers.size,
+      petMarkers: this.petMarkers.size,
       mobMarkers: this.mobMarkers.size,
       npcMarkers: this.npcMarkers.size,
       groundItemMarkers: this.groundItemMarkers.size,
+      portalMarkers: this.portalMarkers.size,
       localPlayerId: localPlayerId || null,
       localPlayerMarkerReady: Boolean(localPlayerId && this.playerMarkers.has(localPlayerId)),
       camera: camera ? {
@@ -1271,6 +1503,7 @@ export class WorldScene extends Phaser.Scene {
       ? this.add.sprite(0, PLAYER_SPRITE_Y_OFFSET, textureKey!, this.getFrameIndex(0, DIRECTION_COLUMN.s)).setOrigin(0.5, 1)
       : this.add.circle(0, 0, 18, id === String(localPlayerId) ? 0xd9a441 : this.getPlayerTint(String(player?.class || 'knight')), 1);
     const badgeY = usingSpriteSheet ? PLAYER_BADGE_Y : -34;
+    const speechAnchorY = badgeY - 10;
     const badge = this.add.text(0, badgeY, displayName, {
       fontFamily: 'Segoe UI',
       fontSize: '14px',
@@ -1278,7 +1511,17 @@ export class WorldScene extends Phaser.Scene {
       backgroundColor: 'rgba(8,17,27,0.68)',
       padding: { x: 8, y: 3 }
     }).setOrigin(0.5);
-    const body = this.add.container(0, 0, [outline, sprite, badge]);
+    const speechBubble = this.add.graphics();
+    speechBubble.setVisible(false);
+    const speechText = this.add.text(0, speechAnchorY, '', {
+      fontFamily: 'Segoe UI',
+      fontSize: '11px',
+      color: '#fff8ea',
+      align: 'center',
+      wordWrap: { width: PLAYER_SPEECH_MAX_WIDTH, useAdvancedWrap: true }
+    }).setOrigin(0.5, 1);
+    speechText.setVisible(false);
+    const body = this.add.container(0, 0, [outline, sprite, badge, speechBubble, speechText]);
     body.setSize(usingSpriteSheet ? 56 : 40, usingSpriteSheet ? 128 : 40);
     if (usingSpriteSheet) {
       body.setInteractive(new Phaser.Geom.Rectangle(-28, -108, 56, 120), Phaser.Geom.Rectangle.Contains);
@@ -1304,6 +1547,8 @@ export class WorldScene extends Phaser.Scene {
     const marker: PlayerMarker = {
       body,
       badge,
+      speechBubble,
+      speechText,
       sprite: sprite as Phaser.GameObjects.Sprite | Phaser.GameObjects.Arc,
       outline,
       usingSpriteSheet,
@@ -1320,13 +1565,16 @@ export class WorldScene extends Phaser.Scene {
       lastServerSyncAt: this.time.now,
       lastFacing: 's',
       lastLabel: displayName,
+      lastSpeechId: null,
       lastDead: Number(player?.hp || 0) <= 0,
       attackUntil: 0,
       hasWeapon: this.playerHasWeapon(player),
       pendingPath: [],
       lastMoveAckReqId: 0,
       lastFacingChangeAt: 0,
-      lastAnimKey: ''
+      lastAnimKey: '',
+      speechUntil: 0,
+      speechAnchorY
     };
     marker.body.setPosition(projected.x, projected.y);
     marker.body.setDepth(projected.y);
@@ -1410,10 +1658,8 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private resolvePlayerTextureKey(player: any) {
-    const className = String(player?.class || '').toLowerCase();
-    const gender = String(player?.gender || '').toLowerCase();
-    if (className === 'archer' && gender === 'female') return PLAYER_SPRITE_KEYS.archerFemale;
-    return null;
+    if (!player || typeof player !== 'object') return null;
+    return PLAYER_SPRITE_KEYS.archerFemale;
   }
 
   private playerHasWeapon(player: any) {
@@ -1502,6 +1748,63 @@ export class WorldScene extends Phaser.Scene {
     const marker = this.playerMarkers.get(String(attackerId || ''));
     if (!marker || marker.lastDead) return;
     marker.attackUntil = this.time.now + PLAYER_ATTACK_MS;
+  }
+
+  private syncLocalChatBubbles(messages: any[]) {
+    if (!Array.isArray(messages) || messages.length === 0) return;
+    const recentMessages = messages.slice(-20);
+    for (const entry of recentMessages) {
+      const messageId = String(entry?.id || '');
+      if (!messageId || this.processedLocalChatIds.has(messageId)) continue;
+      this.processedLocalChatIds.add(messageId);
+      if (this.processedLocalChatIds.size > 120) {
+        const oldest = this.processedLocalChatIds.values().next().value;
+        if (oldest) this.processedLocalChatIds.delete(oldest);
+      }
+      const channel = String(entry?.channel || entry?.scope || entry?.type || '').trim().toLowerCase();
+      if (channel !== 'local') continue;
+      const fromId = String(entry?.fromId || '');
+      const content = String(entry?.text || entry?.content || '').trim();
+      if (!fromId || !content) continue;
+      const marker = this.playerMarkers.get(fromId);
+      if (!marker) continue;
+      this.showPlayerSpeech(marker, messageId, content);
+    }
+  }
+
+  private showPlayerSpeech(marker: PlayerMarker, messageId: string, rawText: string) {
+    const content = String(rawText || '').trim();
+    if (!content) return;
+    const safeText = content.length > 120 ? `${content.slice(0, 117)}...` : content;
+    marker.speechText.setText(safeText);
+    marker.speechText.setWordWrapWidth(PLAYER_SPEECH_MAX_WIDTH, true);
+    const bubbleWidth = Math.max(54, Math.min(PLAYER_SPEECH_MAX_WIDTH, marker.speechText.width) + 16);
+    const bubbleHeight = Math.max(22, marker.speechText.height + 12);
+    const bubbleBottom = marker.speechAnchorY - 2;
+    const bubbleTop = bubbleBottom - bubbleHeight;
+    marker.speechBubble.clear();
+    marker.speechBubble.fillStyle(0x0b1118, 0.84);
+    marker.speechBubble.lineStyle(1, 0xf1e0b8, 0.24);
+    marker.speechBubble.fillRoundedRect(-bubbleWidth / 2, bubbleTop, bubbleWidth, bubbleHeight, 7);
+    marker.speechBubble.strokeRoundedRect(-bubbleWidth / 2, bubbleTop, bubbleWidth, bubbleHeight, 7);
+    marker.speechBubble.fillTriangle(0, bubbleBottom + 5, -6, bubbleBottom - 1, 6, bubbleBottom - 1);
+    marker.speechBubble.setVisible(true);
+    marker.speechText.setPosition(0, bubbleBottom - 6);
+    marker.speechText.setVisible(true);
+    marker.lastSpeechId = messageId;
+    marker.speechUntil = this.time.now + Phaser.Math.Clamp(1800 + safeText.length * 42, PLAYER_SPEECH_MIN_MS, PLAYER_SPEECH_MAX_MS);
+  }
+
+  private updatePlayerSpeechBubbles(time: number) {
+    this.playerMarkers.forEach((marker) => {
+      if (!marker.speechUntil || time < marker.speechUntil) return;
+      marker.speechUntil = 0;
+      marker.lastSpeechId = null;
+      marker.speechBubble.clear();
+      marker.speechBubble.setVisible(false);
+      marker.speechText.setVisible(false);
+      marker.speechText.setText('');
+    });
   }
 
   private normalizeSnapshotPath(marker: PlayerMarker, player: any) {
@@ -1626,12 +1929,229 @@ export class WorldScene extends Phaser.Scene {
     return { tileWidth, tileHeight };
   }
 
-  private getMobColor(kind: string) {
+  private createPetMarker(pet: any) {
+    const shadow = this.add.ellipse(0, 12, 28, 10, 0x05080d, 0.26);
+    const figure = this.createPetFigure(pet);
+    const hpBg = this.add.rectangle(0, -28, 42, 5, 0x1a2230, 0.88);
+    const hpBar = this.add.rectangle(-21, -28, 42, 5, 0x66d38a, 1).setOrigin(0, 0.5);
+    const badge = this.add.text(0, -40, String(pet.name || 'Pet'), {
+      fontFamily: 'Segoe UI',
+      fontSize: '12px',
+      color: '#eaf5ff',
+      backgroundColor: 'rgba(8,17,27,0.56)',
+      padding: { x: 5, y: 2 }
+    }).setOrigin(0.5);
+    const ownerText = this.add.text(0, -52, String(pet.ownerName || 'Aventureiro'), {
+      fontFamily: 'Segoe UI',
+      fontSize: '10px',
+      color: '#d7e7f7',
+      backgroundColor: 'rgba(8,17,27,0.38)',
+      padding: { x: 4, y: 2 }
+    }).setOrigin(0.5);
+    const body = this.add.container(0, 0, [shadow, figure, hpBg, hpBar, badge, ownerText]);
+    body.setSize(56, 58);
+    this.entityLayer.add(body);
+    return {
+      body,
+      badge,
+      hpBar,
+      hpBg,
+      figure,
+      shadow,
+      ownerText,
+      moveStyle: String(pet.moveStyle || 'ground'),
+      bobTween: figure.getData('bobTween') || undefined,
+      wingTweens: figure.getData('wingTweens') || undefined
+    } as PetMarker;
+  }
+
+  private createMobFigure(mob: any) {
+    const palette = this.getMobPalette(String(mob?.kind || 'normal'));
+    const scale = String(mob?.kind || '').toLowerCase() === 'boss'
+      ? 1.28
+      : String(mob?.kind || '').toLowerCase() === 'subboss'
+        ? 1.14
+        : String(mob?.kind || '').toLowerCase() === 'elite'
+          ? 1.06
+          : 1;
+    const shadow = this.add.ellipse(0, 9, 26, 10, 0x05080d, 0.32);
+    const body = this.add.ellipse(0, -1, 26, 20, palette.primary, 1);
+    const belly = this.add.ellipse(0, 3, 16, 10, palette.secondary, 0.95);
+    const hornLeft = this.add.triangle(-8, -13, 0, 10, -8, -4, 7, 7, palette.accent, 1);
+    const hornRight = this.add.triangle(8, -13, 0, 10, -8, 7, 8, -4, palette.accent, 1);
+    const eyeLeft = this.add.circle(-5, -2, 2.2, 0xfdf7ea, 0.98);
+    const eyeRight = this.add.circle(5, -2, 2.2, 0xfdf7ea, 0.98);
+    const pupilLeft = this.add.circle(-5, -2, 0.9, 0x24160e, 0.92);
+    const pupilRight = this.add.circle(5, -2, 0.9, 0x24160e, 0.92);
+    const clawLeft = this.add.triangle(-11, 8, 0, 0, -4, -5, 4, -5, palette.accent, 0.9);
+    const clawRight = this.add.triangle(11, 8, 0, 0, -4, -5, 4, -5, palette.accent, 0.9);
+    const figure = this.add.container(0, 0, [
+      shadow,
+      hornLeft,
+      hornRight,
+      body,
+      belly,
+      clawLeft,
+      clawRight,
+      eyeLeft,
+      eyeRight,
+      pupilLeft,
+      pupilRight
+    ]);
+    figure.setScale(scale);
+    return figure;
+  }
+
+  private createNpcFigure(npc: any) {
+    const palette = this.getNpcPalette(String(npc?.role || 'civilian'));
+    const shadow = this.add.ellipse(0, 11, 20, 8, 0x05080d, 0.26);
+    const robe = this.add.triangle(0, 4, 0, 16, -12, -10, 12, -10, palette.cloak, 1);
+    const torso = this.add.rectangle(0, -2, 16, 18, palette.primary, 1);
+    const belt = this.add.rectangle(0, 2, 14, 3, palette.accent, 0.85);
+    const head = this.add.circle(0, -17, 7, palette.skin, 1);
+    const hood = this.add.ellipse(0, -18, 18, 15, palette.secondary, 0.96);
+    const staff = this.add.rectangle(11, -2, 2, 26, palette.accent, 0.85).setAngle(8);
+    const lantern = this.add.circle(12, -12, 2.5, palette.accent, 0.95);
+    const figure = this.add.container(0, 0, [
+      shadow,
+      robe,
+      torso,
+      belt,
+      hood,
+      head,
+      staff,
+      lantern
+    ]);
+    return figure;
+  }
+
+  private createPortalFigure(portal: any) {
+    const dungeon = Boolean(portal?.dungeonTemplateId);
+    const beamColor = dungeon ? 0x9f6bff : 0x63d8ff;
+    const coreColor = dungeon ? 0xd6b8ff : 0xc8fbff;
+    const beam = this.add.rectangle(0, -6, 16, 42, beamColor, 0.22);
+    const core = this.add.ellipse(0, -6, 22, 32, beamColor, 0.45);
+    const center = this.add.ellipse(0, -6, 12, 18, coreColor, 0.96);
+    const runeLeft = this.add.triangle(-15, -4, 0, 8, -6, -7, 6, -7, beamColor, 0.82).setAngle(-22);
+    const runeRight = this.add.triangle(15, -4, 0, 8, -6, -7, 6, -7, beamColor, 0.82).setAngle(22);
+    return this.add.container(0, 0, [beam, core, center, runeLeft, runeRight]);
+  }
+
+  private getMobPalette(kind: string) {
     const normalized = String(kind || '').toLowerCase();
-    if (normalized === 'boss') return 0xcf5a4f;
-    if (normalized === 'subboss') return 0xc97b39;
-    if (normalized === 'elite') return 0xe29f35;
-    return 0xc73e3e;
+    if (normalized === 'boss') return { primary: 0xb53a33, secondary: 0xe08b62, accent: 0xffddb5 };
+    if (normalized === 'subboss') return { primary: 0xb46b24, secondary: 0xecb15d, accent: 0xffe1aa };
+    if (normalized === 'elite') return { primary: 0xc68c28, secondary: 0xf2c86f, accent: 0xffefbd };
+    return { primary: 0xae3939, secondary: 0xdd7060, accent: 0xffd4b2 };
+  }
+
+  private createPetFigure(pet: any) {
+    const templateId = String(pet?.templateId || '').toLowerCase();
+    if (templateId.includes('macaw') || templateId.includes('arara')) return this.createMacawFigure();
+    if (templateId.includes('golem')) return this.createLavaGolemPetFigure();
+    if (templateId.includes('skeleton')) return this.createSkeletonArcherPetFigure();
+    return this.createDogPetFigure(pet);
+  }
+
+  private createDogPetFigure(pet: any) {
+    const primary = Number(pet?.visualSeed || 0) % 2 === 0 ? 0xa77449 : 0x8f633d;
+    const secondary = 0xf0d1ac;
+    const body = this.add.ellipse(0, 0, 30, 18, primary, 1);
+    const head = this.add.circle(14, -5, 8, primary, 1);
+    const chest = this.add.ellipse(4, 3, 14, 10, secondary, 0.96);
+    const earA = this.add.triangle(18, -14, 0, 8, -5, -4, 4, -4, 0x5d3d28, 1).setAngle(-10);
+    const earB = this.add.triangle(10, -14, 0, 8, -4, -4, 5, -4, 0x5d3d28, 1).setAngle(8);
+    const snout = this.add.ellipse(19, -2, 8, 6, secondary, 1);
+    const tail = this.add.rectangle(-18, -6, 12, 3, 0x5d3d28, 1).setAngle(-28);
+    const legA = this.add.rectangle(-8, 11, 4, 12, 0x5d3d28, 1);
+    const legB = this.add.rectangle(2, 11, 4, 12, 0x5d3d28, 1);
+    const legC = this.add.rectangle(11, 10, 4, 12, 0x5d3d28, 1);
+    return this.add.container(0, 0, [tail, body, chest, head, earA, earB, snout, legA, legB, legC]);
+  }
+
+  private createMacawFigure() {
+    const body = this.add.ellipse(0, -2, 16, 24, 0x2d9efb, 1);
+    const belly = this.add.ellipse(1, 1, 10, 14, 0xffd34f, 0.96);
+    const head = this.add.circle(0, -16, 6, 0x2d9efb, 1);
+    const beak = this.add.triangle(7, -15, 0, 0, 9, 3, 9, -3, 0xff9448, 1);
+    const wingLeft = this.add.ellipse(-9, -1, 10, 22, 0x1f6fca, 0.96).setAngle(-26);
+    const wingRight = this.add.ellipse(9, -1, 10, 22, 0x1f6fca, 0.96).setAngle(26);
+    const tailA = this.add.rectangle(-2, 13, 4, 18, 0x1f6fca, 1).setAngle(-10);
+    const tailB = this.add.rectangle(2, 14, 4, 18, 0xff4f4f, 1).setAngle(8);
+    const figure = this.add.container(0, 0, [wingLeft, wingRight, tailA, tailB, body, belly, head, beak]);
+    const wingLeftBaseAngle = wingLeft.angle;
+    const wingRightBaseAngle = wingRight.angle;
+    const bobTween = this.tweens.add({
+      targets: figure,
+      y: { from: 0, to: -6 },
+      duration: 760,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.InOut'
+    });
+    const wingTweens = [
+      this.tweens.add({
+        targets: wingLeft,
+        angle: { from: wingLeftBaseAngle - 6, to: wingLeftBaseAngle + 8 },
+        duration: 240,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.InOut'
+      }),
+      this.tweens.add({
+        targets: wingRight,
+        angle: { from: wingRightBaseAngle + 6, to: wingRightBaseAngle - 8 },
+        duration: 240,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.InOut'
+      })
+    ];
+    figure.setData('bobTween', bobTween);
+    figure.setData('wingTweens', wingTweens);
+    return figure;
+  }
+
+  private createLavaGolemPetFigure() {
+    const core = this.add.ellipse(0, -4, 22, 20, 0xd05a2c, 1);
+    const shellTop = this.add.rectangle(0, -12, 24, 10, 0x6e2c17, 1).setAngle(-6);
+    const shellMid = this.add.rectangle(0, 0, 28, 14, 0x7f341a, 1).setAngle(4);
+    const eyeLeft = this.add.circle(-5, -6, 1.6, 0xffe9aa, 1);
+    const eyeRight = this.add.circle(5, -6, 1.6, 0xffe9aa, 1);
+    const armLeft = this.add.rectangle(-16, 0, 7, 18, 0x6e2c17, 1).setAngle(-18);
+    const armRight = this.add.rectangle(16, 0, 7, 18, 0x6e2c17, 1).setAngle(18);
+    const legLeft = this.add.rectangle(-7, 16, 8, 12, 0x532113, 1);
+    const legRight = this.add.rectangle(7, 16, 8, 12, 0x532113, 1);
+    return this.add.container(0, 0, [armLeft, armRight, legLeft, legRight, core, shellTop, shellMid, eyeLeft, eyeRight]);
+  }
+
+  private createSkeletonArcherPetFigure() {
+    const torso = this.add.rectangle(0, -4, 12, 20, 0xded7c3, 1);
+    const head = this.add.circle(0, -18, 7, 0xece4d0, 1);
+    const eyeLeft = this.add.circle(-2.4, -19, 1.2, 0x3d2c21, 1);
+    const eyeRight = this.add.circle(2.4, -19, 1.2, 0x3d2c21, 1);
+    const armLeft = this.add.rectangle(-9, -5, 3, 18, 0xded7c3, 1).setAngle(16);
+    const armRight = this.add.rectangle(9, -5, 3, 18, 0xded7c3, 1).setAngle(-18);
+    const legLeft = this.add.rectangle(-4, 13, 3, 16, 0xded7c3, 1).setAngle(6);
+    const legRight = this.add.rectangle(4, 13, 3, 16, 0xded7c3, 1).setAngle(-6);
+    const bow = this.add.arc(14, -2, 9, 270, 90, false, 0x8b623d, 1).setStrokeStyle(2, 0x8b623d, 1);
+    const string = this.add.line(14, -2, -4, -8, -4, 8, 0xfff1c7, 0.85);
+    return this.add.container(0, 0, [bow, string, torso, head, eyeLeft, eyeRight, armLeft, armRight, legLeft, legRight]);
+  }
+
+  private getNpcPalette(role: string) {
+    const normalized = String(role || '').toLowerCase();
+    if (normalized === 'quest_giver') return { primary: 0x71604a, secondary: 0x9f8758, cloak: 0x5d4d33, accent: 0xf3cd79, skin: 0xf2d4bc };
+    if (normalized === 'shopkeeper') return { primary: 0x436754, secondary: 0x5f9076, cloak: 0x32483b, accent: 0xd2c18a, skin: 0xf0d1b4 };
+    if (normalized === 'chest_keeper') return { primary: 0x4f5b78, secondary: 0x6d7da1, cloak: 0x39435b, accent: 0xa7d7ff, skin: 0xe8c5a4 };
+    return { primary: 0x66585b, secondary: 0x847278, cloak: 0x4d4043, accent: 0xd0b483, skin: 0xeecfb3 };
+  }
+
+  private getPortalLabel(portal: any) {
+    if (portal?.dungeonTemplateId) return 'Entrada';
+    const destination = String(portal?.toMapKey || '').trim();
+    if (!destination) return 'Portal';
+    return `Portal ${destination.toUpperCase()}`;
   }
 
   private getPlayerTint(className: string) {
@@ -1758,24 +2278,69 @@ export class WorldScene extends Phaser.Scene {
       const worldX = Number(effect.x ?? 0);
       const worldY = Number(effect.y ?? 0);
       const projected = this.worldToScreen(worldX, worldY);
-      const color = this.getEffectColor(String(effect.effectKey || ''));
-      const ring = this.add.circle(projected.x, projected.y - 10, 18, color, 0.16);
+      const palette = this.getEffectPalette(String(effect.effectKey || ''));
+      const color = palette.primary;
+      const anchorY = projected.y - 10;
+      const core = this.add.circle(projected.x, anchorY, 10, palette.secondary, 0.2);
+      core.setDepth(9998);
+      const ring = this.add.circle(projected.x, anchorY, 18, color, 0.12);
       ring.setStrokeStyle(3, color, 0.85);
       ring.setDepth(9999);
+      const shockwave = this.add.circle(projected.x, anchorY, 12, palette.secondary, 0.08);
+      shockwave.setStrokeStyle(2, palette.secondary, 0.7);
+      shockwave.setDepth(9998);
+      for (let index = 0; index < 6; index++) {
+        const angle = (Math.PI * 2 * index) / 6;
+        const burst = this.add.circle(
+          projected.x + Math.cos(angle) * 6,
+          anchorY + Math.sin(angle) * 4,
+          3 + (index % 2),
+          index % 2 === 0 ? color : palette.secondary,
+          0.92
+        );
+        burst.setDepth(10000);
+        this.tweens.add({
+          targets: burst,
+          x: projected.x + Math.cos(angle) * 24,
+          y: anchorY + Math.sin(angle) * 18 - 4,
+          alpha: 0,
+          scale: 0.35,
+          duration: 320,
+          ease: 'Cubic.easeOut',
+          onComplete: () => burst.destroy()
+        });
+      }
       const label = this.add.text(projected.x, projected.y - 42, this.getEffectLabel(String(effect.effectKey || '')), {
         fontFamily: 'Segoe UI',
         fontSize: '11px',
-        color: '#f8fbff',
+        color: palette.label,
         backgroundColor: 'rgba(8,17,27,0.6)',
         padding: { x: 5, y: 2 }
       }).setOrigin(0.5);
       label.setDepth(10000);
       this.tweens.add({
+        targets: core,
+        scale: 2.15,
+        alpha: 0,
+        duration: 360,
+        ease: 'Quad.easeOut',
+        onComplete: () => core.destroy()
+      });
+      this.tweens.add({
         targets: ring,
-        scale: 1.7,
+        scale: 2.1,
         alpha: 0,
         duration: 520,
+        ease: 'Cubic.easeOut',
         onComplete: () => ring.destroy()
+      });
+      this.tweens.add({
+        targets: shockwave,
+        scale: 2.7,
+        alpha: 0,
+        duration: 580,
+        ease: 'Quart.easeOut',
+        onComplete: () => shockwave.destroy()
       });
       this.tweens.add({
         targets: label,
@@ -1787,14 +2352,31 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
-  private getEffectColor(effectKey: string) {
+  private getEffectPalette(effectKey: string) {
     const key = String(effectKey || '').toLowerCase();
-    if (key.includes('heal') || key.includes('bloom') || key.includes('prayer')) return 0x55d88b;
-    if (key.includes('poison') || key.includes('swarm') || key.includes('mist')) return 0x7cd96a;
-    if (key.includes('stealth') || key.includes('smoke')) return 0x8f96b8;
-    if (key.includes('arc') || key.includes('wind')) return 0x67c4ff;
-    if (key.includes('ass')) return 0xd285ff;
-    return 0xffc463;
+    if (key.includes('heal') || key.includes('bloom') || key.includes('sanctuary') || key.includes('spirit')) {
+      return { primary: 0x55d88b, secondary: 0xb5ffd4, label: '#d9ffe7' };
+    }
+    if (key.includes('poison') || key.includes('swarm') || key.includes('mist') || key.includes('roots') || key.includes('mire')) {
+      return { primary: 0x7cd96a, secondary: 0xcdf7b2, label: '#efffd8' };
+    }
+    if (key.includes('smoke') || key.includes('veil') || key.includes('stealth')) {
+      return { primary: 0x8f96b8, secondary: 0xe1e6ff, label: '#eef2ff' };
+    }
+    if (key.includes('archer') || key.includes('arrow') || key.includes('wind') || key.includes('shot')) {
+      return { primary: 0x67c4ff, secondary: 0xe1f3ff, label: '#eff8ff' };
+    }
+    if (key.includes('ass') || key.includes('night') || key.includes('blade') || key.includes('ambush')) {
+      return { primary: 0xd285ff, secondary: 0xf1d9ff, label: '#fbf0ff' };
+    }
+    if (key.includes('knight') || key.includes('shield') || key.includes('iron') || key.includes('blood')) {
+      return { primary: 0xffc463, secondary: 0xffefc1, label: '#fff4da' };
+    }
+    return { primary: 0xffc463, secondary: 0xffefc1, label: '#fff4da' };
+  }
+
+  private getEffectColor(effectKey: string) {
+    return this.getEffectPalette(effectKey).primary;
   }
 
   private getEffectLabel(effectKey: string) {

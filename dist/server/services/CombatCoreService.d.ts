@@ -22,7 +22,7 @@ type DropPosFn = (originX: number, originY: number, dropIndex: number, dropTotal
     x: number;
     y: number;
 };
-type PickWeaponTemplateFn = () => any;
+type PickWeaponTemplateFn = (mapKey: string, mobKind: string) => any;
 type DropWeaponFn = (x: number, y: number, mapId: string, template?: any, ownerId?: number | null, ownerPartyId?: string | null, reservedMs?: number) => void;
 type DropPotionFn = (x: number, y: number, mapId: string, ownerId?: number | null, ownerPartyId?: string | null, reservedMs?: number) => void;
 type DropHourglassFn = (x: number, y: number, mapId: string, ownerId?: number | null, ownerPartyId?: string | null, reservedMs?: number) => void;

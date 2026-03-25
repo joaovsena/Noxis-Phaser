@@ -1,0 +1,15 @@
+{
+  "mapCode": "A2",
+  "mapKey": "lava",
+  "name": "Corredor de Cinzas",
+  "source": "procedural-isometric-generator-v2",
+  "notes": [
+    "Planicie vulcanica maior com pontes basalticas e crateras abertas.",
+    "A trilha segura conecta floresta, passagem central e acesso ao ermo.",
+    "Sem servicos, apenas hostis e pontos de risco."
+  ],
+  "worldSize": {
+    "width": 6400,
+    "height": 6400
+  }
+}

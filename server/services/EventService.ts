@@ -23,6 +23,8 @@ type EventDef = {
     name: string;
     mapKey: string;
     mapId: string;
+    centerX: number;
+    centerY: number;
     durationMs: number;
     cooldownMs: number;
     startDelayMs?: number;
@@ -49,6 +51,8 @@ const EVENT_DEFS: EventDef[] = [
         name: 'Fenda da Floresta',
         mapKey: 'forest',
         mapId: 'Z1',
+        centerX: 4440,
+        centerY: 2760,
         durationMs: 3 * 60 * 1000,
         cooldownMs: 6 * 60 * 1000,
         startDelayMs: 75 * 1000,
@@ -56,8 +60,8 @@ const EVENT_DEFS: EventDef[] = [
         endText: 'Evento encerrado: Fenda da Floresta se dissipou.',
         completionText: 'Evento concluido: todos os invasores foram derrotados!',
         spawns: [
-            { kind: 'elite', count: 8, centerX: 1540, centerY: 840, radius: 260 },
-            { kind: 'subboss', count: 2, centerX: 1540, centerY: 840, radius: 120 }
+            { kind: 'elite', count: 8, centerX: 4440, centerY: 2760, radius: 420 },
+            { kind: 'subboss', count: 2, centerX: 4440, centerY: 2760, radius: 180 }
         ],
         lootTable: [
             { type: 'potion_hp', chance: 0.85 },
@@ -101,11 +105,14 @@ export class EventService {
         const instanceId = this.mapInstanceId(mapKey, mapId);
         const active = this.activeByInstance.get(instanceId);
         if (!active) return [];
+        const def = EVENT_DEFS.find((entry) => entry.id === active.id && entry.mapKey === active.mapKey && entry.mapId === active.mapId);
         return [{
             id: active.id,
             name: active.name,
             mapKey: active.mapKey,
             mapId: active.mapId,
+            x: Number(def?.centerX || 0),
+            y: Number(def?.centerY || 0),
             startedAt: active.startedAt,
             endsAt: active.endsAt
         }];

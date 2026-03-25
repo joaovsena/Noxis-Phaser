@@ -1,84 +1,127 @@
 <script lang="ts">
-  import { createEventDispatcher, onDestroy, onMount } from 'svelte';
+  import { fade } from 'svelte/transition';
+  import { onDestroy, onMount } from 'svelte';
   import { bootDiagnostics } from '../game/debug/BootDiagnostics';
-  import { chatStore, sendChatMessage } from './stores/gameUi';
+  import {
+    chatStore,
+    sendChatMessage,
+    setChatActiveChannel,
+    type ChatChannel,
+    type ChatInputChannel,
+    type ChatUiMessage
+  } from './stores/gameUi';
 
-  type ChatScope = 'local' | 'map' | 'global';
-  type ChatTab = 'all' | 'system' | 'local' | 'map' | 'global';
-  type ChatEntry = {
-    id?: string | number;
-    at?: number;
-    from?: string;
-    scope?: ChatScope | string;
-    text?: string;
-    type?: string;
-  };
+  export let fixed = false;
+  export let showCollapse = false;
+  export let showClose = false;
 
-  const dispatch = createEventDispatcher<{ close: void }>();
-  const readTabs: Array<{ id: ChatTab; label: string }> = [
-    { id: 'all', label: 'Geral' },
-    { id: 'system', label: 'Sistema' },
+  const channelTabs: Array<{ id: ChatInputChannel; label: string }> = [
     { id: 'local', label: 'Local' },
-    { id: 'map', label: 'Mapa' },
-    { id: 'global', label: 'Global' }
-  ];
-  const sendScopes: Array<{ id: ChatScope | 'party' | 'guild' | 'whisper'; label: string; enabled: boolean }> = [
-    { id: 'local', label: 'Local', enabled: true },
-    { id: 'map', label: 'Mapa', enabled: true },
-    { id: 'global', label: 'Global', enabled: true },
-    { id: 'party', label: 'Party', enabled: false },
-    { id: 'guild', label: 'Guild', enabled: false },
-    { id: 'whisper', label: 'Whisper', enabled: false }
+    { id: 'whisper', label: 'Privado' },
+    { id: 'group', label: 'Grupo' },
+    { id: 'guild', label: 'Guilda' },
+    { id: 'world', label: 'Mundo' },
+    { id: 'trade', label: 'Troca' }
   ];
 
-  let readTab: ChatTab = 'all';
-  let sendScope: ChatScope = 'local';
   let message = '';
-  let collapsed = false;
   let focused = false;
+  let chatAnchorEl: HTMLDivElement | null = null;
+  let inputEl: HTMLInputElement | null = null;
   let logEl: HTMLDivElement | null = null;
-  let visibleMessages: ChatEntry[] = [];
+  let visibleMessages: ChatUiMessage[] = [];
   let scrollRaf = 0;
   let lastScrollSignature = '';
-  export let fixed = false;
-  export let showCollapse = true;
-  export let showClose = true;
+  let stickToBottom = true;
 
-  function formatTime(at: unknown) {
-    const raw = Number(at || 0);
-    if (!Number.isFinite(raw) || raw <= 0) return '--:--';
-    return new Date(raw).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  $: void showCollapse;
+  $: void showClose;
+  $: void fixed;
+
+  function channelClass(channel: ChatChannel) {
+    return `channel-${channel}`;
   }
 
-  function scheduleScroll() {
+  function updateStickiness() {
+    if (!logEl) return;
+    const distanceToBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight;
+    stickToBottom = distanceToBottom <= 18;
+  }
+
+  function scheduleScroll(force = false) {
     if (typeof window === 'undefined') return;
+    if (!force && !stickToBottom) return;
     if (scrollRaf) cancelAnimationFrame(scrollRaf);
     scrollRaf = requestAnimationFrame(() => {
       scrollRaf = 0;
       if (!logEl) return;
-      logEl.scrollTop = logEl.scrollHeight;
+      logEl.scrollTo({
+        top: logEl.scrollHeight,
+        behavior: force ? 'auto' : 'smooth'
+      });
     });
   }
 
   function submitMessage() {
     const text = message.trim();
     if (!text) return;
-    sendChatMessage(sendScope, text);
+    sendChatMessage($chatStore.activeChannel, text);
     message = '';
-    scheduleScroll();
+    stickToBottom = true;
+    scheduleScroll(true);
   }
 
-  $: visibleMessages = ($chatStore.messages || [])
-    .filter((entry) => {
-      if (readTab === 'all') return true;
-      if (readTab === 'system') return entry?.type === 'system';
-      return entry?.type !== 'system' && String(entry?.scope || 'local') === readTab;
-    })
-    .slice(-90) as ChatEntry[];
+  function focusInput() {
+    if (!inputEl) return;
+    inputEl.focus();
+    const cursorAt = inputEl.value.length;
+    inputEl.setSelectionRange(cursorAt, cursorAt);
+  }
+
+  function blurInput() {
+    inputEl?.blur();
+  }
+
+  function handleWindowKeydown(event: KeyboardEvent) {
+    if (event.key !== 'Enter') return;
+    const target = event.target as HTMLElement | null;
+    if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
+    event.preventDefault();
+    focusInput();
+  }
+
+  function handleInputKeydown(event: KeyboardEvent) {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    if (message.trim()) submitMessage();
+    blurInput();
+  }
+
+  function handleWindowPointerDown(event: PointerEvent) {
+    if (!inputEl || document.activeElement !== inputEl) return;
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('.chat-controls-layer')) return;
+    blurInput();
+  }
+
+  function placeholderFor(channel: ChatInputChannel, lastWhisperTarget: string | null) {
+    if (channel === 'whisper') {
+      return lastWhisperTarget
+        ? `Responder para ${lastWhisperTarget}...`
+        : 'Use /w Nome mensagem...';
+    }
+    if (channel === 'group') return 'Falar com o grupo...';
+    if (channel === 'guild') return 'Falar com a guilda...';
+    if (channel === 'world') return 'Falar no mundo...';
+    if (channel === 'trade') return 'Anunciar na troca...';
+    return 'Falar no local...';
+  }
+
+  $: visibleMessages = ($chatStore.messages || []).slice(-120);
 
   $: {
     const lastEntry = visibleMessages[visibleMessages.length - 1];
-    const nextSignature = `${readTab}|${visibleMessages.length}|${String(lastEntry?.id || lastEntry?.at || lastEntry?.text || '-')}`;
+    const nextSignature = `${visibleMessages.length}|${String(lastEntry?.id || '-')}`;
     if (logEl && nextSignature !== lastScrollSignature) {
       lastScrollSignature = nextSignature;
       scheduleScroll();
@@ -87,75 +130,59 @@
 
   onMount(() => {
     bootDiagnostics.log('hud', 'chat-mounted', 'ChatWindow montado.');
+    scheduleScroll(true);
+    window.addEventListener('keydown', handleWindowKeydown);
+    window.addEventListener('pointerdown', handleWindowPointerDown);
   });
 
   onDestroy(() => {
     if (scrollRaf) cancelAnimationFrame(scrollRaf);
+    window.removeEventListener('keydown', handleWindowKeydown);
+    window.removeEventListener('pointerdown', handleWindowPointerDown);
   });
 </script>
 
-<div class={`chat-shell ${focused ? 'focused' : ''} ${fixed ? 'fixed' : ''}`}>
-  <div class="chat-header" data-window-drag-handle={fixed ? undefined : 'true'}>
-    <div class="title-block">
-      <div class="hud-kicker">Comunicacao</div>
-      <h2>Chat</h2>
+<div class="chat-anchor" bind:this={chatAnchorEl}>
+  {#if $chatStore.lastTradeMessage}
+    <div class="trade-highlight-wrap">
+      {#key $chatStore.lastTradeMessage.id}
+        <div class="trade-highlight" transition:fade={{ duration: 220 }}>
+          <span class="trade-message">[{$chatStore.lastTradeMessage.player}]: {$chatStore.lastTradeMessage.content}</span>
+        </div>
+      {/key}
     </div>
-    <div class="header-actions">
-      <div class="message-count">{visibleMessages.length}</div>
-      {#if showCollapse}
-        <button class="mini-btn" type="button" aria-label={collapsed ? 'Expandir chat' : 'Minimizar chat'} on:click={() => collapsed = !collapsed}>
-          {collapsed ? '+' : '-'}
-        </button>
-      {/if}
-      {#if showClose}
-        <button class="mini-btn close-btn" type="button" aria-label="Fechar chat" on:click={() => dispatch('close')}>x</button>
+  {/if}
+
+  <div class="chat-history-layer">
+    <div
+      bind:this={logEl}
+      class="chat-log hud-scroll"
+      role="log"
+      aria-live="polite"
+      on:scroll={updateStickiness}
+    >
+      {#if visibleMessages.length}
+        {#each visibleMessages as entry (entry.id)}
+          <div class={`chat-line ${channelClass(entry.channel)}`}>
+            <span class="chat-text">[{entry.player}]: {entry.content}</span>
+          </div>
+        {/each}
+      {:else}
+        <div class="chat-empty">Nenhuma mensagem por enquanto.</div>
       {/if}
     </div>
   </div>
 
-  {#if !collapsed}
-    <div class="read-tabs" role="tablist" aria-label="Filtros do chat">
-      {#each readTabs as entry}
+  <div class="chat-controls-layer">
+    <div class="channel-tabs" role="tablist" aria-label="Canal do chat">
+      {#each channelTabs as tab}
         <button
-          class:active={readTab === entry.id}
+          class:active={$chatStore.activeChannel === tab.id}
           class="tab-btn"
           type="button"
-          on:click={() => readTab = entry.id}
+          on:click={() => setChatActiveChannel(tab.id)}
         >
-          {entry.label}
-        </button>
-      {/each}
-    </div>
-
-    <div bind:this={logEl} class="chat-log hud-scroll" role="log" aria-live="polite">
-      {#if visibleMessages.length}
-        {#each visibleMessages as entry (entry.id || `${entry.at}-${entry.text}`)}
-          <div class={`chat-line ${entry.type === 'system' ? 'system' : ''}`}>
-            <span class="time">{formatTime(entry.at)}</span>
-            <span class="tag">[{entry.type === 'system' ? 'sistema' : (entry.scope || 'local')}]</span>
-            {#if entry.type === 'system'}
-              <span class="text">{entry.text}</span>
-            {:else}
-              <span class="author">{entry.from || 'Anon'}:</span>
-              <span class="text">{entry.text}</span>
-            {/if}
-          </div>
-        {/each}
-      {:else}
-        <div class="hud-empty">Nenhuma mensagem neste filtro.</div>
-      {/if}
-    </div>
-
-    <div class="send-tabs" aria-label="Canal de envio">
-      {#each sendScopes as entry}
-        <button
-          class:active={sendScope === entry.id}
-          class={`scope-btn ${!entry.enabled ? 'disabled' : ''}`}
-          type="button"
-          disabled={!entry.enabled}
-          on:click={() => entry.enabled && (sendScope = entry.id as ChatScope)}
-        >
-          {entry.label}
+          {tab.label}
         </button>
       {/each}
     </div>
@@ -163,207 +190,198 @@
     <form class="chat-entry" on:submit|preventDefault={submitMessage}>
       <input
         bind:value={message}
-        class="hud-input"
+        bind:this={inputEl}
+        class="chat-input"
         type="text"
         maxlength="180"
         autocomplete="off"
         spellcheck="false"
-        placeholder={`Falar em ${sendScope}...`}
+        placeholder={placeholderFor($chatStore.activeChannel, $chatStore.lastWhisperTarget)}
+        on:keydown={handleInputKeydown}
         on:focus={() => focused = true}
         on:blur={() => focused = false}
       />
-      <button class="hud-btn" type="submit">Enviar</button>
     </form>
-  {/if}
+  </div>
 </div>
 
 <style>
-  .chat-shell {
-    width: min(292px, calc(100vw - 24px));
+  .chat-anchor {
+    width: min(336px, calc(100vw - 24px));
+    min-height: 196px;
+    height: clamp(196px, 28vh, 248px);
+    max-height: min(268px, calc(100vh - 112px));
     display: grid;
-    gap: 6px;
-    padding: 10px;
-    position: relative;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    gap: 5px;
     overflow: hidden;
-    contain: layout paint;
-    border: 1px solid rgba(201, 168, 106, 0.28);
-    border-radius: 16px;
-    background:
-      radial-gradient(circle at top, rgba(201, 168, 106, 0.08), transparent 32%),
-      linear-gradient(180deg, rgba(16, 13, 11, 0.97), rgba(8, 8, 8, 0.98));
-    box-shadow:
-      0 18px 34px rgba(0, 0, 0, 0.28),
-      inset 0 0 0 1px rgba(255, 239, 206, 0.03);
-    transition: opacity 180ms ease, transform 180ms ease;
-  }
-
-  .chat-shell:not(:hover):not(.focused) {
-    opacity: 0.62;
-  }
-
-  .chat-shell.fixed {
-    box-shadow:
-      0 12px 24px rgba(0, 0, 0, 0.24),
-      inset 0 0 0 1px rgba(255, 239, 206, 0.03);
-  }
-
-  .chat-shell::before {
-    content: '';
-    position: absolute;
-    inset: 8px;
-    border: 1px solid rgba(201, 168, 106, 0.08);
-    border-radius: 12px;
     pointer-events: none;
   }
 
-  .chat-header,
-  .read-tabs,
-  .chat-log,
-  .send-tabs,
-  .chat-entry {
-    position: relative;
-    z-index: 1;
-  }
-
-  .chat-header {
+  .trade-highlight-wrap {
+    width: 100%;
     display: flex;
-    align-items: start;
-    justify-content: space-between;
-    gap: 8px;
-    cursor: grab;
+    justify-content: center;
+    pointer-events: none;
   }
 
-  .chat-header:active {
-    cursor: grabbing;
-  }
-
-  .chat-shell.fixed .chat-header,
-  .chat-shell.fixed .chat-header:active {
-    cursor: default;
-  }
-
-  .title-block {
-    display: grid;
-    gap: 4px;
-  }
-
-  h2 {
-    margin: 0;
-    color: #f0dfbc;
-    font-family: var(--hud-font-display);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    font-size: 0.76rem;
-  }
-
-  .header-actions {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .message-count {
-    color: var(--hud-text-soft);
-    font-size: 0.68rem;
-  }
-
-  .mini-btn {
-    width: 22px;
-    height: 22px;
-    display: grid;
-    place-items: center;
-    border-radius: 9px;
-    border: 1px solid rgba(201, 168, 106, 0.22);
-    background: rgba(18, 14, 12, 0.92);
-    color: #e8d5aa;
-    line-height: 1;
-  }
-
-  .close-btn {
-    color: #efc1b5;
-  }
-
-  .read-tabs,
-  .send-tabs {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  .tab-btn,
-  .scope-btn {
+  .trade-highlight {
+    width: calc(100% - 20px);
     min-height: 24px;
-    padding: 0 8px;
-    border-radius: 999px;
-    border: 1px solid rgba(201, 168, 106, 0.18);
-    background: rgba(11, 14, 18, 0.76);
-    color: var(--hud-text-soft);
-    font-size: 0.58rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    padding: 5px 9px;
+    border-radius: 5px;
+    background: rgba(8, 9, 10, 0.52);
+    border: 1px solid rgba(255, 140, 0, 0.18);
+    box-shadow: 0 0 10px rgba(255, 140, 0, 0.08);
   }
 
-  .tab-btn.active,
-  .scope-btn.active {
-    color: var(--hud-gold);
-    border-color: rgba(201, 168, 106, 0.42);
-    box-shadow: 0 0 0 1px rgba(201, 168, 106, 0.12), 0 0 12px rgba(201, 168, 106, 0.1);
-  }
-
-  .scope-btn.disabled {
-    opacity: 0.42;
-  }
-
-  .chat-log {
-    min-height: 124px;
-    max-height: 156px;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    padding: 8px 9px;
-    border: 1px solid rgba(201, 168, 106, 0.16);
-    border-radius: 12px;
-    background: rgba(7, 9, 11, 0.84);
-  }
-
-  .chat-line {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    color: rgba(234, 224, 202, 0.8);
-    font-size: 0.68rem;
-    line-height: 1.38;
+  .trade-message {
+    color: #ff8c00;
+    font-size: 0.57rem;
+    line-height: 1.28;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.88);
     word-break: break-word;
   }
 
-  .chat-line.system .tag,
-  .chat-line.system .text {
-    color: var(--hud-warning);
+  .chat-history-layer {
+    min-height: 0;
+    pointer-events: none;
   }
 
-  .time {
-    color: rgba(188, 175, 152, 0.7);
+  .chat-log {
+    min-height: 110px;
+    height: 100%;
+    max-height: none;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 8px 8px 6px;
+    background: linear-gradient(180deg, rgba(7, 10, 12, 0.18), rgba(7, 10, 12, 0.06));
+    border: 1px solid rgba(255, 255, 255, 0.035);
+    border-radius: 5px;
+    pointer-events: none;
   }
 
-  .tag {
-    color: #88c9ff;
-    text-transform: uppercase;
+  .chat-line {
+    font-size: 0.58rem;
+    line-height: 1.22;
+    word-break: break-word;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+  }
+
+  .chat-text {
+    display: inline;
+  }
+
+  .channel-system { color: #ff4d4d; }
+  .channel-local { color: #ffffff; }
+  .channel-world { color: #ffd700; }
+  .channel-whisper { color: #c77dff; }
+  .channel-guild { color: #4da6ff; }
+  .channel-group { color: #90d98f; }
+  .channel-trade { color: #ff8c00; }
+
+  .chat-empty {
+    padding: 18px 0;
+    color: rgba(229, 223, 210, 0.56);
     font-size: 0.56rem;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
   }
 
-  .author {
-    color: #f0dfbc;
+  .chat-controls-layer {
+    display: grid;
+    gap: 4px;
+    pointer-events: none;
+  }
+
+  .channel-tabs {
+    display: grid;
+    grid-template-columns: 0.95fr 1.18fr 0.95fr 1fr 1fr 1.26fr;
+    gap: 2px;
+    pointer-events: auto;
+  }
+
+  .tab-btn {
+    box-sizing: border-box;
+    min-width: 0;
+    min-height: 20px;
+    padding: 0 3px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 4px;
+    background: rgba(5, 8, 10, 0.5);
+    color: rgba(237, 231, 217, 0.74);
+    font-size: 8px;
     font-weight: 600;
+    letter-spacing: 0;
+    line-height: 1.05;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+    transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+    pointer-events: auto;
   }
 
-  .text {
-    color: rgba(239, 231, 215, 0.84);
+  .tab-btn:hover {
+    background: rgba(255, 255, 255, 0.07);
+    border-color: rgba(255, 255, 255, 0.11);
+    color: rgba(255, 245, 227, 0.92);
+  }
+
+  .tab-btn.active {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(244, 222, 180, 0.18);
+    color: #f7e9c4;
   }
 
   .chat-entry {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 8px;
+    display: block;
+    pointer-events: auto;
+  }
+
+  .chat-input {
+    width: 100%;
+    min-height: 26px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+    padding: 0 9px;
+    background: rgba(5, 8, 10, 0.56);
+    color: #f5efe4;
+    font-size: 0.58rem;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+    outline: none;
+    pointer-events: auto;
+  }
+
+  .chat-input::placeholder {
+    color: rgba(219, 212, 195, 0.44);
+  }
+
+  .chat-input:focus {
+    border-color: rgba(255, 255, 255, 0.09);
+    background: rgba(5, 8, 10, 0.68);
+  }
+
+  @media (max-width: 760px) {
+    .chat-anchor {
+      width: min(312px, calc(100vw - 20px));
+      min-height: 176px;
+      height: clamp(176px, 26vh, 220px);
+    }
+
+    .channel-tabs {
+      grid-template-columns: 0.92fr 1.16fr 0.94fr 1fr 0.98fr 1.22fr;
+      gap: 2px;
+    }
+
+    .tab-btn {
+      min-height: 19px;
+      padding: 0 2px;
+      font-size: 7px;
+    }
   }
 </style>

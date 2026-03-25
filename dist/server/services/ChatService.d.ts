@@ -7,6 +7,8 @@ export declare class ChatService {
     private readonly broadcastRaw;
     constructor(players: Map<number, PlayerRuntime>, sendRaw: SendRawFn, broadcastRaw: BroadcastRawFn);
     handleChat(player: PlayerRuntime, msg: any): void;
+    private normalizeChannel;
+    private findPlayerByName;
 }
 export {};
 //# sourceMappingURL=ChatService.d.ts.map

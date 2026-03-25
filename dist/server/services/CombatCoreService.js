@@ -56,11 +56,29 @@ class CombatCoreService {
         this.grantMobCurrency(player, mob);
         const mapInstanceId = this.mapInstanceId(player.mapKey, player.mapId);
         const dropDefs = [];
-        if (Math.random() < 0.5)
+        const kind = String(mob?.kind || 'normal');
+        if (kind === 'boss') {
+            dropDefs.push('weapon', 'weapon', 'potion_hp');
+        }
+        else if (kind === 'subboss') {
+            dropDefs.push('weapon', 'potion_hp');
+            if (Math.random() < 0.55)
+                dropDefs.push('weapon');
+        }
+        else if (kind === 'elite') {
             dropDefs.push('weapon');
-        dropDefs.push('potion_hp');
-        if (Math.random() < Number(config_1.SKILL_RESET_HOURGLASS_DROP_CHANCE || 0))
+            if (Math.random() < 0.72)
+                dropDefs.push('potion_hp');
+        }
+        else {
+            if (Math.random() < 0.26)
+                dropDefs.push('weapon');
+            if (Math.random() < 0.58)
+                dropDefs.push('potion_hp');
+        }
+        if (Math.random() < Number(config_1.SKILL_RESET_HOURGLASS_DROP_CHANCE || 0) * (kind === 'boss' ? 1.8 : kind === 'subboss' ? 1.2 : 1)) {
             dropDefs.push('skill_reset_hourglass');
+        }
         if (Array.isArray(mob.eventLootTable)) {
             for (const entry of mob.eventLootTable) {
                 const type = String(entry?.type || '');
@@ -76,7 +94,7 @@ class CombatCoreService {
             const ownerPartyId = String(player.partyId || '') || null;
             const reserveMs = (mob?.kind === 'elite' || mob?.kind === 'subboss' || mob?.kind === 'boss') ? 60000 : 0;
             if (dropType === 'weapon')
-                this.dropWeaponAt(dropPos.x, dropPos.y, mapInstanceId, this.pickRandomWeaponTemplate(), ownerId, ownerPartyId, reserveMs);
+                this.dropWeaponAt(dropPos.x, dropPos.y, mapInstanceId, this.pickRandomWeaponTemplate(player.mapKey, kind), ownerId, ownerPartyId, reserveMs);
             else if (dropType === 'potion_hp')
                 this.dropHpPotionAt(dropPos.x, dropPos.y, mapInstanceId, ownerId, ownerPartyId, reserveMs);
             else

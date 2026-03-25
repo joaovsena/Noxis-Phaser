@@ -1,12 +1,13 @@
+import { BUILTIN_ITEM_TEMPLATE_BY_ID, BUILTIN_ITEM_TEMPLATES, CLASS_EQUIPMENT_TEMPLATES, HP_POTION_TEMPLATE, NPC_SHOPS, SKILL_RESET_HOURGLASS_TEMPLATE, WEAPON_TEMPLATE, WEAPON_TEMPLATE_RUBI, WEAPON_TEMPLATES, pickMapMaterialTemplateId, pickProgressionLootTemplate, resolveClassEquipmentTemplateId, resolveClassWeaponTemplateId } from '../content/itemCatalog';
 export declare const WORLD: {
     width: number;
     height: number;
 };
 export declare const INSTANCE_IDS: readonly ["Z1", "Z2"];
-export declare const MAP_KEYS: readonly ["forest", "lava", "undead"];
+export declare const MAP_KEYS: readonly ["city", "forest", "lava", "undead"];
 export declare const MAP_IDS: ("Z1" | "Z2")[];
 export declare const DEFAULT_MAP_ID = "Z1";
-export declare const DEFAULT_MAP_KEY = "forest";
+export declare const DEFAULT_MAP_KEY = "city";
 export declare const TICK_MS: number;
 export declare const MOB_COUNTS: {
     normal: number;
@@ -24,7 +25,7 @@ export declare const MOB_AGGRO_RANGE = 260;
 export declare const MOB_LEASH_RANGE = 420;
 export declare const MOB_ATTACK_RANGE = 64;
 export declare const MOB_ATTACK_INTERVAL_MS = 1200;
-export declare const MAP_THEMES: Record<string, 'forest' | 'lava' | 'undead'>;
+export declare const MAP_THEMES: Record<string, 'city' | 'forest' | 'lava' | 'undead'>;
 export type MapFeature = {
     id: string;
     kind: 'water' | 'lava' | 'mountain' | 'building' | 'trees' | 'ruins';
@@ -46,6 +47,10 @@ export type MapFeature = {
 export declare const MAP_FEATURES_BY_KEY: Record<string, MapFeature[]>;
 export declare const MAP_CODE_BY_KEY: Record<string, string>;
 export declare const MAP_KEY_BY_CODE: Record<string, string>;
+export declare const DEFAULT_PLAYER_SPAWN_BY_MAP_KEY: Record<string, {
+    x: number;
+    y: number;
+}>;
 export declare function mapCodeFromKey(mapKey: string): string;
 export declare const PORTALS_BY_MAP_KEY: Record<string, Array<{
     id: string;
@@ -94,164 +99,7 @@ export declare const COMBAT_LOCK_MS = 10000;
 export declare const PARTY_MAX_MEMBERS = 5;
 export declare const PARTY_INVITE_TTL_MS = 30000;
 export declare const PARTY_JOIN_REQUEST_TTL_MS = 30000;
-export declare const WEAPON_TEMPLATE: {
-    id: string;
-    type: string;
-    name: string;
-    rarity: string;
-    spriteId: string;
-    iconUrl: string;
-    slot: string;
-    price: {
-        silver: number;
-    };
-    bonuses: {
-        physicalAttack: number;
-        magicAttack: number;
-        moveSpeed: number;
-        attackSpeed: number;
-    };
-};
-export declare const WEAPON_TEMPLATE_RUBI: {
-    id: string;
-    type: string;
-    name: string;
-    rarity: string;
-    spriteId: string;
-    iconUrl: string;
-    slot: string;
-    price: {
-        gold: number;
-        silver: number;
-    };
-    bonuses: {
-        physicalAttack: number;
-        magicAttack: number;
-        moveSpeed: number;
-        attackSpeed: number;
-    };
-};
-export declare const WEAPON_TEMPLATES: {
-    id: string;
-    type: string;
-    name: string;
-    rarity: string;
-    spriteId: string;
-    iconUrl: string;
-    slot: string;
-    price: {
-        silver: number;
-    };
-    bonuses: {
-        physicalAttack: number;
-        magicAttack: number;
-        moveSpeed: number;
-        attackSpeed: number;
-    };
-}[];
-export declare const HP_POTION_TEMPLATE: {
-    id: string;
-    type: string;
-    name: string;
-    rarity: string;
-    spriteId: string;
-    iconUrl: string;
-    slot: string;
-    price: {
-        copper: number;
-    };
-    healPercent: number;
-    stackable: boolean;
-    maxStack: number;
-};
-export declare const SKILL_RESET_HOURGLASS_TEMPLATE: {
-    id: string;
-    type: string;
-    name: string;
-    rarity: string;
-    spriteId: string;
-    iconUrl: string;
-    slot: string;
-    price: {
-        silver: number;
-    };
-    stackable: boolean;
-    maxStack: number;
-};
-export declare const CLASS_EQUIPMENT_TEMPLATES: {
-    id: string;
-    type: string;
-    name: string;
-    rarity: string;
-    spriteId: string;
-    iconUrl: string;
-    slot: "helmet" | "chest" | "pants" | "gloves" | "boots" | "ring" | "necklace";
-    requiredClass: "knight" | "archer" | "druid" | "assassin";
-    price: any;
-    bonuses: Record<string, number>;
-}[];
-export declare const BUILTIN_ITEM_TEMPLATES: ({
-    id: string;
-    type: string;
-    name: string;
-    rarity: string;
-    spriteId: string;
-    iconUrl: string;
-    slot: string;
-    price: {
-        silver: number;
-    };
-    bonuses: {
-        physicalAttack: number;
-        magicAttack: number;
-        moveSpeed: number;
-        attackSpeed: number;
-    };
-} | {
-    id: string;
-    type: string;
-    name: string;
-    rarity: string;
-    spriteId: string;
-    iconUrl: string;
-    slot: string;
-    price: {
-        copper: number;
-    };
-    healPercent: number;
-    stackable: boolean;
-    maxStack: number;
-} | {
-    id: string;
-    type: string;
-    name: string;
-    rarity: string;
-    spriteId: string;
-    iconUrl: string;
-    slot: string;
-    price: {
-        silver: number;
-    };
-    stackable: boolean;
-    maxStack: number;
-} | {
-    id: string;
-    type: string;
-    name: string;
-    rarity: string;
-    spriteId: string;
-    iconUrl: string;
-    slot: "helmet" | "chest" | "pants" | "gloves" | "boots" | "ring" | "necklace";
-    requiredClass: "knight" | "archer" | "druid" | "assassin";
-    price: any;
-    bonuses: Record<string, number>;
-})[];
-export declare const BUILTIN_ITEM_TEMPLATE_BY_ID: Record<string, any>;
-export declare const NPC_SHOPS: Record<string, Array<{
-    offerId: string;
-    templateId: string;
-    quantity?: number;
-}>>;
+export { WEAPON_TEMPLATE, WEAPON_TEMPLATE_RUBI, WEAPON_TEMPLATES, HP_POTION_TEMPLATE, SKILL_RESET_HOURGLASS_TEMPLATE, CLASS_EQUIPMENT_TEMPLATES, BUILTIN_ITEM_TEMPLATES, BUILTIN_ITEM_TEMPLATE_BY_ID, NPC_SHOPS, resolveClassEquipmentTemplateId, resolveClassWeaponTemplateId, pickProgressionLootTemplate, pickMapMaterialTemplateId };
 export declare const SKILL_RESET_HOURGLASS_DROP_CHANCE = 0.5;
 export declare const STATUS_IDS: {
     physicalAttack: number;

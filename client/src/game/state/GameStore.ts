@@ -23,6 +23,7 @@ export type MapTiledState = {
 export type WorldState = {
   type: 'world_state';
   players: Record<string, any>;
+  pets?: any[];
   mobs: any[];
   mapKey?: string;
   mapId?: string;
@@ -80,6 +81,10 @@ export type GameState = {
   partyState: any | null;
   partyAreaList: any[];
   friendState: any | null;
+  tradeState: any | null;
+  storageState: any | null;
+  guildState: any | null;
+  petState: any | null;
   lastCombatEvent: any | null;
   dead: boolean;
   selectedPlayerId: number | null;
@@ -120,6 +125,10 @@ const INITIAL_STATE: GameState = {
   partyState: null,
   partyAreaList: [],
   friendState: null,
+  tradeState: null,
+  storageState: null,
+  guildState: null,
+  petState: null,
   lastCombatEvent: null,
   dead: false,
   selectedPlayerId: null,

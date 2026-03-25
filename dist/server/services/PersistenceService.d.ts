@@ -304,6 +304,254 @@ export declare class PersistenceService {
         id: number;
         name: string;
     }[]>;
+    getGuildByName(name: string): Promise<({
+        members: ({
+            player: {
+                id: number;
+                name: string;
+                class: string;
+                level: number;
+            };
+        } & {
+            id: number;
+            playerId: number;
+            joinedAt: Date;
+            guildId: string;
+            rank: string;
+        })[];
+    } & {
+        id: string;
+        createdAt: Date;
+        name: string;
+        updatedAt: Date;
+        motd: string | null;
+    }) | null>;
+    getGuildById(guildId: string): Promise<({
+        members: ({
+            player: {
+                id: number;
+                name: string;
+                class: string;
+                level: number;
+            };
+        } & {
+            id: number;
+            playerId: number;
+            joinedAt: Date;
+            guildId: string;
+            rank: string;
+        })[];
+    } & {
+        id: string;
+        createdAt: Date;
+        name: string;
+        updatedAt: Date;
+        motd: string | null;
+    }) | null>;
+    getGuildMembershipForPlayer(playerId: number): Promise<({
+        guild: {
+            members: ({
+                player: {
+                    id: number;
+                    name: string;
+                    class: string;
+                    level: number;
+                };
+            } & {
+                id: number;
+                playerId: number;
+                joinedAt: Date;
+                guildId: string;
+                rank: string;
+            })[];
+        } & {
+            id: string;
+            createdAt: Date;
+            name: string;
+            updatedAt: Date;
+            motd: string | null;
+        };
+    } & {
+        id: number;
+        playerId: number;
+        joinedAt: Date;
+        guildId: string;
+        rank: string;
+    }) | null>;
+    createGuild(name: string, leaderPlayerId: number): Promise<{
+        members: ({
+            player: {
+                id: number;
+                name: string;
+                class: string;
+                level: number;
+            };
+        } & {
+            id: number;
+            playerId: number;
+            joinedAt: Date;
+            guildId: string;
+            rank: string;
+        })[];
+    } & {
+        id: string;
+        createdAt: Date;
+        name: string;
+        updatedAt: Date;
+        motd: string | null;
+    }>;
+    addGuildMember(guildId: string, playerId: number, rank?: 'leader' | 'officer' | 'member'): Promise<{
+        id: number;
+        playerId: number;
+        joinedAt: Date;
+        guildId: string;
+        rank: string;
+    }>;
+    updateGuildMemberRank(guildId: string, playerId: number, rank: 'leader' | 'officer' | 'member'): Promise<import(".prisma/client").Prisma.BatchPayload>;
+    removeGuildMember(guildId: string, playerId: number): Promise<void>;
+    deleteGuild(guildId: string): Promise<void>;
+    findPendingGuildInviteBetween(guildId: string, fromPlayerId: number, toPlayerId: number): Promise<{
+        id: string;
+        createdAt: Date;
+        status: string;
+        fromPlayerId: number;
+        toPlayerId: number;
+        expiresAt: Date;
+        guildId: string;
+    } | null>;
+    createGuildInvite(guildId: string, fromPlayerId: number, toPlayerId: number, expiresAt: Date): Promise<{
+        id: string;
+        createdAt: Date;
+        status: string;
+        fromPlayerId: number;
+        toPlayerId: number;
+        expiresAt: Date;
+        guildId: string;
+    }>;
+    getPendingGuildInviteById(inviteId: string): Promise<({
+        guild: {
+            id: string;
+            createdAt: Date;
+            name: string;
+            updatedAt: Date;
+            motd: string | null;
+        };
+    } & {
+        id: string;
+        createdAt: Date;
+        status: string;
+        fromPlayerId: number;
+        toPlayerId: number;
+        expiresAt: Date;
+        guildId: string;
+    }) | null>;
+    getPendingGuildInvitesForPlayer(playerId: number): Promise<({
+        guild: {
+            id: string;
+            createdAt: Date;
+            name: string;
+            updatedAt: Date;
+            motd: string | null;
+        };
+        fromPlayer: {
+            id: number;
+            name: string;
+        };
+    } & {
+        id: string;
+        createdAt: Date;
+        status: string;
+        fromPlayerId: number;
+        toPlayerId: number;
+        expiresAt: Date;
+        guildId: string;
+    })[]>;
+    completeGuildInvite(inviteId: string, status: 'accepted' | 'declined' | 'expired' | 'cancelled'): Promise<void>;
+    pruneExpiredGuildInvites(now: Date): Promise<void>;
+    clearGuildInvitesForPlayer(playerId: number): Promise<void>;
+    getPetsForPlayer(playerId: number): Promise<{
+        id: string;
+        createdAt: Date;
+        name: string;
+        level: number;
+        xp: number;
+        updatedAt: Date;
+        playerId: number;
+        templateId: string;
+        loyalty: number;
+        hunger: number;
+    }[]>;
+    getPetOwnershipById(ownershipId: string): Promise<{
+        id: string;
+        createdAt: Date;
+        name: string;
+        level: number;
+        xp: number;
+        updatedAt: Date;
+        playerId: number;
+        templateId: string;
+        loyalty: number;
+        hunger: number;
+    } | null>;
+    createPetOwnership(playerId: number, templateId: string, name?: string): Promise<{
+        id: string;
+        createdAt: Date;
+        name: string;
+        level: number;
+        xp: number;
+        updatedAt: Date;
+        playerId: number;
+        templateId: string;
+        loyalty: number;
+        hunger: number;
+    }>;
+    updatePetOwnership(ownershipId: string, patch: {
+        name?: string;
+        level?: number;
+        xp?: number;
+        loyalty?: number;
+        hunger?: number;
+    }): Promise<{
+        id: string;
+        createdAt: Date;
+        name: string;
+        level: number;
+        xp: number;
+        updatedAt: Date;
+        playerId: number;
+        templateId: string;
+        loyalty: number;
+        hunger: number;
+    }>;
+    ensureStarterPetsForPlayer(playerId: number): Promise<void>;
+    getActivePetForPlayer(playerId: number): Promise<({
+        petOwnership: {
+            id: string;
+            createdAt: Date;
+            name: string;
+            level: number;
+            xp: number;
+            updatedAt: Date;
+            playerId: number;
+            templateId: string;
+            loyalty: number;
+            hunger: number;
+        };
+    } & {
+        createdAt: Date;
+        updatedAt: Date;
+        playerId: number;
+        petOwnershipId: string;
+        behavior: string;
+    }) | null>;
+    setActivePet(playerId: number, petOwnershipId: string, behavior?: string): Promise<{
+        createdAt: Date;
+        updatedAt: Date;
+        playerId: number;
+        petOwnershipId: string;
+        behavior: string;
+    }>;
+    clearActivePet(playerId: number): Promise<void>;
     private savePlayerFromSnapshot;
 }
 export {};

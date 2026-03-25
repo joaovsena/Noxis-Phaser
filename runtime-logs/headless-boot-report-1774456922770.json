@@ -1,0 +1,2016 @@
+{
+  "url": "http://127.0.0.1:3000",
+  "username": "diagmn69ts2g",
+  "password": "diag123",
+  "characterName": "Diag69ts2h",
+  "startedAt": "2026-03-25T16:41:46.910Z",
+  "states": [
+    {
+      "atMs": 12,
+      "phase": "character_select",
+      "playerId": null,
+      "worldStatic": false,
+      "worldState": false,
+      "inventoryState": false,
+      "resolvedWorld": false,
+      "bootStage": "socket:character-select",
+      "lastPacket": "auth_character_select | 149 chars | players 0 | mobs 0",
+      "lastError": "",
+      "wsMessages": 6
+    },
+    {
+      "atMs": 1033,
+      "phase": "in_game",
+      "playerId": 34,
+      "worldStatic": true,
+      "worldState": true,
+      "inventoryState": true,
+      "resolvedWorld": true,
+      "bootStage": "socket:bootstrap-world:ready-sent",
+      "lastPacket": "world_state | 6431 chars | players 1 | mobs 16",
+      "lastError": "",
+      "wsMessages": 58
+    }
+  ],
+  "finalState": {
+    "connectionPhase": "in_game",
+    "socketConnected": true,
+    "authMessage": "Autenticado. Aguardando estado do mundo...",
+    "selectedCharacterSlot": null,
+    "characterSlots": [
+      {
+        "slot": 0,
+        "id": 34,
+        "name": "Diag69ts2h",
+        "class": "archer",
+        "gender": "female",
+        "level": 1
+      },
+      null,
+      null
+    ],
+    "playerId": 34,
+    "worldStatic": {
+      "type": "world_static",
+      "mapCode": "A1",
+      "mapKey": "forest",
+      "mapTheme": "forest",
+      "mapFeatures": [],
+      "portals": [
+        {
+          "id": "forest_to_lava_01",
+          "x": 2255,
+          "y": 1305,
+          "w": 96,
+          "h": 96,
+          "toMapKey": "lava",
+          "toX": 165,
+          "toY": 1505
+        },
+        {
+          "id": "forest_dungeon_ruins_01",
+          "x": 1155,
+          "y": 705,
+          "w": 96,
+          "h": 96,
+          "dungeonTemplateId": "dng_forest_ruins_mvp"
+        }
+      ],
+      "world": {
+        "width": 2400,
+        "height": 2400
+      },
+      "mapTiled": {
+        "mapCode": "A1",
+        "assetKey": "A1",
+        "tmjUrl": "/maps/A1/a1.tmj",
+        "tilesBaseUrl": "/maps/A1/tiles",
+        "orientation": "isometric",
+        "worldTileSize": 50,
+        "worldScale": 1
+      },
+      "mapId": "Z1"
+    },
+    "worldState": {
+      "type": "world_state",
+      "players": {
+        "34": {
+          "id": 34,
+          "username": "diagmn69ts2g",
+          "name": "Diag69ts2h",
+          "class": "archer",
+          "gender": "female",
+          "x": 425,
+          "y": 1225,
+          "mapKey": "forest",
+          "mapId": "Z1",
+          "pvpMode": "peace",
+          "dead": false,
+          "role": "player",
+          "level": 1,
+          "hp": 120,
+          "maxHp": 120,
+          "afkActive": false,
+          "equippedWeaponName": null,
+          "equippedBySlot": {},
+          "wallet": {
+            "copper": 0,
+            "silver": 0,
+            "gold": 0,
+            "diamond": 0
+          },
+          "xp": 0,
+          "xpToNext": 100,
+          "stats": {
+            "str": 8,
+            "int": 5,
+            "dex": 12,
+            "vit": 7,
+            "physicalAttack": 16,
+            "magicAttack": 15,
+            "physicalDefense": 12.4,
+            "magicDefense": 7.5,
+            "accuracy": 18,
+            "evasion": 9.600000000000001,
+            "criticalChance": 0.0024000000000000002,
+            "luck": 1.7,
+            "moveSpeed": 110,
+            "attackSpeed": 130,
+            "attackRange": 220,
+            "damageType": "physical",
+            "maxHp": 120
+          },
+          "skillLevels": {},
+          "skillCooldowns": {},
+          "skillPointsAvailable": 0,
+          "allocatedStats": {
+            "str": 0,
+            "int": 0,
+            "dex": 0,
+            "vit": 0
+          },
+          "unspentPoints": 0,
+          "activeSkillEffects": []
+        }
+      },
+      "mobs": [
+        {
+          "id": "mob-forest-Z1-forest-outskirts-pack-a-1",
+          "x": 824.0165274591544,
+          "y": 1435.1038351230457,
+          "kind": "normal",
+          "color": "#d63031",
+          "size": 40,
+          "hp": 120,
+          "maxHp": 120,
+          "level": 1,
+          "state": "idle",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        },
+        {
+          "id": "mob-forest-Z1-forest-outskirts-pack-a-2",
+          "x": 845.0681780277209,
+          "y": 1526.1294785163218,
+          "kind": "normal",
+          "color": "#d63031",
+          "size": 40,
+          "hp": 120,
+          "maxHp": 120,
+          "level": 1,
+          "state": "idle",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        },
+        {
+          "id": "mob-forest-Z1-forest-outskirts-pack-a-3",
+          "x": 790.9761295090723,
+          "y": 1478.968557179601,
+          "kind": "normal",
+          "color": "#d63031",
+          "size": 40,
+          "hp": 120,
+          "maxHp": 120,
+          "level": 1,
+          "state": "idle",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        },
+        {
+          "id": "mob-forest-Z1-forest-outskirts-pack-b-1",
+          "x": 990.7848102886929,
+          "y": 1543.392857084455,
+          "kind": "normal",
+          "color": "#d63031",
+          "size": 40,
+          "hp": 120,
+          "maxHp": 120,
+          "level": 1,
+          "state": "wander",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        },
+        {
+          "id": "mob-forest-Z1-forest-bridge-pack-1",
+          "x": 1542.1452057021947,
+          "y": 1320.9704251440826,
+          "kind": "normal",
+          "color": "#d63031",
+          "size": 40,
+          "hp": 120,
+          "maxHp": 120,
+          "level": 1,
+          "state": "wander",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        },
+        {
+          "id": "mob-forest-Z1-forest-bridge-pack-2",
+          "x": 1369.3887075602295,
+          "y": 1284.2866462109043,
+          "kind": "normal",
+          "color": "#d63031",
+          "size": 40,
+          "hp": 120,
+          "maxHp": 120,
+          "level": 1,
+          "state": "idle",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        },
+        {
+          "id": "mob-forest-Z1-forest-east-road-pack-1",
+          "x": 1854.9074070201752,
+          "y": 1294.7569127288696,
+          "kind": "normal",
+          "color": "#d63031",
+          "size": 40,
+          "hp": 120,
+          "maxHp": 120,
+          "level": 1,
+          "state": "idle",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        },
+        {
+          "id": "mob-forest-Z1-forest-east-road-pack-2",
+          "x": 1958.965639751862,
+          "y": 1287.3535069020684,
+          "kind": "normal",
+          "color": "#d63031",
+          "size": 40,
+          "hp": 120,
+          "maxHp": 120,
+          "level": 1,
+          "state": "idle",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        },
+        {
+          "id": "mob-forest-Z1-forest-ruins-approach-pack-1",
+          "x": 1145.9870611882966,
+          "y": 793.0130276060038,
+          "kind": "normal",
+          "color": "#d63031",
+          "size": 40,
+          "hp": 120,
+          "maxHp": 120,
+          "level": 1,
+          "state": "idle",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        },
+        {
+          "id": "mob-forest-Z1-forest-lava-road-scouts-1",
+          "x": 2109,
+          "y": 1346,
+          "kind": "normal",
+          "color": "#d63031",
+          "size": 40,
+          "hp": 120,
+          "maxHp": 120,
+          "level": 1,
+          "state": "wander",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        },
+        {
+          "id": "mob-forest-Z1-forest-bridge-elite-pair-1",
+          "x": 1560.1309880394842,
+          "y": 1158.3372758722358,
+          "kind": "elite",
+          "color": "#e67e22",
+          "size": 56,
+          "hp": 240,
+          "maxHp": 240,
+          "level": 1,
+          "state": "wander",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        },
+        {
+          "id": "mob-forest-Z1-forest-bridge-elite-pair-2",
+          "x": 1617,
+          "y": 1206,
+          "kind": "elite",
+          "color": "#e67e22",
+          "size": 56,
+          "hp": 240,
+          "maxHp": 240,
+          "level": 1,
+          "state": "idle",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        },
+        {
+          "id": "mob-forest-Z1-forest-rift-elite-pair-1",
+          "x": 1972.3230184635797,
+          "y": 919.2509424592106,
+          "kind": "elite",
+          "color": "#e67e22",
+          "size": 56,
+          "hp": 240,
+          "maxHp": 240,
+          "level": 1,
+          "state": "wander",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        },
+        {
+          "id": "mob-forest-Z1-forest-rift-elite-pair-2",
+          "x": 1783.3394617157787,
+          "y": 981.6604483440981,
+          "kind": "elite",
+          "color": "#e67e22",
+          "size": 56,
+          "hp": 240,
+          "maxHp": 240,
+          "level": 1,
+          "state": "idle",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        },
+        {
+          "id": "mob-forest-Z1-forest-ruins-elite-1",
+          "x": 1102.6154612997318,
+          "y": 737.058488166904,
+          "kind": "elite",
+          "color": "#e67e22",
+          "size": 56,
+          "hp": 240,
+          "maxHp": 240,
+          "level": 1,
+          "state": "idle",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        },
+        {
+          "id": "mob-forest-Z1-forest-ruins-subboss-1",
+          "x": 1224.239707458227,
+          "y": 579.9350001728282,
+          "kind": "subboss",
+          "color": "#8e44ad",
+          "size": 72,
+          "hp": 600,
+          "maxHp": 600,
+          "level": 1,
+          "state": "idle",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        }
+      ],
+      "groundItems": [],
+      "activeEvents": [],
+      "npcs": [
+        {
+          "id": "npc_guard_alden",
+          "name": "Guarda Alden",
+          "x": 375,
+          "y": 1175,
+          "role": "quest_giver",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        },
+        {
+          "id": "npc_scout_lina",
+          "name": "Exploradora Lina",
+          "x": 575,
+          "y": 1075,
+          "role": "quest_giver",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        },
+        {
+          "id": "npc_curandeira_selene",
+          "name": "Curandeira Selene",
+          "x": 425,
+          "y": 1425,
+          "role": "quest_giver",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        },
+        {
+          "id": "npc_mestre_rowan",
+          "name": "Mestre Rowan",
+          "x": 625,
+          "y": 1225,
+          "role": "quest_giver",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        },
+        {
+          "id": "npc_cidadao_marek",
+          "name": "Cidadao Marek",
+          "x": 325,
+          "y": 1375,
+          "role": "quest_giver",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        },
+        {
+          "id": "npc_ferreiro_borin",
+          "name": "Ferreiro Borin",
+          "x": 475,
+          "y": 1325,
+          "role": "shopkeeper",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        },
+        {
+          "id": "npc_mercadora_tessa",
+          "name": "Mercadora Tessa",
+          "x": 525,
+          "y": 1475,
+          "role": "shopkeeper",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        },
+        {
+          "id": "npc_bau_zenon",
+          "name": "Guardiao do Bau",
+          "x": 575,
+          "y": 1325,
+          "role": "chest_keeper",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        },
+        {
+          "id": "npc_dungeon_warden",
+          "name": "Guardiao das Ruinas",
+          "x": 1025,
+          "y": 925,
+          "role": "civilian",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        }
+      ],
+      "mapKey": "forest",
+      "mapId": "Z1"
+    },
+    "resolvedWorld": {
+      "type": "world_state",
+      "mapCode": "A1",
+      "mapKey": "forest",
+      "mapTheme": "forest",
+      "mapFeatures": [],
+      "portals": [
+        {
+          "id": "forest_to_lava_01",
+          "x": 2255,
+          "y": 1305,
+          "w": 96,
+          "h": 96,
+          "toMapKey": "lava",
+          "toX": 165,
+          "toY": 1505
+        },
+        {
+          "id": "forest_dungeon_ruins_01",
+          "x": 1155,
+          "y": 705,
+          "w": 96,
+          "h": 96,
+          "dungeonTemplateId": "dng_forest_ruins_mvp"
+        }
+      ],
+      "world": {
+        "width": 2400,
+        "height": 2400
+      },
+      "mapTiled": {
+        "mapCode": "A1",
+        "assetKey": "A1",
+        "tmjUrl": "/maps/A1/a1.tmj",
+        "tilesBaseUrl": "/maps/A1/tiles",
+        "orientation": "isometric",
+        "worldTileSize": 50,
+        "worldScale": 1
+      },
+      "mapId": "Z1",
+      "players": {
+        "34": {
+          "id": 34,
+          "username": "diagmn69ts2g",
+          "name": "Diag69ts2h",
+          "class": "archer",
+          "gender": "female",
+          "x": 425,
+          "y": 1225,
+          "mapKey": "forest",
+          "mapId": "Z1",
+          "pvpMode": "peace",
+          "dead": false,
+          "role": "player",
+          "level": 1,
+          "hp": 120,
+          "maxHp": 120,
+          "afkActive": false,
+          "equippedWeaponName": null,
+          "equippedBySlot": {},
+          "wallet": {
+            "copper": 0,
+            "silver": 0,
+            "gold": 0,
+            "diamond": 0
+          },
+          "xp": 0,
+          "xpToNext": 100,
+          "stats": {
+            "str": 8,
+            "int": 5,
+            "dex": 12,
+            "vit": 7,
+            "physicalAttack": 16,
+            "magicAttack": 15,
+            "physicalDefense": 12.4,
+            "magicDefense": 7.5,
+            "accuracy": 18,
+            "evasion": 9.600000000000001,
+            "criticalChance": 0.0024000000000000002,
+            "luck": 1.7,
+            "moveSpeed": 110,
+            "attackSpeed": 130,
+            "attackRange": 220,
+            "damageType": "physical",
+            "maxHp": 120
+          },
+          "skillLevels": {},
+          "skillCooldowns": {},
+          "skillPointsAvailable": 0,
+          "allocatedStats": {
+            "str": 0,
+            "int": 0,
+            "dex": 0,
+            "vit": 0
+          },
+          "unspentPoints": 0,
+          "activeSkillEffects": []
+        }
+      },
+      "mobs": [
+        {
+          "id": "mob-forest-Z1-forest-outskirts-pack-a-1",
+          "x": 824.0165274591544,
+          "y": 1435.1038351230457,
+          "kind": "normal",
+          "color": "#d63031",
+          "size": 40,
+          "hp": 120,
+          "maxHp": 120,
+          "level": 1,
+          "state": "idle",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        },
+        {
+          "id": "mob-forest-Z1-forest-outskirts-pack-a-2",
+          "x": 845.0681780277209,
+          "y": 1526.1294785163218,
+          "kind": "normal",
+          "color": "#d63031",
+          "size": 40,
+          "hp": 120,
+          "maxHp": 120,
+          "level": 1,
+          "state": "idle",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        },
+        {
+          "id": "mob-forest-Z1-forest-outskirts-pack-a-3",
+          "x": 790.9761295090723,
+          "y": 1478.968557179601,
+          "kind": "normal",
+          "color": "#d63031",
+          "size": 40,
+          "hp": 120,
+          "maxHp": 120,
+          "level": 1,
+          "state": "idle",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        },
+        {
+          "id": "mob-forest-Z1-forest-outskirts-pack-b-1",
+          "x": 990.7848102886929,
+          "y": 1543.392857084455,
+          "kind": "normal",
+          "color": "#d63031",
+          "size": 40,
+          "hp": 120,
+          "maxHp": 120,
+          "level": 1,
+          "state": "wander",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        },
+        {
+          "id": "mob-forest-Z1-forest-bridge-pack-1",
+          "x": 1542.1452057021947,
+          "y": 1320.9704251440826,
+          "kind": "normal",
+          "color": "#d63031",
+          "size": 40,
+          "hp": 120,
+          "maxHp": 120,
+          "level": 1,
+          "state": "wander",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        },
+        {
+          "id": "mob-forest-Z1-forest-bridge-pack-2",
+          "x": 1369.3887075602295,
+          "y": 1284.2866462109043,
+          "kind": "normal",
+          "color": "#d63031",
+          "size": 40,
+          "hp": 120,
+          "maxHp": 120,
+          "level": 1,
+          "state": "idle",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        },
+        {
+          "id": "mob-forest-Z1-forest-east-road-pack-1",
+          "x": 1854.9074070201752,
+          "y": 1294.7569127288696,
+          "kind": "normal",
+          "color": "#d63031",
+          "size": 40,
+          "hp": 120,
+          "maxHp": 120,
+          "level": 1,
+          "state": "idle",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        },
+        {
+          "id": "mob-forest-Z1-forest-east-road-pack-2",
+          "x": 1958.965639751862,
+          "y": 1287.3535069020684,
+          "kind": "normal",
+          "color": "#d63031",
+          "size": 40,
+          "hp": 120,
+          "maxHp": 120,
+          "level": 1,
+          "state": "idle",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        },
+        {
+          "id": "mob-forest-Z1-forest-ruins-approach-pack-1",
+          "x": 1145.9870611882966,
+          "y": 793.0130276060038,
+          "kind": "normal",
+          "color": "#d63031",
+          "size": 40,
+          "hp": 120,
+          "maxHp": 120,
+          "level": 1,
+          "state": "idle",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        },
+        {
+          "id": "mob-forest-Z1-forest-lava-road-scouts-1",
+          "x": 2109,
+          "y": 1346,
+          "kind": "normal",
+          "color": "#d63031",
+          "size": 40,
+          "hp": 120,
+          "maxHp": 120,
+          "level": 1,
+          "state": "wander",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        },
+        {
+          "id": "mob-forest-Z1-forest-bridge-elite-pair-1",
+          "x": 1560.1309880394842,
+          "y": 1158.3372758722358,
+          "kind": "elite",
+          "color": "#e67e22",
+          "size": 56,
+          "hp": 240,
+          "maxHp": 240,
+          "level": 1,
+          "state": "wander",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        },
+        {
+          "id": "mob-forest-Z1-forest-bridge-elite-pair-2",
+          "x": 1617,
+          "y": 1206,
+          "kind": "elite",
+          "color": "#e67e22",
+          "size": 56,
+          "hp": 240,
+          "maxHp": 240,
+          "level": 1,
+          "state": "idle",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        },
+        {
+          "id": "mob-forest-Z1-forest-rift-elite-pair-1",
+          "x": 1972.3230184635797,
+          "y": 919.2509424592106,
+          "kind": "elite",
+          "color": "#e67e22",
+          "size": 56,
+          "hp": 240,
+          "maxHp": 240,
+          "level": 1,
+          "state": "wander",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        },
+        {
+          "id": "mob-forest-Z1-forest-rift-elite-pair-2",
+          "x": 1783.3394617157787,
+          "y": 981.6604483440981,
+          "kind": "elite",
+          "color": "#e67e22",
+          "size": 56,
+          "hp": 240,
+          "maxHp": 240,
+          "level": 1,
+          "state": "idle",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        },
+        {
+          "id": "mob-forest-Z1-forest-ruins-elite-1",
+          "x": 1102.6154612997318,
+          "y": 737.058488166904,
+          "kind": "elite",
+          "color": "#e67e22",
+          "size": 56,
+          "hp": 240,
+          "maxHp": 240,
+          "level": 1,
+          "state": "idle",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        },
+        {
+          "id": "mob-forest-Z1-forest-ruins-subboss-1",
+          "x": 1224.239707458227,
+          "y": 579.9350001728282,
+          "kind": "subboss",
+          "color": "#8e44ad",
+          "size": 72,
+          "hp": 600,
+          "maxHp": 600,
+          "level": 1,
+          "state": "idle",
+          "targetPlayerId": 0,
+          "eventId": null,
+          "eventName": null
+        }
+      ],
+      "groundItems": [],
+      "activeEvents": [],
+      "npcs": [
+        {
+          "id": "npc_guard_alden",
+          "name": "Guarda Alden",
+          "x": 375,
+          "y": 1175,
+          "role": "quest_giver",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        },
+        {
+          "id": "npc_scout_lina",
+          "name": "Exploradora Lina",
+          "x": 575,
+          "y": 1075,
+          "role": "quest_giver",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        },
+        {
+          "id": "npc_curandeira_selene",
+          "name": "Curandeira Selene",
+          "x": 425,
+          "y": 1425,
+          "role": "quest_giver",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        },
+        {
+          "id": "npc_mestre_rowan",
+          "name": "Mestre Rowan",
+          "x": 625,
+          "y": 1225,
+          "role": "quest_giver",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        },
+        {
+          "id": "npc_cidadao_marek",
+          "name": "Cidadao Marek",
+          "x": 325,
+          "y": 1375,
+          "role": "quest_giver",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        },
+        {
+          "id": "npc_ferreiro_borin",
+          "name": "Ferreiro Borin",
+          "x": 475,
+          "y": 1325,
+          "role": "shopkeeper",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        },
+        {
+          "id": "npc_mercadora_tessa",
+          "name": "Mercadora Tessa",
+          "x": 525,
+          "y": 1475,
+          "role": "shopkeeper",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        },
+        {
+          "id": "npc_bau_zenon",
+          "name": "Guardiao do Bau",
+          "x": 575,
+          "y": 1325,
+          "role": "chest_keeper",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        },
+        {
+          "id": "npc_dungeon_warden",
+          "name": "Guardiao das Ruinas",
+          "x": 1025,
+          "y": 925,
+          "role": "civilian",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        }
+      ]
+    },
+    "authPayload": {
+      "type": "auth_success",
+      "playerId": 34,
+      "mapKey": "forest",
+      "mapId": "Z1",
+      "world": {
+        "width": 2400,
+        "height": 2400
+      },
+      "mapTiled": {
+        "mapCode": "A1",
+        "assetKey": "A1",
+        "tmjUrl": "/maps/A1/a1.tmj",
+        "tilesBaseUrl": "/maps/A1/tiles",
+        "orientation": "isometric",
+        "worldTileSize": 50,
+        "worldScale": 1
+      },
+      "role": "player",
+      "statusIds": {
+        "physicalAttack": 1,
+        "magicAttack": 2,
+        "physicalDefense": 3,
+        "magicDefense": 4,
+        "moveSpeed": 5,
+        "attackSpeed": 6,
+        "attackRange": 7,
+        "maxHp": 8
+      },
+      "hotbarBindings": {
+        "1": null,
+        "2": null,
+        "3": null,
+        "4": null,
+        "5": null,
+        "6": null,
+        "7": null,
+        "8": null,
+        "q": null,
+        "w": null,
+        "e": null,
+        "r": null,
+        "a": null,
+        "s": null,
+        "d": null,
+        "f": null
+      }
+    },
+    "chatMessages": [],
+    "inventoryState": {
+      "type": "inventory_state",
+      "inventory": [],
+      "equippedWeaponId": null,
+      "equippedBySlot": {},
+      "wallet": {
+        "copper": 0,
+        "silver": 0,
+        "gold": 0,
+        "diamond": 0
+      }
+    },
+    "hotbarBindings": {
+      "1": null,
+      "2": null,
+      "3": null,
+      "4": null,
+      "5": null,
+      "6": null,
+      "7": null,
+      "8": null,
+      "q": null,
+      "w": null,
+      "e": null,
+      "r": null,
+      "a": null,
+      "s": null,
+      "d": null,
+      "f": null
+    },
+    "questState": [],
+    "partyState": null,
+    "partyAreaList": [],
+    "friendState": {
+      "type": "friend.state",
+      "friends": [],
+      "incoming": [],
+      "outgoing": []
+    },
+    "tradeState": {
+      "type": "trade.state",
+      "incomingRequest": null,
+      "outgoingRequest": null,
+      "session": null
+    },
+    "storageState": {
+      "type": "storage.state",
+      "open": false,
+      "npc": null,
+      "capacity": 36,
+      "items": []
+    },
+    "guildState": {
+      "type": "guild.state",
+      "guild": null,
+      "invites": []
+    },
+    "lastCombatEvent": null,
+    "dead": false,
+    "selectedPlayerId": null,
+    "npcDialog": null,
+    "npcShopOpen": false,
+    "dungeonReadyState": null,
+    "selectedMobId": null,
+    "pendingDeleteItemId": null,
+    "partyInvites": [],
+    "partyJoinRequests": [],
+    "skillEffects": [],
+    "combatBursts": [],
+    "lastMoveAck": null,
+    "adminResult": null,
+    "adminMobPeacefulEnabled": false,
+    "partyWaypoints": [],
+    "networkPingMs": 4,
+    "autoAttackEnabled": true,
+    "pathDebugEnabled": false,
+    "interactionDebugEnabled": false
+  },
+  "bootDiagnostics": {
+    "savedAt": "2026-03-25T16:42:02.768Z",
+    "startedAt": "2026-03-25T16:41:48.856Z",
+    "uptimeMs": 13912,
+    "heartbeatGapMs": 451,
+    "counters": {
+      "wsMessages": 58,
+      "worldStateMessages": 31,
+      "storeUpdates": 48,
+      "slowStoreUpdates": 0,
+      "sceneSyncs": 34,
+      "slowSceneSyncs": 1,
+      "fetches": 4,
+      "slowFetches": 0,
+      "errors": 0
+    },
+    "summary": {
+      "attempt": 1,
+      "stage": "socket:bootstrap-world:ready-sent",
+      "connectionPhase": "in_game",
+      "socketConnected": true,
+      "runtimeReady": true,
+      "playerId": 34,
+      "worldStaticReady": true,
+      "worldStateReady": true,
+      "inventoryReady": true,
+      "resolvedWorldReady": true,
+      "localPlayerReady": true,
+      "currentMapId": "Z1",
+      "lastPacket": "world_state | 6431 chars | players 1 | mobs 16",
+      "lastRequest": "tileset:200 /maps/A1/a1.tsx em 15ms",
+      "lastError": "",
+      "lastSceneReason": "sync",
+      "sceneMapUrl": "/maps/A1/a1.tmj",
+      "sceneLoadingMapUrl": "-",
+      "scenePlayers": 1,
+      "sceneMobs": 16,
+      "sceneNpcs": 9,
+      "sceneGroundItems": 0
+    },
+    "logs": [
+      {
+        "seq": 79,
+        "at": "13:42:01",
+        "relMs": 13047,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote storage.state | 73 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 78,
+        "at": "13:42:01",
+        "relMs": 13047,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote trade.state | 83 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 77,
+        "at": "13:42:01",
+        "relMs": 13046,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote debug.step | 86 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 76,
+        "at": "13:42:01",
+        "relMs": 13046,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote guild.state | 48 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 75,
+        "at": "13:42:01",
+        "relMs": 13046,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote debug.step | 87 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 74,
+        "at": "13:42:01",
+        "relMs": 13046,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote friend.state | 64 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 73,
+        "at": "13:42:01",
+        "relMs": 13045,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote debug.step | 80 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 72,
+        "at": "13:42:01",
+        "relMs": 13045,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote party.areaList | 38 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 71,
+        "at": "13:42:01",
+        "relMs": 13045,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote party.state | 35 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 70,
+        "at": "13:42:01",
+        "relMs": 13045,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote debug.step | 86 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 69,
+        "at": "13:42:01",
+        "relMs": 13045,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote quest.state | 34 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 68,
+        "at": "13:42:01",
+        "relMs": 13044,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote debug.packet | 79 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 67,
+        "at": "13:42:01",
+        "relMs": 12983,
+        "scope": "scene",
+        "event": "sync",
+        "message": "WorldScene sync | map /maps/A1/a1.tmj | loading -.",
+        "level": "info"
+      },
+      {
+        "seq": 66,
+        "at": "13:42:01",
+        "relMs": 12983,
+        "scope": "scene",
+        "event": "slow-sync",
+        "message": "WorldScene.syncFromStore lento (47.40ms) | players 1 | mobs 16 | npcs 9 | itens 0.",
+        "level": "warn"
+      },
+      {
+        "seq": 65,
+        "at": "13:42:01",
+        "relMs": 12931,
+        "scope": "hud",
+        "event": "chat-mounted",
+        "message": "ChatWindow montado.",
+        "level": "info"
+      },
+      {
+        "seq": 64,
+        "at": "13:42:01",
+        "relMs": 12915,
+        "scope": "hud",
+        "event": "loading-state",
+        "message": "world ok | map ok | player ok | inventory ok",
+        "level": "info"
+      },
+      {
+        "seq": 63,
+        "at": "13:42:01",
+        "relMs": 12909,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote world_static | 523 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 62,
+        "at": "13:42:01",
+        "relMs": 12904,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote debug.step | 90 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 61,
+        "at": "13:42:01",
+        "relMs": 12904,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote bootstrap.world | 7170 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 60,
+        "at": "13:42:01",
+        "relMs": 12903,
+        "scope": "stage",
+        "event": "socket:bootstrap-world:ready-sent",
+        "message": "bootstrap.ready enviado ao servidor.",
+        "level": "info"
+      },
+      {
+        "seq": 59,
+        "at": "13:42:01",
+        "relMs": 12903,
+        "scope": "stage",
+        "event": "socket:bootstrap-world:store-updated",
+        "message": "bootstrap.world aplicado | phase in_game | world yes | inv yes | resolved yes.",
+        "level": "info"
+      },
+      {
+        "seq": 58,
+        "at": "13:42:01",
+        "relMs": 12903,
+        "scope": "main",
+        "event": "runtime-shell",
+        "message": "syncRuntimeShell | phase in_game | ready yes | static ok | state ok | inv ok.",
+        "level": "info"
+      },
+      {
+        "seq": 57,
+        "at": "13:42:01",
+        "relMs": 12903,
+        "scope": "store",
+        "event": "readiness",
+        "message": "Runtime in_game | ws on | static ok | state ok | inv ok | resolved ok | player ok | map Z1.",
+        "level": "info"
+      },
+      {
+        "seq": 56,
+        "at": "13:42:01",
+        "relMs": 12902,
+        "scope": "socket",
+        "event": "bootstrap-world:start",
+        "message": "Aplicando bootstrap.world | static yes | players 1 | mobs 16 | inv yes.",
+        "level": "info"
+      },
+      {
+        "seq": 55,
+        "at": "13:42:01",
+        "relMs": 12902,
+        "scope": "stage",
+        "event": "socket:bootstrap.world",
+        "message": "bootstrap.world recebido | static yes | state yes | inv yes.",
+        "level": "info"
+      },
+      {
+        "seq": 54,
+        "at": "13:42:01",
+        "relMs": 12901,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote debug.packet | 83 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 53,
+        "at": "13:42:01",
+        "relMs": 12892,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote debug.step | 89 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 52,
+        "at": "13:42:01",
+        "relMs": 12891,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote bootstrap.auth | 824 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 51,
+        "at": "13:42:01",
+        "relMs": 12890,
+        "scope": "stage",
+        "event": "socket:bootstrap-auth:done",
+        "message": "bootstrap.auth aplicado | static yes | player 34 | phase character_select.",
+        "level": "info"
+      },
+      {
+        "seq": 50,
+        "at": "13:42:01",
+        "relMs": 12890,
+        "scope": "main",
+        "event": "runtime-shell",
+        "message": "syncRuntimeShell | phase character_select | ready no | static ok | state no | inv no.",
+        "level": "info"
+      },
+      {
+        "seq": 49,
+        "at": "13:42:01",
+        "relMs": 12890,
+        "scope": "store",
+        "event": "readiness",
+        "message": "Runtime character_select | ws on | static ok | state no | inv no | resolved ok | player no | map Z1.",
+        "level": "info"
+      },
+      {
+        "seq": 48,
+        "at": "13:42:01",
+        "relMs": 12890,
+        "scope": "socket",
+        "event": "bootstrap-auth:start",
+        "message": "Aplicando bootstrap.auth | player 34 | hotbar yes.",
+        "level": "info"
+      },
+      {
+        "seq": 47,
+        "at": "13:42:01",
+        "relMs": 12889,
+        "scope": "stage",
+        "event": "socket:bootstrap-auth",
+        "message": "Bootstrap auth recebido para player 34.",
+        "level": "info"
+      },
+      {
+        "seq": 46,
+        "at": "13:42:01",
+        "relMs": 12889,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote debug.packet | 82 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 45,
+        "at": "13:42:01",
+        "relMs": 12888,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote debug.packet | 80 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 44,
+        "at": "13:42:01",
+        "relMs": 12887,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote debug.step | 81 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 43,
+        "at": "13:42:01",
+        "relMs": 12663,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote auth_character_select | 149 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 42,
+        "at": "13:42:01",
+        "relMs": 12663,
+        "scope": "main",
+        "event": "runtime-shell",
+        "message": "syncRuntimeShell | phase character_select | ready no | static no | state no | inv no.",
+        "level": "info"
+      },
+      {
+        "seq": 41,
+        "at": "13:42:01",
+        "relMs": 12663,
+        "scope": "store",
+        "event": "readiness",
+        "message": "Runtime character_select | ws on | static no | state no | inv no | resolved no | player no | map -.",
+        "level": "info"
+      },
+      {
+        "seq": 40,
+        "at": "13:42:01",
+        "relMs": 12662,
+        "scope": "stage",
+        "event": "socket:character-select",
+        "message": "Lista de personagens recebida.",
+        "level": "info"
+      },
+      {
+        "seq": 39,
+        "at": "13:42:01",
+        "relMs": 12437,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote auth_character_required | 96 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 38,
+        "at": "13:42:01",
+        "relMs": 12436,
+        "scope": "main",
+        "event": "runtime-shell",
+        "message": "syncRuntimeShell | phase character_create | ready no | static no | state no | inv no.",
+        "level": "info"
+      },
+      {
+        "seq": 37,
+        "at": "13:42:01",
+        "relMs": 12436,
+        "scope": "store",
+        "event": "readiness",
+        "message": "Runtime character_create | ws on | static no | state no | inv no | resolved no | player no | map -.",
+        "level": "info"
+      },
+      {
+        "seq": 36,
+        "at": "13:42:01",
+        "relMs": 12431,
+        "scope": "scene",
+        "event": "sync",
+        "message": "WorldScene sync | map /maps/A1/a1.tmj | loading -.",
+        "level": "info"
+      },
+      {
+        "seq": 35,
+        "at": "13:42:01",
+        "relMs": 12430,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote auth_ok | 68 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 34,
+        "at": "13:42:01",
+        "relMs": 12430,
+        "scope": "perf",
+        "event": "heartbeat-gap",
+        "message": "Gap detectado na main thread: 3342ms.",
+        "level": "warn"
+      },
+      {
+        "seq": 33,
+        "at": "13:41:57",
+        "relMs": 9087,
+        "scope": "perf",
+        "event": "heartbeat-gap",
+        "message": "Gap detectado na main thread: 8560ms.",
+        "level": "warn"
+      },
+      {
+        "seq": 32,
+        "at": "13:41:57",
+        "relMs": 9081,
+        "scope": "scene",
+        "event": "map:rendered",
+        "message": "WorldScene map:rendered | map /maps/A1/a1.tmj | loading -.",
+        "level": "info"
+      },
+      {
+        "seq": 31,
+        "at": "13:41:49",
+        "relMs": 652,
+        "scope": "scene",
+        "event": "map:textures-finished",
+        "message": "WorldScene map:textures-finished | map /maps/A1/a1.tmj | loading -.",
+        "level": "info"
+      },
+      {
+        "seq": 30,
+        "at": "13:41:49",
+        "relMs": 652,
+        "scope": "stage",
+        "event": "scene:tile-textures:done",
+        "message": "Texturas de tile finalizadas em 49ms | ok 7/7 | falhas 0.",
+        "level": "info"
+      },
+      {
+        "seq": 29,
+        "at": "13:41:49",
+        "relMs": 608,
+        "scope": "scene",
+        "event": "sync",
+        "message": "WorldScene sync | map /maps/A1/a1.tmj | loading -.",
+        "level": "info"
+      },
+      {
+        "seq": 28,
+        "at": "13:41:49",
+        "relMs": 605,
+        "scope": "scene",
+        "event": "map:loaded",
+        "message": "WorldScene map:loaded | map /maps/A1/a1.tmj | loading -.",
+        "level": "info"
+      },
+      {
+        "seq": 27,
+        "at": "13:41:49",
+        "relMs": 605,
+        "scope": "stage",
+        "event": "scene:map:loaded",
+        "message": "Mapa /maps/A1/a1.tmj processado em 82ms.",
+        "level": "info"
+      },
+      {
+        "seq": 26,
+        "at": "13:41:49",
+        "relMs": 603,
+        "scope": "stage",
+        "event": "scene:tile-textures:start",
+        "message": "Carregando 7 texturas de tile para /maps/A1/a1.tmj.",
+        "level": "info"
+      },
+      {
+        "seq": 25,
+        "at": "13:41:49",
+        "relMs": 603,
+        "scope": "scene",
+        "event": "map:rendered",
+        "message": "WorldScene map:rendered | map /maps/A1/a1.tmj | loading /maps/A1/a1.tmj.",
+        "level": "info"
+      },
+      {
+        "seq": 24,
+        "at": "13:41:49",
+        "relMs": 552,
+        "scope": "fetch",
+        "event": "request",
+        "message": "Fetch tileset:200 /maps/A1/a1.tsx em 15ms.",
+        "level": "info"
+      },
+      {
+        "seq": 23,
+        "at": "13:41:49",
+        "relMs": 552,
+        "scope": "fetch",
+        "event": "request",
+        "message": "Fetch 200 /maps/A1/a1.tsx em 15ms.",
+        "level": "info"
+      },
+      {
+        "seq": 22,
+        "at": "13:41:49",
+        "relMs": 535,
+        "scope": "fetch",
+        "event": "request",
+        "message": "Fetch map:200 /maps/A1/a1.tmj em 12ms.",
+        "level": "info"
+      },
+      {
+        "seq": 21,
+        "at": "13:41:49",
+        "relMs": 535,
+        "scope": "fetch",
+        "event": "request",
+        "message": "Fetch 200 /maps/A1/a1.tmj em 11ms.",
+        "level": "info"
+      },
+      {
+        "seq": 20,
+        "at": "13:41:49",
+        "relMs": 525,
+        "scope": "scene",
+        "event": "sync",
+        "message": "WorldScene sync | map - | loading /maps/A1/a1.tmj.",
+        "level": "info"
+      },
+      {
+        "seq": 19,
+        "at": "13:41:49",
+        "relMs": 523,
+        "scope": "scene",
+        "event": "map:loading",
+        "message": "WorldScene map:loading | map - | loading /maps/A1/a1.tmj.",
+        "level": "info"
+      },
+      {
+        "seq": 18,
+        "at": "13:41:49",
+        "relMs": 523,
+        "scope": "stage",
+        "event": "scene:map:loading",
+        "message": "Carregando mapa /maps/A1/a1.tmj.",
+        "level": "info"
+      },
+      {
+        "seq": 17,
+        "at": "13:41:49",
+        "relMs": 522,
+        "scope": "stage",
+        "event": "scene:create:done",
+        "message": "WorldScene.create concluido em 66ms.",
+        "level": "info"
+      },
+      {
+        "seq": 16,
+        "at": "13:41:49",
+        "relMs": 464,
+        "scope": "main",
+        "event": "runtime-shell",
+        "message": "syncRuntimeShell | phase auth | ready no | static no | state no | inv no.",
+        "level": "info"
+      },
+      {
+        "seq": 15,
+        "at": "13:41:49",
+        "relMs": 464,
+        "scope": "store",
+        "event": "readiness",
+        "message": "Runtime auth | ws on | static no | state no | inv no | resolved no | player no | map -.",
+        "level": "info"
+      },
+      {
+        "seq": 14,
+        "at": "13:41:49",
+        "relMs": 464,
+        "scope": "stage",
+        "event": "socket:open",
+        "message": "WebSocket conectado. readyState=1.",
+        "level": "info"
+      },
+      {
+        "seq": 13,
+        "at": "13:41:49",
+        "relMs": 458,
+        "scope": "scene",
+        "event": "boot",
+        "message": "WorldScene boot | map - | loading -.",
+        "level": "info"
+      },
+      {
+        "seq": 12,
+        "at": "13:41:49",
+        "relMs": 458,
+        "scope": "scene",
+        "event": "map:fallback",
+        "message": "WorldScene map:fallback | map - | loading -.",
+        "level": "info"
+      },
+      {
+        "seq": 11,
+        "at": "13:41:49",
+        "relMs": 455,
+        "scope": "stage",
+        "event": "scene:create:start",
+        "message": "WorldScene.create iniciado.",
+        "level": "info"
+      },
+      {
+        "seq": 10,
+        "at": "13:41:48",
+        "relMs": 143,
+        "scope": "stage",
+        "event": "socket:connect:start",
+        "message": "Abrindo websocket principal.",
+        "level": "info"
+      },
+      {
+        "seq": 9,
+        "at": "13:41:48",
+        "relMs": 143,
+        "scope": "stage",
+        "event": "main:hud-mounted",
+        "message": "HUD Svelte montada.",
+        "level": "info"
+      },
+      {
+        "seq": 8,
+        "at": "13:41:48",
+        "relMs": 135,
+        "scope": "main",
+        "event": "runtime-shell",
+        "message": "syncRuntimeShell | phase connecting | ready no | static no | state no | inv no.",
+        "level": "info"
+      },
+      {
+        "seq": 7,
+        "at": "13:41:48",
+        "relMs": 135,
+        "scope": "store",
+        "event": "readiness",
+        "message": "Runtime connecting | ws off | static no | state no | inv no | resolved no | player no | map -.",
+        "level": "info"
+      },
+      {
+        "seq": 6,
+        "at": "13:41:48",
+        "relMs": 135,
+        "scope": "stage",
+        "event": "phaser:prewarmed",
+        "message": "Phaser inicializado fora da rota critica do login.",
+        "level": "info"
+      },
+      {
+        "seq": 5,
+        "at": "13:41:48",
+        "relMs": 135,
+        "scope": "stage",
+        "event": "phaser:create:done",
+        "message": "Phaser pronto em 134ms.",
+        "level": "info"
+      },
+      {
+        "seq": 4,
+        "at": "13:41:48",
+        "relMs": 1,
+        "scope": "stage",
+        "event": "phaser:create:start",
+        "message": "Criando instancia do Phaser.",
+        "level": "info"
+      },
+      {
+        "seq": 3,
+        "at": "13:41:48",
+        "relMs": 1,
+        "scope": "stage",
+        "event": "main:bridge-ready",
+        "message": "Bridge DOM/Svelte preparada.",
+        "level": "info"
+      },
+      {
+        "seq": 2,
+        "at": "13:41:48",
+        "relMs": 0,
+        "scope": "stage",
+        "event": "main:init",
+        "message": "Cliente inicializado.",
+        "level": "info"
+      },
+      {
+        "seq": 1,
+        "at": "13:41:48",
+        "relMs": 0,
+        "scope": "boot",
+        "event": "reset",
+        "message": "Nova tentativa de boot: main:init.",
+        "level": "info"
+      }
+    ]
+  },
+  "loadingDiagnostics": {
+    "savedAt": "2026-03-25T16:42:02.496Z",
+    "phase": "in_game",
+    "playerId": 34,
+    "mapCode": "A1",
+    "mapId": "Z1",
+    "socketConnected": true,
+    "loading": {
+      "active": false,
+      "progress": 0,
+      "title": "Preparando jornada",
+      "detail": "Aguardando comando de entrada.",
+      "pendingWorldEntry": false,
+      "ready": true
+    },
+    "packets": {
+      "authSuccess": "13:42:01 auth_success | playerId 34 | mapa forest/Z1",
+      "worldStatic": "13:42:01 world_static | mapa forest/Z1",
+      "worldState": "13:42:02 world_state | players 1 | mobs 16",
+      "inventoryState": "13:42:01 inventory_state | itens 0",
+      "announcedPacket": "13:42:01 debug.packet | #3 -> quest.state",
+      "wsOpen": "13:41:49 ws_open | readyState 1",
+      "wsError": null,
+      "wsClose": null,
+      "lastPacket": "13:42:02 world_state | players 1 | mobs 16"
+    },
+    "trace": [
+      "13:42:01 Estado minimo do mundo concluido para liberar a HUD.",
+      "13:42:01 Fase alterada para in_game.",
+      "13:42:01 WS => bootstrap.ready enviado.",
+      "13:42:01 WS <= bootstrap.world (worldStatic yes | worldState yes | inventory yes).",
+      "13:42:01 WS <= bootstrap.auth (playerId 34 | hotbar yes).",
+      "13:42:01 Fase alterada para character_select.",
+      "13:42:01 WS <= auth_character_select (3 slots).",
+      "13:42:01 Fase alterada para character_create.",
+      "13:41:49 Fase alterada para auth.",
+      "13:41:48 Fase alterada para connecting.",
+      "13:41:48 Runtime HUD conectado ao GameStore."
+    ]
+  },
+  "logs": []
+}

@@ -10,6 +10,7 @@ import {
 import { randomUUID } from 'crypto';
 import { getMapMetadata } from '../maps/mapMetadata';
 import { getMapTiledCollisionSampler } from '../maps/tiledCollision';
+import { getStrategicMobSpawns, hasStrategicMobLayout } from '../maps/mapSpawns';
 
 interface MobTemplateRuntime {
     kind: string;
@@ -91,10 +92,10 @@ export class MobService {
         return this.templateCache.get(key) || this.templateCache.get('normal')!;
     }
 
-    createMob(kind: string = 'normal', mapId: string): Mob {
+    createMob(kind: string = 'normal', mapId: string, preferredSpawn?: { x: number; y: number }): Mob {
         const template = this.getTemplate(kind);
         const padding = 80;
-        const spawn = this.findValidSpawnPoint(mapId, padding);
+        const spawn = this.findValidSpawnPoint(mapId, padding, preferredSpawn);
         const now = Date.now();
         return {
             id: `mob-${randomUUID()}`,
@@ -139,7 +140,10 @@ export class MobService {
             const current = this.mobs.filter((m) => m.kind === safeKind && m.mapId === mapId).length;
             if (current >= quota) return null;
         }
-        const base = this.createMob(safeKind, mapId);
+        const preferredSpawn = Number.isFinite(Number(overrides.x)) && Number.isFinite(Number(overrides.y))
+            ? { x: Number(overrides.x), y: Number(overrides.y) }
+            : undefined;
+        const base = this.createMob(safeKind, mapId, preferredSpawn);
         const merged: Mob = {
             ...base,
             ...overrides,
@@ -147,6 +151,10 @@ export class MobService {
             kind: String(overrides.kind || base.kind),
             mapId: String(overrides.mapId || mapId)
         };
+        if (!Number.isFinite(Number(merged.spawnX))) merged.spawnX = merged.x;
+        if (!Number.isFinite(Number(merged.spawnY))) merged.spawnY = merged.y;
+        if (!Number.isFinite(Number(merged.homeX))) merged.homeX = merged.spawnX;
+        if (!Number.isFinite(Number(merged.homeY))) merged.homeY = merged.spawnY;
         this.mobs.push(merged);
         this.indexMob(merged);
         return merged;
@@ -158,7 +166,7 @@ export class MobService {
         return min + Math.floor(Math.random() * (max - min + 1));
     }
 
-    private findValidSpawnPoint(mapInstanceId: string, padding: number) {
+    private findValidSpawnPoint(mapInstanceId: string, padding: number, preferredSpawn?: { x: number; y: number }) {
         const mapKey = String(mapInstanceId || '').split('::')[0] || 'forest';
         const mapWorld = getMapMetadata(mapKey)?.world || WORLD;
         const fallback = {
@@ -186,6 +194,19 @@ export class MobService {
             return false;
         };
 
+        if (preferredSpawn && Number.isFinite(Number(preferredSpawn.x)) && Number.isFinite(Number(preferredSpawn.y))) {
+            const preferredX = Math.max(padding, Math.min(mapWorld.width - padding, Number(preferredSpawn.x)));
+            const preferredY = Math.max(padding, Math.min(mapWorld.height - padding, Number(preferredSpawn.y)));
+            if (!isBlocked(preferredX, preferredY)) return { x: preferredX, y: preferredY };
+            for (let i = 0; i < 24; i++) {
+                const angle = (Math.PI * 2 * i) / 24;
+                const radius = 18 + i * 6;
+                const x = Math.max(padding, Math.min(mapWorld.width - padding, preferredX + Math.cos(angle) * radius));
+                const y = Math.max(padding, Math.min(mapWorld.height - padding, preferredY + Math.sin(angle) * radius));
+                if (!isBlocked(x, y)) return { x, y };
+            }
+        }
+
         for (let i = 0; i < 120; i++) {
             const x = padding + Math.random() * Math.max(1, mapWorld.width - padding * 2);
             const y = padding + Math.random() * Math.max(1, mapWorld.height - padding * 2);
@@ -194,11 +215,27 @@ export class MobService {
         return fallback;
     }
 
-    spawnMob(kind: string = 'normal', mapId: string): void {
-        this.createMobWithOverrides(kind, mapId);
+    spawnMob(kind: string = 'normal', mapId: string, overrides: Partial<Mob> = {}, options: { skipQuota?: boolean } = {}): void {
+        this.createMobWithOverrides(kind, mapId, overrides, options);
     }
 
     seedMapInstance(mapId: string) {
+        const mapKey = String(mapId || '').split('::')[0] || 'forest';
+        if (hasStrategicMobLayout(mapKey)) {
+            const strategicSpawns = getStrategicMobSpawns(mapKey);
+            for (const spawn of strategicSpawns) {
+                this.spawnMob(spawn.kind, mapId, {
+                    id: `mob-${String(mapId).replace(/[^a-z0-9_-]+/gi, '-')}-${spawn.id}`,
+                    x: spawn.x,
+                    y: spawn.y,
+                    homeX: spawn.x,
+                    homeY: spawn.y,
+                    spawnX: spawn.x,
+                    spawnY: spawn.y
+                });
+            }
+            return;
+        }
         for (const [kind, quota] of Object.entries(MOB_COUNTS)) {
             for (let i = 0; i < quota; i++) this.spawnMob(kind, mapId);
         }
@@ -211,10 +248,21 @@ export class MobService {
         const kind = removed.kind;
         const mapId = removed.mapId;
         const noRespawn = Boolean(removed.noRespawn);
+        const respawnX = Number.isFinite(Number(removed.spawnX)) ? Number(removed.spawnX) : Number(removed.x);
+        const respawnY = Number.isFinite(Number(removed.spawnY)) ? Number(removed.spawnY) : Number(removed.y);
+        const respawnHomeX = Number.isFinite(Number(removed.homeX)) ? Number(removed.homeX) : respawnX;
+        const respawnHomeY = Number.isFinite(Number(removed.homeY)) ? Number(removed.homeY) : respawnY;
         this.mobs.splice(index, 1);
         this.deindexMob(removed);
         if (options.skipRespawn || noRespawn) return;
-        setTimeout(() => this.spawnMob(kind, mapId), MOB_RESPAWN_MS);
+        setTimeout(() => this.spawnMob(kind, mapId, {
+            x: respawnX,
+            y: respawnY,
+            homeX: respawnHomeX,
+            homeY: respawnHomeY,
+            spawnX: respawnX,
+            spawnY: respawnY
+        }), MOB_RESPAWN_MS);
     }
 
     getMobs(): Mob[] {

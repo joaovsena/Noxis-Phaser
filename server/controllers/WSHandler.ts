@@ -162,6 +162,81 @@ export class WSHandler {
             case 'friend.list':
                 this.controller.handleFriendList(player);
                 break;
+            case 'trade.request':
+                this.controller.handleTradeRequest(player, msg as any);
+                break;
+            case 'trade.respond':
+                this.controller.handleTradeRespond(player, msg as any);
+                break;
+            case 'trade.setItem':
+                this.controller.handleTradeSetItem(player, msg as any);
+                break;
+            case 'trade.removeItem':
+                this.controller.handleTradeRemoveItem(player, msg as any);
+                break;
+            case 'trade.setCurrency':
+                this.controller.handleTradeSetCurrency(player, msg as any);
+                break;
+            case 'trade.lock':
+                this.controller.handleTradeLock(player);
+                break;
+            case 'trade.confirm':
+                this.controller.handleTradeConfirm(player);
+                break;
+            case 'trade.cancel':
+                this.controller.handleTradeCancel(player);
+                break;
+            case 'storage.open':
+                this.controller.handleStorageOpen(player, msg as any);
+                break;
+            case 'storage.close':
+                this.controller.handleStorageClose(player);
+                break;
+            case 'storage.deposit':
+                this.controller.handleStorageDeposit(player, msg as any);
+                break;
+            case 'storage.withdraw':
+                this.controller.handleStorageWithdraw(player, msg as any);
+                break;
+            case 'pet.summon':
+                void this.controller.handlePetSummon(player, msg as any);
+                break;
+            case 'pet.unsummon':
+                void this.controller.handlePetUnsummon(player);
+                break;
+            case 'pet.feed':
+                void this.controller.handlePetFeed(player, msg as any);
+                break;
+            case 'pet.rename':
+                void this.controller.handlePetRename(player, msg as any);
+                break;
+            case 'pet.setBehavior':
+                void this.controller.handlePetSetBehavior(player, msg as any);
+                break;
+            case 'pet.state':
+                void this.controller.handlePetState(player);
+                break;
+            case 'guild.create':
+                this.controller.handleGuildCreate(player, msg as any);
+                break;
+            case 'guild.invite':
+                this.controller.handleGuildInvite(player, msg as any);
+                break;
+            case 'guild.respondInvite':
+                this.controller.handleGuildRespondInvite(player, msg as any);
+                break;
+            case 'guild.leave':
+                this.controller.handleGuildLeave(player);
+                break;
+            case 'guild.kick':
+                this.controller.handleGuildKick(player, msg as any);
+                break;
+            case 'guild.setRank':
+                this.controller.handleGuildSetRank(player, msg as any);
+                break;
+            case 'guild.state':
+                this.controller.handleGuildState(player);
+                break;
             case 'stats.allocate':
                 this.controller.handleStatsAllocate(player, msg as any);
                 break;

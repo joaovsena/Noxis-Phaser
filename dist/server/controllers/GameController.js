@@ -16,10 +16,15 @@ const CombatCoreService_1 = require("../services/CombatCoreService");
 const QuestService_1 = require("../services/QuestService");
 const EventService_1 = require("../services/EventService");
 const DungeonService_1 = require("../services/DungeonService");
+const TradeService_1 = require("../services/TradeService");
+const StorageService_1 = require("../services/StorageService");
+const GuildService_1 = require("../services/GuildService");
+const PetService_1 = require("../services/PetService");
 const hash_1 = require("../utils/hash");
 const math_1 = require("../utils/math");
 const currency_1 = require("../utils/currency");
 const mapMetadata_1 = require("../maps/mapMetadata");
+const skillCatalog_1 = require("../content/skillCatalog");
 const config_1 = require("../config");
 const logger_1 = require("../utils/logger");
 const perfStats_1 = require("../utils/perfStats");
@@ -58,61 +63,6 @@ const ATTRIBUTE_DRIVEN_OVERRIDE_KEYS = [
     'luck',
     'maxHp'
 ];
-const SKILL_DEFS = {
-    war_bastion_escudo_fe: { id: 'war_bastion_escudo_fe', classId: 'knight', name: 'Escudo da Fe', cooldownMs: 12000, target: 'self', buff: { id: 'escudo_fe', durationMs: 12000, defenseMul: 1.35, magicDefenseMul: 1.35 }, effectKey: 'war_shield' },
-    war_bastion_muralha: { id: 'war_bastion_muralha', classId: 'knight', name: 'Muralha', cooldownMs: 14000, target: 'self', buff: { id: 'muralha', durationMs: 8000, reflect: 0.18, damageReduction: 0.15 }, effectKey: 'war_wall' },
-    war_bastion_renovacao: { id: 'war_bastion_renovacao', classId: 'knight', name: 'Renovacao', cooldownMs: 10000, target: 'self', healVitScale: 1.6, effectKey: 'war_heal' },
-    war_bastion_inabalavel: { id: 'war_bastion_inabalavel', classId: 'knight', name: 'Inabalavel', cooldownMs: 26000, target: 'self', buff: { id: 'inabalavel', durationMs: 10000, damageReduction: 0.9 }, effectKey: 'war_steel' },
-    war_bastion_impacto_sismico: { id: 'war_bastion_impacto_sismico', classId: 'knight', name: 'Impacto Sismico', cooldownMs: 9000, target: 'mob', range: 105, power: 1.55, aoeRadius: 150, effectKey: 'war_quake' },
-    war_carrasco_frenesi: { id: 'war_carrasco_frenesi', classId: 'knight', name: 'Frenesi', cooldownMs: 14000, target: 'self', buff: { id: 'frenesi', durationMs: 12000, lifesteal: 0.2 }, effectKey: 'war_frenzy' },
-    war_carrasco_lacerar: { id: 'war_carrasco_lacerar', classId: 'knight', name: 'Lacerar', cooldownMs: 6500, target: 'mob', range: 95, power: 1.35, effectKey: 'war_bleed' },
-    war_carrasco_ira: { id: 'war_carrasco_ira', classId: 'knight', name: 'Ira', cooldownMs: 12000, target: 'self', buff: { id: 'ira', durationMs: 10000, attackMul: 1.35, attackSpeedMul: 1.25, defenseMul: 0.75, magicDefenseMul: 0.75 }, effectKey: 'war_rage' },
-    war_carrasco_golpe_sacrificio: { id: 'war_carrasco_golpe_sacrificio', classId: 'knight', name: 'Golpe de Sacrificio', cooldownMs: 9500, target: 'mob', range: 100, power: 2.1, hpCostPct: 0.12, effectKey: 'war_sacrifice' },
-    war_carrasco_aniquilacao: { id: 'war_carrasco_aniquilacao', classId: 'knight', name: 'Aniquilacao', cooldownMs: 12000, target: 'mob', range: 115, power: 1.4, lostHpScale: 1.4, effectKey: 'war_execute' },
-    arc_patrulheiro_tiro_ofuscante: { id: 'arc_patrulheiro_tiro_ofuscante', classId: 'archer', name: 'Tiro Ofuscante', cooldownMs: 6500, target: 'mob', range: 420, power: 1.35, effectKey: 'arc_flash' },
-    arc_patrulheiro_foco_distante: { id: 'arc_patrulheiro_foco_distante', classId: 'archer', name: 'Foco Distante', cooldownMs: 12000, target: 'self', buff: { id: 'foco_distante', durationMs: 12000, attackMul: 1.12 }, effectKey: 'arc_focus' },
-    arc_patrulheiro_abrolhos: { id: 'arc_patrulheiro_abrolhos', classId: 'archer', name: 'Abrolhos', cooldownMs: 8500, target: 'mob', range: 360, power: 1.1, effectKey: 'arc_root' },
-    arc_patrulheiro_salva_flechas: { id: 'arc_patrulheiro_salva_flechas', classId: 'archer', name: 'Salva de Flechas', cooldownMs: 11000, target: 'mob', range: 420, power: 1.05, aoeRadius: 180, effectKey: 'arc_volley' },
-    arc_patrulheiro_passo_vento: { id: 'arc_patrulheiro_passo_vento', classId: 'archer', name: 'Passo de Vento', cooldownMs: 13000, target: 'self', buff: { id: 'passo_vento', durationMs: 10000, moveMul: 1.22 }, effectKey: 'arc_wind' },
-    arc_franco_flecha_debilitante: { id: 'arc_franco_flecha_debilitante', classId: 'archer', name: 'Flecha Debilitante', cooldownMs: 7000, target: 'mob', range: 430, power: 1.45, effectKey: 'arc_weaken' },
-    arc_franco_ponteira_envenenada: { id: 'arc_franco_ponteira_envenenada', classId: 'archer', name: 'Ponteira Envenenada', cooldownMs: 7500, target: 'mob', range: 430, power: 1.35, effectKey: 'arc_poison' },
-    arc_franco_olho_aguia: { id: 'arc_franco_olho_aguia', classId: 'archer', name: 'Olho de Aguia', cooldownMs: 13000, target: 'self', buff: { id: 'olho_aguia', durationMs: 15000, critAdd: 0.2 }, effectKey: 'arc_crit' },
-    arc_franco_disparo_perfurante: { id: 'arc_franco_disparo_perfurante', classId: 'archer', name: 'Disparo Perfurante', cooldownMs: 9000, target: 'mob', range: 450, power: 1.7, effectKey: 'arc_pierce' },
-    arc_franco_tiro_misericordia: { id: 'arc_franco_tiro_misericordia', classId: 'archer', name: 'Tiro de Misericordia', cooldownMs: 12000, target: 'mob', range: 450, power: 1.2, lostHpScale: 1.4, effectKey: 'arc_finisher' },
-    dru_preservador_florescer: { id: 'dru_preservador_florescer', classId: 'druid', name: 'Florescer', cooldownMs: 9000, target: 'self', healVitScale: 1.2, effectKey: 'dru_bloom' },
-    dru_preservador_casca_ferro: { id: 'dru_preservador_casca_ferro', classId: 'druid', name: 'Casca de Ferro', cooldownMs: 12000, target: 'self', buff: { id: 'casca_ferro', durationMs: 11000, defenseMul: 1.28 }, effectKey: 'dru_bark' },
-    dru_preservador_emaranhado: { id: 'dru_preservador_emaranhado', classId: 'druid', name: 'Emaranhado', cooldownMs: 8500, target: 'mob', range: 360, power: 1.2, aoeRadius: 140, magic: true, effectKey: 'dru_root' },
-    dru_preservador_prece_natureza: { id: 'dru_preservador_prece_natureza', classId: 'druid', name: 'Prece da Natureza', cooldownMs: 14500, target: 'self', healVitScale: 2.2, effectKey: 'dru_prayer' },
-    dru_preservador_avatar_espiritual: { id: 'dru_preservador_avatar_espiritual', classId: 'druid', name: 'Avatar Espiritual', cooldownMs: 18000, target: 'self', buff: { id: 'avatar_espiritual', durationMs: 10000, attackMul: 1.2, moveMul: 1.08, attackSpeedMul: 1.12 }, effectKey: 'dru_avatar' },
-    dru_primal_espinhos: { id: 'dru_primal_espinhos', classId: 'druid', name: 'Espinhos', cooldownMs: 12000, target: 'self', buff: { id: 'espinhos', durationMs: 12000, reflect: 0.15 }, effectKey: 'dru_thorns' },
-    dru_primal_enxame: { id: 'dru_primal_enxame', classId: 'druid', name: 'Enxame', cooldownMs: 8500, target: 'mob', range: 370, power: 1.35, magic: true, effectKey: 'dru_swarm' },
-    dru_primal_patada_sombria: { id: 'dru_primal_patada_sombria', classId: 'druid', name: 'Patada Sombria', cooldownMs: 7500, target: 'mob', range: 320, power: 1.5, magic: true, effectKey: 'dru_shadow_claw' },
-    dru_primal_nevoa_obscura: { id: 'dru_primal_nevoa_obscura', classId: 'druid', name: 'Nevoa Obscura', cooldownMs: 11000, target: 'mob', range: 360, power: 1.25, aoeRadius: 160, magic: true, effectKey: 'dru_mist' },
-    dru_primal_invocacao_primal: { id: 'dru_primal_invocacao_primal', classId: 'druid', name: 'Invocacao Primal', cooldownMs: 16000, target: 'mob', range: 360, power: 2.0, magic: true, effectKey: 'dru_primal' },
-    ass_agil_reflexos: { id: 'ass_agil_reflexos', classId: 'assassin', name: 'Reflexos', cooldownMs: 11000, target: 'self', buff: { id: 'reflexos', durationMs: 12000, moveMul: 1.2, evasionAdd: 18 }, effectKey: 'ass_reflex' },
-    ass_agil_contra_ataque: { id: 'ass_agil_contra_ataque', classId: 'assassin', name: 'Contra-Ataque', cooldownMs: 9000, target: 'mob', range: 115, power: 1.55, effectKey: 'ass_counter' },
-    ass_agil_passo_fantasma: { id: 'ass_agil_passo_fantasma', classId: 'assassin', name: 'Passo Fantasma', cooldownMs: 8000, target: 'mob', range: 220, power: 1.45, effectKey: 'ass_dash' },
-    ass_agil_golpe_nervos: { id: 'ass_agil_golpe_nervos', classId: 'assassin', name: 'Golpe de Nervos', cooldownMs: 9000, target: 'mob', range: 120, power: 1.35, effectKey: 'ass_nerve' },
-    ass_agil_miragem: { id: 'ass_agil_miragem', classId: 'assassin', name: 'Miragem', cooldownMs: 14000, target: 'mob', range: 130, power: 1.9, effectKey: 'ass_mirage' },
-    ass_letal_expor_fraqueza: { id: 'ass_letal_expor_fraqueza', classId: 'assassin', name: 'Expor Fraqueza', cooldownMs: 12000, target: 'self', buff: { id: 'fraqueza', durationMs: 5000, critAdd: 0.25 }, effectKey: 'ass_expose' },
-    ass_letal_ocultar: { id: 'ass_letal_ocultar', classId: 'assassin', name: 'Ocultar', cooldownMs: 18000, target: 'self', buff: { id: 'ocultar', durationMs: 30000, stealth: true, moveMul: 1.08 }, effectKey: 'ass_stealth' },
-    ass_letal_emboscada: { id: 'ass_letal_emboscada', classId: 'assassin', name: 'Emboscada', cooldownMs: 10000, target: 'mob', range: 150, power: 2.6, effectKey: 'ass_ambush' },
-    ass_letal_bomba_fumaca: { id: 'ass_letal_bomba_fumaca', classId: 'assassin', name: 'Bomba de Fumaca', cooldownMs: 13000, target: 'mob', range: 250, power: 1.15, aoeRadius: 140, effectKey: 'ass_smoke' },
-    ass_letal_sentenca: { id: 'ass_letal_sentenca', classId: 'assassin', name: 'Sentenca', cooldownMs: 15000, target: 'mob', range: 320, power: 2.2, effectKey: 'ass_sentence' },
-    mod_fire_wing: { id: 'mod_fire_wing', classId: 'druid', name: 'Asa de Fogo', cooldownMs: 8000, target: 'mob', range: 360, power: 1.8, magic: true, aoeRadius: 110, effectKey: 'mod_fire_wing' },
-    class_primary: { id: 'class_primary', classId: 'knight', name: 'Ataque Primario', cooldownMs: 2200, target: 'mob', range: 100, power: 1.2, effectKey: 'class_primary' }
-};
-const SKILL_CHAINS = {
-    war_bastion: ['war_bastion_escudo_fe', 'war_bastion_muralha', 'war_bastion_renovacao', 'war_bastion_inabalavel', 'war_bastion_impacto_sismico'],
-    war_carrasco: ['war_carrasco_frenesi', 'war_carrasco_lacerar', 'war_carrasco_ira', 'war_carrasco_golpe_sacrificio', 'war_carrasco_aniquilacao'],
-    arc_patrulheiro: ['arc_patrulheiro_tiro_ofuscante', 'arc_patrulheiro_foco_distante', 'arc_patrulheiro_abrolhos', 'arc_patrulheiro_salva_flechas', 'arc_patrulheiro_passo_vento'],
-    arc_franco: ['arc_franco_flecha_debilitante', 'arc_franco_ponteira_envenenada', 'arc_franco_olho_aguia', 'arc_franco_disparo_perfurante', 'arc_franco_tiro_misericordia'],
-    dru_preservador: ['dru_preservador_florescer', 'dru_preservador_casca_ferro', 'dru_preservador_emaranhado', 'dru_preservador_prece_natureza', 'dru_preservador_avatar_espiritual'],
-    dru_primal: ['dru_primal_espinhos', 'dru_primal_enxame', 'dru_primal_patada_sombria', 'dru_primal_nevoa_obscura', 'dru_primal_invocacao_primal'],
-    ass_agil: ['ass_agil_reflexos', 'ass_agil_contra_ataque', 'ass_agil_passo_fantasma', 'ass_agil_golpe_nervos', 'ass_agil_miragem'],
-    ass_letal: ['ass_letal_expor_fraqueza', 'ass_letal_ocultar', 'ass_letal_emboscada', 'ass_letal_bomba_fumaca', 'ass_letal_sentenca']
-};
-const SKILL_UNLOCK_LEVELS = [1, 10, 20, 30, 40];
 class GameController {
     constructor(persistence, mobService, lockService) {
         this.players = new Map();
@@ -146,11 +96,15 @@ class GameController {
         this.movementService = new MovementService_1.MovementService(this.mapService, this.getActiveSkillEffectAggregate.bind(this));
         this.combatService = new CombatService_1.CombatService(this.players, this.mapInstanceId.bind(this), this.sendRaw.bind(this), this.partyService.hasParty.bind(this.partyService), this.partyService.arePlayersInSameParty.bind(this.partyService), this.tryPlayerAttack.bind(this));
         this.inventoryService = new InventoryService_1.InventoryService(() => this.groundItems, (items) => { this.groundItems = items; }, this.mapInstanceId.bind(this), this.persistPlayer.bind(this), this.recomputePlayerStats.bind(this), this.sendInventoryState.bind(this), this.sendStatsUpdated.bind(this), this.normalizeHotbarBindings.bind(this), this.firstFreeInventorySlot.bind(this), this.getSpentSkillPoints.bind(this), this.sendRaw.bind(this), this.normalizeClassId.bind(this), this.onItemCollected.bind(this));
+        this.tradeService = new TradeService_1.TradeService(this.players, this.sendRaw.bind(this), this.persistPlayerCritical.bind(this), this.sendInventoryState.bind(this), this.sendStatsUpdated.bind(this), this.normalizeInventorySlots.bind(this), this.addItemToInventory.bind(this));
+        this.storageService = new StorageService_1.StorageService(this.sendRaw.bind(this), this.persistPlayer.bind(this), this.sendInventoryState.bind(this), this.normalizeInventorySlots.bind(this), this.addItemToInventory.bind(this));
+        this.guildService = new GuildService_1.GuildService(this.players, this.persistence, this.sendRaw.bind(this));
+        this.petService = new PetService_1.PetService(this.players, this.persistence, this.sendRaw.bind(this), this.resolveTargetMobForPet.bind(this), this.applyDamageToMobAndHandleDeath.bind(this), this.sendStatsUpdated.bind(this));
         this.questService = new QuestService_1.QuestService(this.sendRaw.bind(this), this.persistPlayer.bind(this), this.persistPlayerCritical.bind(this), this.grantXp.bind(this), this.grantRewardItem.bind(this), this.grantCurrency.bind(this), (player, npcId) => this.dungeonService?.getNpcUiStateForPlayer(player, npcId) || null);
         this.eventService = new EventService_1.EventService(this.mobService, this.broadcastMapInstance.bind(this), this.getMapWorld.bind(this), this.projectToWalkable.bind(this));
         this.dungeonService = new DungeonService_1.DungeonService(this.players, this.mobService, this.sendRaw.bind(this), this.sendStatsUpdated.bind(this), this.persistPlayer.bind(this), this.persistPlayerCritical.bind(this), this.grantCurrency.bind(this), this.getMapWorld.bind(this), this.projectToWalkable.bind(this), this.removeGroundItemsByMapInstance.bind(this), this.dropTemplateAt.bind(this));
         this.skillEffectsService = new SkillEffectsService_1.SkillEffectsService(this.players, this.sendRaw.bind(this));
-        this.skillService = new SkillService_1.SkillService(SKILL_DEFS, this.sendRaw.bind(this), this.normalizeClassId.bind(this), this.getSkillLevel.bind(this), this.pruneExpiredSkillEffects.bind(this), this.applyTimedSkillEffect.bind(this), this.sendSkillEffect.bind(this), this.computeMobDamage.bind(this), this.applyDamageToMobAndHandleDeath.bind(this), this.broadcastMobHit.bind(this), this.applyOnHitSkillEffects.bind(this), this.hasActiveSkillEffect.bind(this), this.removeSkillEffectById.bind(this), this.getSkillPowerWithLevel.bind(this), this.sendStatsUpdated.bind(this), this.mapInstanceId.bind(this), this.mobService.getMobByIdInMap.bind(this.mobService), (mapId) => this.mobService.getMobsByMap(mapId), this.assignPathTo.bind(this), this.getSkillPrerequisite.bind(this), this.getSkillRequiredLevel.bind(this), this.normalizeSkillLevels.bind(this), this.getAvailableSkillPoints.bind(this), this.recomputePlayerStats.bind(this), this.persistPlayer.bind(this), (playerId) => this.players.get(playerId));
+        this.skillService = new SkillService_1.SkillService(skillCatalog_1.SKILL_DEFS, this.sendRaw.bind(this), this.normalizeClassId.bind(this), this.getSkillLevel.bind(this), this.pruneExpiredSkillEffects.bind(this), this.applyTimedSkillEffect.bind(this), this.sendSkillEffect.bind(this), this.computeMobDamage.bind(this), this.applyDamageToMobAndHandleDeath.bind(this), this.broadcastMobHit.bind(this), this.applyOnHitSkillEffects.bind(this), this.hasActiveSkillEffect.bind(this), this.removeSkillEffectById.bind(this), this.getSkillPowerWithLevel.bind(this), this.sendStatsUpdated.bind(this), this.mapInstanceId.bind(this), this.mobService.getMobByIdInMap.bind(this.mobService), (mapId) => this.mobService.getMobsByMap(mapId), this.assignPathTo.bind(this), this.getSkillPrerequisite.bind(this), this.getSkillRequiredLevel.bind(this), this.normalizeSkillLevels.bind(this), this.getAvailableSkillPoints.bind(this), this.recomputePlayerStats.bind(this), this.persistPlayer.bind(this), (playerId) => this.players.get(playerId));
         this.combatRuntimeService = new CombatRuntimeService_1.CombatRuntimeService(this.players, this.mobService, () => this.mobsPeacefulMode, this.mapInstanceId.bind(this), this.getMapWorld.bind(this), this.projectToWalkable.bind(this), this.recalculatePathToward.bind(this), this.getActiveSkillEffectAggregate.bind(this), this.computeHitChance.bind(this), this.getMobEvasion.bind(this), this.computeMobDamage.bind(this), this.applyDamageToMobAndHandleDeath.bind(this), this.applyOnHitSkillEffects.bind(this), this.sendStatsUpdated.bind(this), this.broadcastMobHit.bind(this), this.sendRaw.bind(this), this.persistPlayer.bind(this), this.syncAllPartyStates.bind(this), this.tryPlayerAttack.bind(this), this.getPvpAttackPermission.bind(this), this.isBlockedAt.bind(this), this.hasLineOfSight.bind(this), this.computeDamageAfterMitigation.bind(this));
         this.combatCoreService = new CombatCoreService_1.CombatCoreService(this.players, this.mobService, this.getPvpAttackPermission.bind(this), this.sendRaw.bind(this), this.getActiveSkillEffectAggregate.bind(this), this.computeHitChance.bind(this), this.shouldLuckyStrike.bind(this), this.computeDamageAfterMitigation.bind(this), this.applyOnHitSkillEffects.bind(this), this.sendStatsUpdated.bind(this), this.persistPlayer.bind(this), this.syncAllPartyStates.bind(this), this.grantXp.bind(this), this.grantMobCurrency.bind(this), this.mapInstanceId.bind(this), this.computeLootDropPosition.bind(this), this.pickRandomWeaponTemplate.bind(this), this.dropWeaponAt.bind(this), this.dropHpPotionAt.bind(this), this.dropSkillResetHourglassAt.bind(this), this.hasLineOfSight.bind(this));
     }
@@ -358,6 +312,7 @@ class GameController {
             this.players.set(player.id, player);
             this.usernameToPlayerId.set(username, player.id);
             ws.playerId = player.id;
+            await this.petService.hydratePetsForPlayer(player);
             const mapMetadata = (0, mapMetadata_1.getMapMetadata)(player.mapKey);
             this.sendDebugStep(ws, 'character_enter: runtime criado');
             trace('debug_step_sent', { step: 'character_enter: runtime criado' });
@@ -496,6 +451,16 @@ class GameController {
             trace('friend_state_hydrated');
             this.sendFriendState(player);
             this.sendDebugStep(ws, 'character_enter: friend.state enviado');
+            await this.hydrateGuildStateForPlayer(player);
+            trace('guild_state_hydrated');
+            await this.sendGuildState(player);
+            if (player.guildId)
+                await this.guildService.broadcastGuildStateForGuild(String(player.guildId || ''));
+            this.sendDebugStep(ws, 'character_enter: guild.state enviado');
+            this.tradeService.sendState(player);
+            this.storageService.sendState(player);
+            await this.petService.sendState(player);
+            this.sendDebugStep(ws, 'character_enter: pet.state enviado');
             ws.pendingPlayerProfiles = [];
             (0, logger_1.logEvent)('INFO', 'user_login', { username, playerId: player.id });
             trace('character_enter_completed', { totalMs: Date.now() - flowStartedAt });
@@ -572,8 +537,8 @@ class GameController {
             currencyDiamond: 0,
             mapKey: config_1.DEFAULT_MAP_KEY,
             mapId: config_1.DEFAULT_MAP_ID,
-            posX: 500,
-            posY: 500,
+            posX: config_1.DEFAULT_PLAYER_SPAWN_BY_MAP_KEY[config_1.DEFAULT_MAP_KEY]?.x || 500,
+            posY: config_1.DEFAULT_PLAYER_SPAWN_BY_MAP_KEY[config_1.DEFAULT_MAP_KEY]?.y || 500,
             baseStats,
             stats: {}
         };
@@ -582,7 +547,10 @@ class GameController {
         const mapKey = config_1.MAP_KEYS.includes(profile?.mapKey) ? profile.mapKey : config_1.DEFAULT_MAP_KEY;
         const mapId = config_1.MAP_IDS.includes(profile?.mapId) ? profile.mapId : config_1.DEFAULT_MAP_ID;
         const mapWorld = this.mapService.getMapWorld(mapKey);
-        const spawn = this.projectToWalkable(mapKey, (0, math_1.clamp)(Number.isFinite(Number(profile?.posX)) ? Number(profile.posX) : 500, 0, mapWorld.width), (0, math_1.clamp)(Number.isFinite(Number(profile?.posY)) ? Number(profile.posY) : 500, 0, mapWorld.height));
+        const defaultSpawn = config_1.DEFAULT_PLAYER_SPAWN_BY_MAP_KEY[mapKey]
+            || config_1.DEFAULT_PLAYER_SPAWN_BY_MAP_KEY[config_1.DEFAULT_MAP_KEY]
+            || { x: 500, y: 500 };
+        const spawn = this.projectToWalkable(mapKey, (0, math_1.clamp)(Number.isFinite(Number(profile?.posX)) ? Number(profile.posX) : defaultSpawn.x, 0, mapWorld.width), (0, math_1.clamp)(Number.isFinite(Number(profile?.posY)) ? Number(profile.posY) : defaultSpawn.y, 0, mapWorld.height));
         const parsedId = Number(profile?.id);
         const id = Number.isInteger(parsedId) ? parsedId : Math.floor(Date.now() % 2147483647);
         const normalizedClass = this.normalizeClassId(profile?.class);
@@ -628,6 +596,9 @@ class GameController {
             deathX: spawn.x,
             deathY: spawn.y,
             partyId: null,
+            guildId: null,
+            guildName: null,
+            guildRank: null,
             skillCooldowns: {},
             skillLevels: this.normalizeSkillLevels(profile?.statusOverrides?.__skillLevels || {}),
             activeSkillEffects: [],
@@ -645,7 +616,10 @@ class GameController {
             afkOriginY: spawn.y,
             afkOriginMapKey: mapKey,
             afkOriginMapId: mapId,
-            afkNextThinkAt: 0
+            afkNextThinkAt: 0,
+            petOwnerships: [],
+            activePetOwnershipId: null,
+            petBehavior: 'assist'
         };
         this.recomputePlayerStats(runtime);
         return runtime;
@@ -906,6 +880,7 @@ class GameController {
                 this.sendRaw(player.ws, { type: 'admin_result', ok: false, message: `Item ${itemId} nao encontrado.` });
                 return;
             }
+            const templateAny = template;
             let added = 0;
             for (let i = 0; i < quantity; i++) {
                 const slot = this.firstFreeInventorySlot(target.inventory);
@@ -913,18 +888,23 @@ class GameController {
                     break;
                 target.inventory.push({
                     id: (0, crypto_1.randomUUID)(),
-                    templateId: String(template.id || template.type || itemId),
-                    type: String(template.type || 'misc'),
-                    name: template.name,
-                    rarity: String(template.rarity || 'common'),
-                    spriteId: template.spriteId ? String(template.spriteId) : undefined,
-                    iconUrl: template.iconUrl ? String(template.iconUrl) : undefined,
-                    slot: template.slot,
-                    bonuses: template.bonuses || {},
-                    quantity: Number(template.stackable ? 1 : 1),
-                    stackable: Boolean(template.stackable),
-                    maxStack: Number(template.stackable ? 250 : (template.maxStack || 1)),
-                    healPercent: Number.isFinite(Number(template.healPercent)) ? Number(template.healPercent) : undefined,
+                    templateId: String(templateAny.id || templateAny.type || itemId),
+                    type: String(templateAny.type || 'misc'),
+                    name: String(templateAny.name || itemId),
+                    rarity: String(templateAny.rarity || 'branco'),
+                    quality: String(templateAny.quality || 'normal'),
+                    spriteId: templateAny.spriteId ? String(templateAny.spriteId) : undefined,
+                    iconUrl: templateAny.iconUrl ? String(templateAny.iconUrl) : undefined,
+                    slot: String(templateAny.slot || ''),
+                    bonuses: templateAny.bonuses || {},
+                    bonusPercents: templateAny.bonusPercents || {},
+                    quantity: 1,
+                    stackable: Boolean(templateAny.stackable),
+                    maxStack: Number(templateAny.stackable ? 250 : (templateAny.maxStack || 1)),
+                    healPercent: Number.isFinite(Number(templateAny.healPercent)) ? Number(templateAny.healPercent) : undefined,
+                    requiredClass: templateAny.requiredClass ? String(templateAny.requiredClass) : null,
+                    requiredLevel: Number.isFinite(Number(templateAny.requiredLevel)) ? Number(templateAny.requiredLevel) : null,
+                    bindingType: templateAny.bindingType ? String(templateAny.bindingType) : 'unbound',
                     slotIndex: slot
                 });
                 added += 1;
@@ -1060,6 +1040,81 @@ class GameController {
     handleFriendList(player) {
         this.friendService.handleFriendList(player);
     }
+    handleTradeRequest(player, msg) {
+        this.tradeService.handleTradeRequest(player, msg);
+    }
+    handleTradeRespond(player, msg) {
+        this.tradeService.handleTradeRespond(player, msg);
+    }
+    handleTradeSetItem(player, msg) {
+        this.tradeService.handleTradeSetItem(player, msg);
+    }
+    handleTradeRemoveItem(player, msg) {
+        this.tradeService.handleTradeRemoveItem(player, msg);
+    }
+    handleTradeSetCurrency(player, msg) {
+        this.tradeService.handleTradeSetCurrency(player, msg);
+    }
+    handleTradeLock(player) {
+        this.tradeService.handleTradeLock(player);
+    }
+    handleTradeConfirm(player) {
+        this.tradeService.handleTradeConfirm(player);
+    }
+    handleTradeCancel(player) {
+        this.tradeService.handleTradeCancel(player);
+    }
+    handleStorageOpen(player, msg) {
+        this.storageService.handleOpenStorage(player, msg?.npcId);
+    }
+    handleStorageClose(player) {
+        this.storageService.handleCloseStorage(player);
+    }
+    handleStorageDeposit(player, msg) {
+        this.storageService.handleDeposit(player, msg);
+    }
+    handleStorageWithdraw(player, msg) {
+        this.storageService.handleWithdraw(player, msg);
+    }
+    async handlePetSummon(player, msg) {
+        await this.petService.handleSummon(player, msg);
+    }
+    async handlePetUnsummon(player) {
+        await this.petService.handleUnsummon(player);
+    }
+    async handlePetFeed(player, msg) {
+        await this.petService.handleFeed(player, msg);
+    }
+    async handlePetRename(player, msg) {
+        await this.petService.handleRename(player, msg);
+    }
+    async handlePetSetBehavior(player, msg) {
+        await this.petService.handleSetBehavior(player, msg);
+    }
+    async handlePetState(player) {
+        await this.petService.sendState(player);
+    }
+    async handleGuildCreate(player, msg) {
+        await this.guildService.handleGuildCreate(player, msg);
+    }
+    async handleGuildInvite(player, msg) {
+        await this.guildService.handleGuildInvite(player, msg);
+    }
+    async handleGuildRespondInvite(player, msg) {
+        await this.guildService.handleGuildRespondInvite(player, msg);
+    }
+    async handleGuildLeave(player) {
+        await this.guildService.handleGuildLeave(player);
+    }
+    async handleGuildKick(player, msg) {
+        await this.guildService.handleGuildKick(player, msg);
+    }
+    async handleGuildSetRank(player, msg) {
+        await this.guildService.handleGuildSetRank(player, msg);
+    }
+    async handleGuildState(player) {
+        await this.guildService.sendGuildState(player);
+    }
     handleAdminSetMobPeaceful(player, msg) {
         if (player.role !== 'adm')
             return;
@@ -1143,6 +1198,12 @@ class GameController {
         this.skillService.handleSkillLearn(player, msg);
     }
     handleNpcInteract(player, msg) {
+        const npcId = String(msg?.npcId || '');
+        const npc = this.questService.getNpcById(npcId);
+        if (npc?.role === 'chest_keeper') {
+            this.storageService.handleOpenStorage(player, npcId);
+            return;
+        }
         this.questService.handleNpcInteract(player, msg);
     }
     handleNpcBuy(player, msg) {
@@ -1393,7 +1454,10 @@ class GameController {
         perfStats_1.perfStats.time('tick.prunePartyInvites', () => this.pruneExpiredPartyInvites(now));
         perfStats_1.perfStats.time('tick.prunePartyJoinRequests', () => this.pruneExpiredPartyJoinRequests(now));
         perfStats_1.perfStats.time('tick.pruneFriendRequests', () => this.pruneExpiredFriendRequests(now));
+        perfStats_1.perfStats.time('tick.pruneTradeRequests', () => this.tradeService.pruneExpiredRequests(now));
+        perfStats_1.perfStats.time('tick.pruneGuildInvites', () => { void this.pruneExpiredGuildInvites(now); });
         perfStats_1.perfStats.time('tick.mobs', () => this.processMobAggroAndCombat(deltaSeconds, now));
+        perfStats_1.perfStats.time('tick.pets', () => this.petService.tick(deltaSeconds, now));
         let activePlayers = 0;
         for (const player of this.players.values()) {
             activePlayers += 1;
@@ -1430,6 +1494,10 @@ class GameController {
             return {
                 type: 'world_state',
                 players: publicPlayers,
+                pets: this.petService
+                    .getPetsByMap(mapKey, mapId)
+                    .map((pet) => this.sanitizePetForNetwork(pet))
+                    .filter(Boolean),
                 mobs: this.mobService
                     .getMobsByMap(mapInstanceId)
                     .map((mob) => this.sanitizeMobForNetwork(mob))
@@ -1477,9 +1545,14 @@ class GameController {
         const player = this.players.get(playerId);
         if (!player)
             return;
+        const previousGuildId = String(player.guildId || '');
         this.dungeonService.onPlayerDisconnected(player.id);
+        this.tradeService.clearStateForPlayer(player.id, `${player.name} desconectou e a troca foi encerrada.`);
+        this.storageService.clearForPlayer(player.id);
+        this.petService.clearForPlayer(player.id);
         this.removePlayerFromParty(player);
         await this.persistPlayerNow(player, 'disconnect');
+        await this.clearGuildInvitesForPlayer(player.id);
         this.usernameToPlayerId.delete(player.username);
         this.players.delete(playerId);
         this.dirtyPlayerIds.delete(playerId);
@@ -1490,6 +1563,8 @@ class GameController {
         this.clearJoinRequestsForPlayer(player.id);
         this.clearFriendRequestsForPlayer(player.id);
         this.worldSnapshotCache.delete(`${String(player.mapKey)}::${String(player.mapId)}`);
+        if (previousGuildId)
+            await this.guildService.broadcastGuildStateForGuild(previousGuildId);
     }
     computeWorldSnapshotSignature(mapId, mapKey) {
         return perfStats_1.perfStats.time('snapshot.signatureWorld', () => {
@@ -1511,6 +1586,18 @@ class GameController {
                 Number(player.unspentPoints || 0),
                 player.afkActive ? 1 : 0,
                 Array.isArray(player.movePath) ? player.movePath.length : 0
+            ].join(':'))
+                .join('|');
+            const petsSignature = this.petService.getPetsByMap(mapKey, mapId)
+                .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+                .map((pet) => [
+                String(pet.id),
+                Math.round(Number(pet.x || 0)),
+                Math.round(Number(pet.y || 0)),
+                Number(pet.hp || 0),
+                Number(pet.maxHp || 0),
+                String(pet.behavior || 'assist'),
+                Number(pet.ownerPlayerId || 0)
             ].join(':'))
                 .join('|');
             const mobsSignature = this.mobService.getMobsByMap(mapInstanceId)
@@ -1543,6 +1630,7 @@ class GameController {
                 mapKey,
                 mapId,
                 playersSignature,
+                petsSignature,
                 mobsSignature,
                 groundSignature,
                 activeEvents,
@@ -1624,7 +1712,8 @@ class GameController {
             templateId: item.templateId ? String(item.templateId) : '',
             type: item.type ? String(item.type) : '',
             name: item.name ? String(item.name) : 'Item',
-            rarity: item.rarity ? String(item.rarity) : 'common',
+            rarity: item.rarity ? String(item.rarity) : 'branco',
+            quality: item.quality ? String(item.quality) : 'normal',
             spriteId: item.spriteId ? String(item.spriteId) : null,
             iconUrl: item.iconUrl ? String(item.iconUrl) : null,
             slot: item.slot ? String(item.slot) : null,
@@ -1635,8 +1724,11 @@ class GameController {
             equipped: Boolean(item.equipped),
             equippedSlot: item.equippedSlot ? String(item.equippedSlot) : null,
             requiredClass: item.requiredClass ? String(item.requiredClass) : null,
+            requiredLevel: Number.isFinite(Number(item.requiredLevel)) ? Number(item.requiredLevel) : null,
+            bindingType: item.bindingType ? String(item.bindingType) : 'unbound',
             healPercent: Number.isFinite(Number(item.healPercent)) ? Number(item.healPercent) : undefined,
-            bonuses: this.sanitizeNetworkBonuses(item.bonuses)
+            bonuses: this.sanitizeNetworkBonuses(item.bonuses),
+            bonusPercents: this.sanitizeNetworkBonuses(item.bonusPercents)
         };
     }
     sanitizeGroundItemForNetwork(item) {
@@ -1647,15 +1739,20 @@ class GameController {
             templateId: item.templateId ? String(item.templateId) : '',
             type: item.type ? String(item.type) : '',
             name: item.name ? String(item.name) : 'Item',
-            rarity: item.rarity ? String(item.rarity) : 'common',
+            rarity: item.rarity ? String(item.rarity) : 'branco',
+            quality: item.quality ? String(item.quality) : 'normal',
             spriteId: item.spriteId ? String(item.spriteId) : null,
             iconUrl: item.iconUrl ? String(item.iconUrl) : null,
             slot: item.slot ? String(item.slot) : null,
             quantity: Math.max(1, Number(item.quantity || 1)),
             stackable: Boolean(item.stackable),
             maxStack: Math.max(1, Number(item.maxStack || 1)),
+            requiredClass: item.requiredClass ? String(item.requiredClass) : null,
+            requiredLevel: Number.isFinite(Number(item.requiredLevel)) ? Number(item.requiredLevel) : null,
+            bindingType: item.bindingType ? String(item.bindingType) : 'unbound',
             healPercent: Number.isFinite(Number(item.healPercent)) ? Number(item.healPercent) : undefined,
             bonuses: this.sanitizeNetworkBonuses(item.bonuses),
+            bonusPercents: this.sanitizeNetworkBonuses(item.bonusPercents),
             x: Number(item.x || 0),
             y: Number(item.y || 0),
             mapId: item.mapId ? String(item.mapId) : '',
@@ -1663,6 +1760,33 @@ class GameController {
             ownerPartyId: item.ownerPartyId ? String(item.ownerPartyId) : null,
             reservedUntil: Number.isFinite(Number(item.reservedUntil)) ? Number(item.reservedUntil) : undefined,
             expiresAt: Number.isFinite(Number(item.expiresAt)) ? Number(item.expiresAt) : undefined
+        };
+    }
+    sanitizePetForNetwork(pet) {
+        if (!pet || typeof pet !== 'object')
+            return null;
+        return {
+            id: String(pet.id || ''),
+            ownershipId: String(pet.ownershipId || ''),
+            templateId: String(pet.templateId || ''),
+            ownerPlayerId: Number(pet.ownerPlayerId || 0),
+            ownerName: String(pet.ownerName || 'Aventureiro'),
+            name: String(pet.name || 'Pet'),
+            role: String(pet.role || 'offensive'),
+            moveStyle: String(pet.moveStyle || 'ground'),
+            biomeKey: String(pet.biomeKey || ''),
+            mapKey: String(pet.mapKey || ''),
+            mapId: String(pet.mapId || ''),
+            x: Number(pet.x || 0),
+            y: Number(pet.y || 0),
+            hp: Number(pet.hp || 0),
+            maxHp: Number(pet.maxHp || 1),
+            level: Math.max(1, Number(pet.level || 1)),
+            xp: Math.max(0, Number(pet.xp || 0)),
+            loyalty: Math.max(0, Math.min(100, Number(pet.loyalty || 0))),
+            hunger: Math.max(0, Math.min(100, Number(pet.hunger || 0))),
+            behavior: String(pet.behavior || 'assist'),
+            visualSeed: Number(pet.visualSeed || 0)
         };
     }
     sanitizeMobForNetwork(mob) {
@@ -1850,6 +1974,13 @@ class GameController {
     }
     computeMobDamage(player, mob, multiplier, forceMagic = false, now = Date.now()) {
         return this.combatCoreService.computeMobDamage(player, mob, multiplier, forceMagic, now);
+    }
+    resolveTargetMobForPet(owner, mobId) {
+        const safeMobId = String(mobId || '').trim();
+        if (!safeMobId)
+            return null;
+        const mapInstanceId = this.mapInstanceId(owner.mapKey, owner.mapId);
+        return this.mobService.getMobsByMap(mapInstanceId).find((mob) => String(mob.id || '') === safeMobId) || null;
     }
     applyDamageToMobAndHandleDeath(player, mob, damage, now) {
         const wasAlive = Boolean(mob && Number(mob.hp || 0) > 0);
@@ -2095,18 +2226,34 @@ class GameController {
                 }
                 return acc;
             }, {});
+            const percentSum = equippedItems.reduce((acc, item) => {
+                const percents = item?.bonusPercents && typeof item.bonusPercents === 'object' ? item.bonusPercents : {};
+                for (const [key, value] of Object.entries(percents)) {
+                    const current = Number(acc[key] || 0);
+                    const add = Number.isFinite(Number(value)) ? Number(value) : 0;
+                    acc[key] = current + add;
+                }
+                return acc;
+            }, {});
+            const applyFlatAndPercent = (key) => {
+                const base = Number(leveled[key] || 0) + Number(bonusSum[key] || 0);
+                const pct = Number(percentSum[key] || 0);
+                return Math.max(0, Math.round(base * (1 + pct)));
+            };
             player.stats = {
                 ...leveled,
-                physicalAttack: Number(leveled.physicalAttack || 0) + Number(bonusSum.physicalAttack || 0),
-                magicAttack: Number(leveled.magicAttack || 0) + Number(bonusSum.magicAttack || 0),
-                moveSpeed: Number(leveled.moveSpeed || 0) + Number(bonusSum.moveSpeed || 0),
-                attackSpeed: Number(leveled.attackSpeed || 0) + Number(bonusSum.attackSpeed || 0),
-                physicalDefense: Number(leveled.physicalDefense || 0) + Number(bonusSum.physicalDefense || 0),
-                magicDefense: Number(leveled.magicDefense || 0) + Number(bonusSum.magicDefense || 0),
-                evasion: Number(leveled.evasion || 0) + Number(bonusSum.evasion || 0),
-                accuracy: Number(leveled.accuracy || 0) + Number(bonusSum.accuracy || 0),
-                attackRange: Number(leveled.attackRange || 0) + Number(bonusSum.attackRange || 0),
-                maxHp: Number(leveled.maxHp || 0) + Number(bonusSum.maxHp || 0)
+                physicalAttack: applyFlatAndPercent('physicalAttack'),
+                magicAttack: applyFlatAndPercent('magicAttack'),
+                moveSpeed: applyFlatAndPercent('moveSpeed'),
+                attackSpeed: applyFlatAndPercent('attackSpeed'),
+                physicalDefense: applyFlatAndPercent('physicalDefense'),
+                magicDefense: applyFlatAndPercent('magicDefense'),
+                evasion: applyFlatAndPercent('evasion'),
+                accuracy: applyFlatAndPercent('accuracy'),
+                attackRange: applyFlatAndPercent('attackRange'),
+                maxHp: applyFlatAndPercent('maxHp'),
+                criticalChance: Number(leveled.criticalChance || 0) + Number(bonusSum.criticalChance || 0) + Number(percentSum.criticalChance || 0),
+                luck: Number(leveled.luck || 0) + Number(bonusSum.luck || 0)
             };
         }
         else {
@@ -2213,11 +2360,16 @@ class GameController {
         const ty = center.y + Math.sin(angle) * radius;
         return this.projectToWalkable(mapKey, tx, ty);
     }
-    pickRandomWeaponTemplate() {
-        if (!Array.isArray(config_1.WEAPON_TEMPLATES) || config_1.WEAPON_TEMPLATES.length === 0)
-            return config_1.WEAPON_TEMPLATE;
-        const index = Math.floor(Math.random() * config_1.WEAPON_TEMPLATES.length);
-        return config_1.WEAPON_TEMPLATES[index] || config_1.WEAPON_TEMPLATE;
+    pickRandomWeaponTemplate(mapKey, mobKind) {
+        const safeMapKey = String(mapKey || 'forest');
+        const safeMobKind = String(mobKind || 'normal');
+        if (Math.random() < (safeMobKind === 'normal' ? 0.32 : 0.16)) {
+            const materialId = (0, config_1.pickMapMaterialTemplateId)(safeMapKey);
+            const material = config_1.BUILTIN_ITEM_TEMPLATE_BY_ID[materialId];
+            if (material)
+                return material;
+        }
+        return (0, config_1.pickProgressionLootTemplate)(safeMapKey, safeMobKind) || config_1.WEAPON_TEMPLATE;
     }
     dropWeaponAt(x, y, mapId, template = config_1.WEAPON_TEMPLATE, ownerId = null, ownerPartyId = null, reservedMs = 0) {
         const now = Date.now();
@@ -2226,11 +2378,16 @@ class GameController {
             templateId: String(template.id || template.type || 'weapon_teste'),
             type: String(template.type || 'weapon'),
             name: template.name,
-            rarity: String(template.rarity || 'common'),
+            rarity: String(template.rarity || 'branco'),
+            quality: String(template.quality || 'normal'),
             spriteId: template.spriteId ? String(template.spriteId) : undefined,
             iconUrl: template.iconUrl ? String(template.iconUrl) : undefined,
             slot: template.slot,
             bonuses: { ...template.bonuses },
+            bonusPercents: template.bonusPercents ? { ...template.bonusPercents } : {},
+            requiredClass: template.requiredClass ? String(template.requiredClass) : null,
+            requiredLevel: Number.isFinite(Number(template.requiredLevel)) ? Number(template.requiredLevel) : null,
+            bindingType: template.bindingType ? String(template.bindingType) : 'unbound',
             x,
             y,
             mapId,
@@ -2247,11 +2404,13 @@ class GameController {
             templateId: String(config_1.HP_POTION_TEMPLATE.id || config_1.HP_POTION_TEMPLATE.type || 'potion_hp'),
             type: String(config_1.HP_POTION_TEMPLATE.type || 'potion_hp'),
             name: config_1.HP_POTION_TEMPLATE.name,
-            rarity: String(config_1.HP_POTION_TEMPLATE.rarity || 'common'),
+            rarity: String(config_1.HP_POTION_TEMPLATE.rarity || 'branco'),
+            quality: String(config_1.HP_POTION_TEMPLATE.quality || 'normal'),
             spriteId: config_1.HP_POTION_TEMPLATE.spriteId ? String(config_1.HP_POTION_TEMPLATE.spriteId) : undefined,
             iconUrl: config_1.HP_POTION_TEMPLATE.iconUrl ? String(config_1.HP_POTION_TEMPLATE.iconUrl) : undefined,
             slot: config_1.HP_POTION_TEMPLATE.slot,
             bonuses: {},
+            bonusPercents: {},
             quantity: 1,
             stackable: Boolean(config_1.HP_POTION_TEMPLATE.stackable ?? true),
             maxStack: Number(config_1.HP_POTION_TEMPLATE.maxStack || 250),
@@ -2272,11 +2431,13 @@ class GameController {
             templateId: String(config_1.SKILL_RESET_HOURGLASS_TEMPLATE.id || config_1.SKILL_RESET_HOURGLASS_TEMPLATE.type || 'skill_reset_hourglass'),
             type: config_1.SKILL_RESET_HOURGLASS_TEMPLATE.type,
             name: config_1.SKILL_RESET_HOURGLASS_TEMPLATE.name,
-            rarity: String(config_1.SKILL_RESET_HOURGLASS_TEMPLATE.rarity || 'epic'),
+            rarity: String(config_1.SKILL_RESET_HOURGLASS_TEMPLATE.rarity || 'roxo'),
+            quality: String(config_1.SKILL_RESET_HOURGLASS_TEMPLATE.quality || 'normal'),
             spriteId: config_1.SKILL_RESET_HOURGLASS_TEMPLATE.spriteId ? String(config_1.SKILL_RESET_HOURGLASS_TEMPLATE.spriteId) : undefined,
             iconUrl: config_1.SKILL_RESET_HOURGLASS_TEMPLATE.iconUrl ? String(config_1.SKILL_RESET_HOURGLASS_TEMPLATE.iconUrl) : undefined,
             slot: config_1.SKILL_RESET_HOURGLASS_TEMPLATE.slot,
             bonuses: {},
+            bonusPercents: {},
             quantity: 1,
             stackable: Boolean(config_1.SKILL_RESET_HOURGLASS_TEMPLATE.stackable),
             maxStack: Number(config_1.SKILL_RESET_HOURGLASS_TEMPLATE.maxStack || 250),
@@ -2379,6 +2540,12 @@ class GameController {
     clearFriendRequestsForPlayer(playerId) {
         this.friendService.clearFriendRequestsForPlayer(playerId);
     }
+    async pruneExpiredGuildInvites(now) {
+        await this.guildService.pruneExpiredInvites(now);
+    }
+    async clearGuildInvitesForPlayer(playerId) {
+        await this.guildService.clearInvitesForPlayer(playerId);
+    }
     findOnlinePlayerByName(rawName) {
         const needle = String(rawName || '').trim().toLowerCase();
         if (!needle)
@@ -2400,6 +2567,12 @@ class GameController {
     }
     async hydrateFriendStateForPlayer(player) {
         await this.friendService.hydrateFriendStateForPlayer(player);
+    }
+    async hydrateGuildStateForPlayer(player) {
+        await this.guildService.hydrateGuildStateForPlayer(player);
+    }
+    async sendGuildState(player) {
+        await this.guildService.sendGuildState(player);
     }
     removePlayerFromParty(player) {
         this.partyService.removePlayerFromParty(player);
@@ -2768,7 +2941,7 @@ class GameController {
         const src = input && typeof input === 'object' ? input : {};
         const out = {};
         for (const [skillId, raw] of Object.entries(src)) {
-            if (!SKILL_DEFS[String(skillId)])
+            if (!skillCatalog_1.SKILL_DEFS[String(skillId)])
                 continue;
             const lvl = Math.max(0, Math.min(5, Math.floor(Number(raw || 0))));
             if (lvl > 0)
@@ -2791,7 +2964,7 @@ class GameController {
         return Math.max(0, Math.min(5, Number(levels[skillId] || 0)));
     }
     getSkillPrerequisite(skillId) {
-        for (const chain of Object.values(SKILL_CHAINS)) {
+        for (const chain of Object.values(skillCatalog_1.SKILL_CHAINS)) {
             const idx = chain.indexOf(skillId);
             if (idx <= 0)
                 continue;
@@ -2800,18 +2973,21 @@ class GameController {
         return null;
     }
     getSkillRequiredLevel(skillId) {
-        for (const chain of Object.values(SKILL_CHAINS)) {
+        for (const chain of Object.values(skillCatalog_1.SKILL_CHAINS)) {
             const idx = chain.indexOf(skillId);
             if (idx < 0)
                 continue;
-            return Number(SKILL_UNLOCK_LEVELS[idx] || 1);
+            return Number(skillCatalog_1.SKILL_UNLOCK_LEVELS[idx] || 1);
         }
         return 1;
     }
     getSkillPowerWithLevel(skill, level) {
         const safeLevel = Math.max(1, Math.min(5, Number(level || 1)));
         const base = Number(skill.power || 1);
-        return base * (1 + (safeLevel - 1) * 0.22);
+        const explicitStep = Number(skill.powerStep || 0);
+        if (explicitStep > 0)
+            return base + explicitStep * (safeLevel - 1);
+        return base * (1 + (safeLevel - 1) * 0.18);
     }
     sendStatsUpdated(player) {
         this.sendRaw(player.ws, {

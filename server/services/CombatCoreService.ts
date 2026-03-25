@@ -16,7 +16,7 @@ type GrantXpFn = (player: PlayerRuntime, amount: number, context?: { mapKey?: st
 type GrantMobCurrencyFn = (player: PlayerRuntime, mob: any) => void;
 type MapInstanceIdFn = (mapKey: string, mapId: string) => string;
 type DropPosFn = (originX: number, originY: number, dropIndex: number, dropTotal: number, mapKey: string) => { x: number; y: number };
-type PickWeaponTemplateFn = () => any;
+type PickWeaponTemplateFn = (mapKey: string, mobKind: string) => any;
 type DropWeaponFn = (x: number, y: number, mapId: string, template?: any, ownerId?: number | null, ownerPartyId?: string | null, reservedMs?: number) => void;
 type DropPotionFn = (x: number, y: number, mapId: string, ownerId?: number | null, ownerPartyId?: string | null, reservedMs?: number) => void;
 type DropHourglassFn = (x: number, y: number, mapId: string, ownerId?: number | null, ownerPartyId?: string | null, reservedMs?: number) => void;
@@ -75,9 +75,22 @@ export class CombatCoreService {
         this.grantMobCurrency(player, mob);
         const mapInstanceId = this.mapInstanceId(player.mapKey, player.mapId);
         const dropDefs: Array<'weapon' | 'potion_hp' | 'skill_reset_hourglass'> = [];
-        if (Math.random() < 0.5) dropDefs.push('weapon');
-        dropDefs.push('potion_hp');
-        if (Math.random() < Number(SKILL_RESET_HOURGLASS_DROP_CHANCE || 0)) dropDefs.push('skill_reset_hourglass');
+        const kind = String(mob?.kind || 'normal');
+        if (kind === 'boss') {
+            dropDefs.push('weapon', 'weapon', 'potion_hp');
+        } else if (kind === 'subboss') {
+            dropDefs.push('weapon', 'potion_hp');
+            if (Math.random() < 0.55) dropDefs.push('weapon');
+        } else if (kind === 'elite') {
+            dropDefs.push('weapon');
+            if (Math.random() < 0.72) dropDefs.push('potion_hp');
+        } else {
+            if (Math.random() < 0.26) dropDefs.push('weapon');
+            if (Math.random() < 0.58) dropDefs.push('potion_hp');
+        }
+        if (Math.random() < Number(SKILL_RESET_HOURGLASS_DROP_CHANCE || 0) * (kind === 'boss' ? 1.8 : kind === 'subboss' ? 1.2 : 1)) {
+            dropDefs.push('skill_reset_hourglass');
+        }
         if (Array.isArray(mob.eventLootTable)) {
             for (const entry of mob.eventLootTable) {
                 const type = String(entry?.type || '') as 'weapon' | 'potion_hp' | 'skill_reset_hourglass';
@@ -92,7 +105,7 @@ export class CombatCoreService {
             const ownerId = Number(player.id);
             const ownerPartyId = String(player.partyId || '') || null;
             const reserveMs = (mob?.kind === 'elite' || mob?.kind === 'subboss' || mob?.kind === 'boss') ? 60_000 : 0;
-            if (dropType === 'weapon') this.dropWeaponAt(dropPos.x, dropPos.y, mapInstanceId, this.pickRandomWeaponTemplate(), ownerId, ownerPartyId, reserveMs);
+            if (dropType === 'weapon') this.dropWeaponAt(dropPos.x, dropPos.y, mapInstanceId, this.pickRandomWeaponTemplate(player.mapKey, kind), ownerId, ownerPartyId, reserveMs);
             else if (dropType === 'potion_hp') this.dropHpPotionAt(dropPos.x, dropPos.y, mapInstanceId, ownerId, ownerPartyId, reserveMs);
             else this.dropSkillResetHourglassAt(dropPos.x, dropPos.y, mapInstanceId, ownerId, ownerPartyId, reserveMs);
         });

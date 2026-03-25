@@ -393,6 +393,18 @@ export class GameSocket {
         traceLoadingStep('WS <= friend.state.');
         this.store.update({ friendState: payload });
         return;
+      case 'trade.state':
+        this.store.update({ tradeState: payload });
+        return;
+      case 'storage.state':
+        this.store.update({ storageState: payload });
+        return;
+      case 'guild.state':
+        this.store.update({ guildState: payload });
+        return;
+      case 'pet.state':
+        this.store.update({ petState: payload });
+        return;
       case 'npc.dialog':
         traceLoadingStep(`WS <= npc.dialog (${String(payload?.npc?.id || '-')}).`);
         this.store.update({

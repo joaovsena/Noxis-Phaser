@@ -101,7 +101,7 @@ class SkillService {
             }
             const currentDistance = (0, math_1.distance)(player, targetMob);
             const edgeDistance = currentDistance - (targetMob.size / 2 + config_1.PLAYER_HALF_SIZE);
-            const range = Number(skill.range || 100);
+            const range = Number(skill.range || 100) + Number(skill.rangeStep || 0) * Math.max(0, skillLevel - 1);
             if (edgeDistance > range) {
                 player.pendingSkillCast = {
                     skillId,
@@ -131,7 +131,7 @@ class SkillService {
         player.skillCooldowns[skillId] = now + cooldownMs;
         if (skill.healVitScale && skill.healVitScale > 0) {
             const vit = Number(player.stats?.vit || 0);
-            const healScale = Number(skill.healVitScale) * (1 + (skillLevel - 1) * 0.2);
+            const healScale = Math.max(0.1, Number(skill.healVitScale || 0) + Number(skill.healVitScaleStep || 0) * Math.max(0, skillLevel - 1));
             const heal = Math.max(10, Math.floor(vit * healScale + Number(player.maxHp || 0) * (0.08 + (skillLevel - 1) * 0.01)));
             player.hp = Math.min(Number(player.maxHp || player.hp), Number(player.hp || 0) + heal);
             this.sendSkillEffect(player.mapKey, player.mapId, {
@@ -143,7 +143,7 @@ class SkillService {
             });
         }
         if (skill.buff) {
-            this.applyTimedSkillEffect(player, skill.buff, now);
+            this.applyTimedSkillEffect(player, this.scaleBuffForLevel(skill.buff, skill.buffStep || null, skillLevel), now);
             this.sendSkillEffect(player.mapKey, player.mapId, {
                 sourceId: player.id,
                 targetId: player.id,
@@ -161,12 +161,13 @@ class SkillService {
             ? Math.max(0, Math.min(1, (Number(player.maxHp || 1) - Number(player.hp || 0)) / Number(player.maxHp || 1)))
             : 0;
         const scaledPower = skill.lostHpScale
-            ? basePower * (1 + hpLostRatio * Number(skill.lostHpScale || 0))
+            ? basePower * (1 + hpLostRatio * (Number(skill.lostHpScale || 0) + Number(skill.lostHpScaleStep || 0) * Math.max(0, skillLevel - 1)))
             : basePower;
-        if (skill.aoeRadius && skill.aoeRadius > 0) {
+        const aoeRadius = Math.max(0, Number(skill.aoeRadius || 0) + Number(skill.aoeRadiusStep || 0) * Math.max(0, skillLevel - 1));
+        if (aoeRadius > 0) {
             const mobsInRange = this.getMobsByMap(mapInstanceId).filter((m) => {
                 const d = (0, math_1.distance)({ x: targetMob.x, y: targetMob.y }, m);
-                return d <= Number(skill.aoeRadius);
+                return d <= aoeRadius;
             });
             for (const mob of mobsInRange) {
                 const damage = this.computeMobDamage(player, mob, scaledPower, Boolean(skill.magic), now);
@@ -307,6 +308,25 @@ class SkillService {
         this.persistPlayer(player);
         this.sendRaw(player.ws, { type: 'system_message', text: `${skill.name} evoluiu para nivel ${nextLevel}.` });
         this.sendStatsUpdated(player);
+    }
+    scaleBuffForLevel(baseBuff, buffStep, level) {
+        const safeLevel = Math.max(1, Math.min(5, Number(level || 1)));
+        const next = { ...baseBuff };
+        if (!buffStep || safeLevel <= 1)
+            return next;
+        const scaleTimes = safeLevel - 1;
+        for (const [key, value] of Object.entries(buffStep)) {
+            if (!Number.isFinite(Number(value)))
+                continue;
+            const step = Number(value || 0);
+            const current = Number(next[key] || 0);
+            if (current > 1 && !['critAdd', 'evasionAdd', 'damageReduction', 'lifesteal', 'reflect'].includes(String(key))) {
+                next[key] = current + step * scaleTimes;
+                continue;
+            }
+            next[key] = current + step * scaleTimes;
+        }
+        return next;
     }
 }
 exports.SkillService = SkillService;

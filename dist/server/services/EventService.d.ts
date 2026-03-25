@@ -21,6 +21,8 @@ export declare class EventService {
         name: string;
         mapKey: string;
         mapId: string;
+        x: number;
+        y: number;
         startedAt: number;
         endsAt: number;
     }[];

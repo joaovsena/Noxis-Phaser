@@ -8,45 +8,183 @@ const dungeons_1 = require("../content/dungeons");
 const QUESTS = [
     {
         id: 'q_forest_hunt_01',
+        category: 'main',
         title: 'Limpeza da Clareira',
-        description: 'Elimine monstros proximos para reduzir a pressao na entrada da floresta.',
+        description: 'Guarda Alden precisa reduzir a pressao de monstros na borda da aldeia antes do amanhecer.',
         giverNpcId: 'npc_guard_alden',
         turnInNpcId: 'npc_guard_alden',
         objectives: [
-            { id: 'kill_normal', type: 'kill', targetKinds: ['normal', 'elite'], required: 6, text: 'Derrote 6 monstros' }
+            { id: 'kill_outskirts', type: 'kill', targetKinds: ['normal', 'elite'], mapKey: 'forest', required: 6, text: 'Derrote 6 monstros na borda da aldeia' }
         ],
         rewards: {
             xp: 120,
-            currency: { copper: 70, silver: 2 }
-        }
-    },
-    {
-        id: 'q_forest_supply_01',
-        title: 'Suprimentos de Emergencia',
-        description: 'Alden precisa de pocoes para reforcar a guarnicao.',
-        giverNpcId: 'npc_guard_alden',
-        turnInNpcId: 'npc_guard_alden',
-        objectives: [
-            { id: 'collect_potions', type: 'collect', templateId: 'potion_hp', required: 3, text: 'Colete 3 Pocoes HP' }
-        ],
-        rewards: {
-            xp: 150,
-            currency: { silver: 4 },
+            currency: { copper: 70, silver: 2 },
             items: [{ templateId: 'potion_hp', quantity: 2 }]
         }
     },
     {
         id: 'q_forest_report_01',
+        category: 'main',
         title: 'Relatorio de Campo',
-        description: 'Converse com a Exploradora Lina e retorne com informacoes.',
+        description: 'Alden quer um relatorio atualizado da ponte. Fale com Lina e volte com a situacao da patrulha.',
         giverNpcId: 'npc_guard_alden',
         turnInNpcId: 'npc_guard_alden',
+        requiresCompletedIds: ['q_forest_hunt_01'],
         objectives: [
-            { id: 'talk_lina', type: 'talk', npcId: 'npc_scout_lina', required: 1, text: 'Converse com Lina' }
+            { id: 'talk_lina', type: 'talk', npcId: 'npc_scout_lina', required: 1, text: 'Converse com a Exploradora Lina' }
+        ],
+        rewards: {
+            xp: 140,
+            currency: { silver: 4 },
+            items: [{ classEquipmentSlot: 'boots', quantity: 1 }]
+        }
+    },
+    {
+        id: 'q_forest_supply_01',
+        category: 'main',
+        title: 'Suprimentos de Emergencia',
+        description: 'Selene quer reorganizar a retaguarda. Coordene reforcos com Borin e Tessa.',
+        giverNpcId: 'npc_curandeira_selene',
+        turnInNpcId: 'npc_curandeira_selene',
+        requiresCompletedIds: ['q_forest_report_01'],
+        objectives: [
+            { id: 'talk_borin_supply', type: 'talk', npcId: 'npc_ferreiro_borin', required: 1, text: 'Converse com Borin sobre armaduras de campanha' },
+            { id: 'talk_tessa_supply', type: 'talk', npcId: 'npc_mercadora_tessa', required: 1, text: 'Converse com Tessa sobre mantimentos' }
         ],
         rewards: {
             xp: 180,
-            currency: { silver: 7, copper: 20 }
+            currency: { silver: 5, copper: 20 },
+            items: [
+                { classEquipmentSlot: 'gloves', quantity: 1 },
+                { templateId: 'potion_hp', quantity: 2 }
+            ]
+        }
+    },
+    {
+        id: 'q_forest_rift_01',
+        category: 'main',
+        title: 'Sinais da Fenda',
+        description: 'Lina detectou presencas mais agressivas perto da fenda. Abata os alvos perigosos e retorne.',
+        giverNpcId: 'npc_scout_lina',
+        turnInNpcId: 'npc_guard_alden',
+        requiresCompletedIds: ['q_forest_supply_01'],
+        objectives: [
+            { id: 'kill_elites', type: 'kill', targetKinds: ['elite', 'subboss'], mapKey: 'forest', required: 3, text: 'Derrote 3 elites ou subchefes na floresta' }
+        ],
+        rewards: {
+            xp: 220,
+            currency: { silver: 7 },
+            items: [{ classEquipmentSlot: 'helmet', quantity: 1 }]
+        }
+    },
+    {
+        id: 'q_forest_ruins_prep_01',
+        category: 'main',
+        title: 'Preparacao para as Ruinas',
+        description: 'Alden so abrira passagem para as ruinas quando voce revisar postura e equipamento com Rowan e Borin.',
+        giverNpcId: 'npc_guard_alden',
+        turnInNpcId: 'npc_dungeon_warden',
+        requiresCompletedIds: ['q_forest_rift_01'],
+        objectives: [
+            { id: 'talk_rowan_prep', type: 'talk', npcId: 'npc_mestre_rowan', required: 1, text: 'Consulte Rowan sobre combate e hotbar' },
+            { id: 'talk_borin_prep', type: 'talk', npcId: 'npc_ferreiro_borin', required: 1, text: 'Revise seu equipamento com Borin' }
+        ],
+        rewards: {
+            xp: 240,
+            currency: { silver: 8 },
+            items: [{ classEquipmentSlot: 'chest', quantity: 1 }]
+        }
+    },
+    {
+        id: 'q_forest_dungeon_01',
+        category: 'main',
+        title: 'Ruinas de Alder',
+        description: 'Entre nas ruinas e derrote o Guardiao das Ruinas para estabilizar a fronteira da aldeia.',
+        giverNpcId: 'npc_dungeon_warden',
+        turnInNpcId: 'npc_guard_alden',
+        requiresCompletedIds: ['q_forest_ruins_prep_01'],
+        objectives: [
+            { id: 'kill_ruins_boss', type: 'kill', targetKinds: ['boss'], mapKey: 'dng_forest_ruins_mvp', required: 1, text: 'Derrote o Guardiao das Ruinas' }
+        ],
+        rewards: {
+            xp: 420,
+            currency: { gold: 1, silver: 20 },
+            items: [
+                { templateId: 'weapon_rubi', quantity: 1 },
+                { templateId: 'skill_reset_hourglass', quantity: 1 }
+            ]
+        }
+    },
+    {
+        id: 'q_forest_storage_01',
+        category: 'side',
+        title: 'Cofre Organizado',
+        description: 'Zenon quer garantir que os aventureiros conhecam o deposito da aldeia. Fale com Marek e volte.',
+        giverNpcId: 'npc_bau_zenon',
+        turnInNpcId: 'npc_bau_zenon',
+        requiresCompletedIds: ['q_forest_hunt_01'],
+        objectives: [
+            { id: 'talk_marek_storage', type: 'talk', npcId: 'npc_cidadao_marek', required: 1, text: 'Converse com Marek sobre mantimentos e armazenamento' }
+        ],
+        rewards: {
+            xp: 90,
+            currency: { copper: 90 },
+            items: [{ classEquipmentSlot: 'pants', quantity: 1 }]
+        }
+    },
+    {
+        id: 'q_forest_market_01',
+        category: 'side',
+        title: 'Circuito do Mercado',
+        description: 'Marek precisa alinhar o fluxo do mercado. Passe por Tessa e Borin antes de retornar.',
+        giverNpcId: 'npc_cidadao_marek',
+        turnInNpcId: 'npc_cidadao_marek',
+        requiresCompletedIds: ['q_forest_report_01'],
+        objectives: [
+            { id: 'talk_tessa_market', type: 'talk', npcId: 'npc_mercadora_tessa', required: 1, text: 'Converse com Tessa sobre os suprimentos do mercado' },
+            { id: 'talk_borin_market', type: 'talk', npcId: 'npc_ferreiro_borin', required: 1, text: 'Converse com Borin sobre o fluxo de encomendas' }
+        ],
+        rewards: {
+            xp: 110,
+            currency: { silver: 3 },
+            items: [{ templateId: 'potion_hp', quantity: 3 }]
+        }
+    },
+    {
+        id: 'q_forest_rowan_01',
+        category: 'side',
+        title: 'Treino de Rowan',
+        description: 'Rowan quer ver se voce consegue manter controle no campo antes de avancar para as ruinas.',
+        giverNpcId: 'npc_mestre_rowan',
+        turnInNpcId: 'npc_mestre_rowan',
+        requiresCompletedIds: ['q_forest_supply_01'],
+        objectives: [
+            { id: 'kill_normals_rowan', type: 'kill', targetKinds: ['normal'], mapKey: 'forest', required: 5, text: 'Derrote 5 monstros comuns na floresta' }
+        ],
+        rewards: {
+            xp: 140,
+            currency: { silver: 4 },
+            items: [{ classEquipmentSlot: 'ring', quantity: 1 }]
+        }
+    },
+    {
+        id: 'q_forest_selene_01',
+        category: 'side',
+        title: 'Linha de Socorro',
+        description: 'Selene precisa de mais espaco para tratar os feridos. Reduza a pressao dos elites proximos a aldeia.',
+        giverNpcId: 'npc_curandeira_selene',
+        turnInNpcId: 'npc_curandeira_selene',
+        requiresCompletedIds: ['q_forest_supply_01'],
+        objectives: [
+            { id: 'kill_elites_selene', type: 'kill', targetKinds: ['elite', 'subboss'], mapKey: 'forest', required: 2, text: 'Derrote 2 elites ou subchefes perto da aldeia' }
+        ],
+        rewards: {
+            xp: 150,
+            currency: { silver: 5 },
+            items: [
+                { classEquipmentSlot: 'necklace', quantity: 1 },
+                { templateId: 'potion_hp', quantity: 3 }
+            ]
         }
     }
 ];
@@ -95,6 +233,9 @@ class QuestService {
                 slot: String(template.slot || 'misc'),
                 quantity: Math.max(1, Number(entry.quantity || 1)),
                 requiredClass: template.requiredClass ? String(template.requiredClass) : null,
+                requiredLevel: Number.isFinite(Number(template.requiredLevel)) ? Number(template.requiredLevel) : null,
+                quality: template.quality ? String(template.quality) : 'normal',
+                bonusPercents: template.bonusPercents || {},
                 price: template.price || {},
                 bonuses: template.bonuses || {}
             };
@@ -123,8 +264,7 @@ class QuestService {
         const questState = this.getQuestState(player);
         const availableQuestIds = QUESTS
             .filter((q) => q.giverNpcId === npc.id)
-            .filter((q) => !questState.completedIds.includes(q.id))
-            .filter((q) => !questState.accepted[q.id])
+            .filter((q) => this.isQuestAvailableForPlayer(q, questState))
             .map((q) => q.id);
         const turnInQuestIds = QUESTS
             .filter((q) => q.turnInNpcId === npc.id)
@@ -141,10 +281,11 @@ class QuestService {
                 .filter((q) => availableQuestIds.includes(q.id) || turnInQuestIds.includes(q.id))
                 .map((q) => ({
                 id: q.id,
+                category: q.category,
                 title: q.title,
                 description: q.description,
                 objectives: q.objectives.map((o) => ({ id: o.id, type: o.type, text: o.text, required: Number(o.required || 1) })),
-                rewards: q.rewards
+                rewards: this.resolveQuestRewardsForPlayer(player, q.rewards)
             }))
         });
         if (changedByTalk)
@@ -185,6 +326,10 @@ class QuestService {
             this.sendRaw(player.ws, { type: 'system_message', text: 'Essa quest ja esta ativa.' });
             return;
         }
+        if (!this.areQuestRequirementsMet(quest, state)) {
+            this.sendRaw(player.ws, { type: 'system_message', text: 'Voce ainda nao cumpriu os requisitos desta quest.' });
+            return;
+        }
         const progress = {};
         for (const obj of quest.objectives)
             progress[obj.id] = 0;
@@ -220,17 +365,20 @@ class QuestService {
         delete state.accepted[questId];
         if (!state.completedIds.includes(questId))
             state.completedIds.push(questId);
+        const resolvedRewards = this.resolveQuestRewardsForPlayer(player, quest.rewards);
         this.setQuestState(player, state);
         this.persistPlayer(player);
         this.grantXp(player, Number(quest.rewards.xp || 0), { mapKey: player.mapKey, mapId: player.mapId });
         if (quest.rewards.currency && typeof quest.rewards.currency === 'object') {
             this.grantCurrency(player, quest.rewards.currency, `Quest: ${quest.title}`);
         }
-        if (Array.isArray(quest.rewards.items)) {
-            for (const reward of quest.rewards.items) {
+        if (Array.isArray(resolvedRewards.items)) {
+            for (const reward of resolvedRewards.items) {
+                if (!reward)
+                    continue;
                 const left = this.grantRewardItem(player, String(reward.templateId), Math.max(1, Number(reward.quantity || 1)));
                 if (left > 0) {
-                    this.sendRaw(player.ws, { type: 'system_message', text: `Inventario cheio: faltou receber ${left}x ${reward.templateId}.` });
+                    this.sendRaw(player.ws, { type: 'system_message', text: `Inventario cheio: faltou receber ${left}x ${reward.name || reward.templateId}.` });
                 }
             }
         }
@@ -252,6 +400,10 @@ class QuestService {
                 continue;
             for (const obj of quest.objectives) {
                 if (obj.type !== 'kill')
+                    continue;
+                if (obj.mapKey && String(player.mapKey || '') !== String(obj.mapKey))
+                    continue;
+                if (obj.mapId && String(player.mapId || '') !== String(obj.mapId))
                     continue;
                 if (Array.isArray(obj.targetKinds) && obj.targetKinds.length > 0 && !obj.targetKinds.includes(mobKind))
                     continue;
@@ -320,6 +472,7 @@ class QuestService {
                 continue;
             out.push({
                 id: quest.id,
+                category: quest.category,
                 title: quest.title,
                 description: quest.description,
                 status: entry.status,
@@ -332,13 +485,24 @@ class QuestService {
                     current: Math.max(0, Math.floor(Number(entry.progress[obj.id] || 0))),
                     required: Math.max(1, Math.floor(Number(obj.required || 1)))
                 })),
-                rewards: quest.rewards
+                rewards: this.resolveQuestRewardsForPlayer(player, quest.rewards)
             });
         }
         return out;
     }
     areAllObjectivesDone(quest, entry) {
         return quest.objectives.every((obj) => Number(entry.progress[obj.id] || 0) >= Number(obj.required || 1));
+    }
+    areQuestRequirementsMet(quest, state) {
+        const required = Array.isArray(quest.requiresCompletedIds) ? quest.requiresCompletedIds : [];
+        return required.every((questId) => state.completedIds.includes(String(questId || '')));
+    }
+    isQuestAvailableForPlayer(quest, state) {
+        if (state.completedIds.includes(quest.id))
+            return false;
+        if (state.accepted[quest.id])
+            return false;
+        return this.areQuestRequirementsMet(quest, state);
     }
     applyTalkProgress(player, npcId) {
         const state = this.getQuestState(player);
@@ -372,6 +536,48 @@ class QuestService {
         this.setQuestState(player, state);
         this.persistPlayer(player);
         return true;
+    }
+    resolveQuestRewardsForPlayer(player, rewards) {
+        const items = Array.isArray(rewards?.items)
+            ? rewards.items
+                .map((entry) => {
+                const templateId = this.resolveQuestRewardTemplateId(player, entry);
+                if (!templateId)
+                    return null;
+                const template = config_1.BUILTIN_ITEM_TEMPLATE_BY_ID[String(templateId || '')];
+                return {
+                    templateId,
+                    quantity: Math.max(1, Number(entry.quantity || 1)),
+                    name: String(template?.name || templateId),
+                    rarity: String(template?.rarity || 'branco'),
+                    quality: String(template?.quality || 'normal')
+                };
+            })
+                .filter(Boolean)
+            : [];
+        return {
+            xp: Number(rewards?.xp || 0),
+            currency: rewards?.currency || {},
+            items
+        };
+    }
+    resolveQuestRewardTemplateId(player, reward) {
+        if (reward?.templateId) {
+            const explicit = String(reward.templateId);
+            if (explicit === 'weapon_rubi') {
+                return (0, config_1.resolveClassWeaponTemplateId)(String(player?.class || 'knight'), 2, 'roxo', 'bom');
+            }
+            if (explicit === 'weapon_teste') {
+                return (0, config_1.resolveClassWeaponTemplateId)(String(player?.class || 'knight'), 1, 'branco', 'normal');
+            }
+            return explicit;
+        }
+        const slot = String(reward?.classEquipmentSlot || '').trim();
+        if (!slot)
+            return '';
+        const classId = String(player?.class || 'knight').toLowerCase();
+        const candidate = (0, config_1.resolveClassEquipmentTemplateId)(classId, slot, slot === 'chest' ? 1 : 1, slot === 'chest' ? 'verde' : 'branco', slot === 'ring' || slot === 'necklace' ? 'bom' : 'normal');
+        return config_1.BUILTIN_ITEM_TEMPLATE_BY_ID[candidate] ? candidate : '';
     }
     getQuestState(player) {
         const overrides = player.statusOverrides && typeof player.statusOverrides === 'object'

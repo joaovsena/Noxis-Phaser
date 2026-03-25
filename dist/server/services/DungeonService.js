@@ -763,8 +763,8 @@ class DungeonService {
         const fallback = {
             mapKey: 'forest',
             mapId: 'Z1',
-            x: 500,
-            y: 500
+            x: config_1.DEFAULT_PLAYER_SPAWN_BY_MAP_KEY.forest?.x || 500,
+            y: config_1.DEFAULT_PLAYER_SPAWN_BY_MAP_KEY.forest?.y || 500
         };
         const origin = state?.origin || fallback;
         const mapWorld = this.getMapWorld(origin.mapKey);

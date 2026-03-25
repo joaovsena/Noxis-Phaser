@@ -7,6 +7,7 @@ exports.PersistenceService = void 0;
 const prisma_1 = __importDefault(require("../utils/prisma"));
 const hash_1 = require("../utils/hash");
 const currency_1 = require("../utils/currency");
+const petCatalog_1 = require("../content/petCatalog");
 class PersistenceService {
     async getUser(username) {
         return await prisma_1.default.user.findUnique({
@@ -270,6 +271,264 @@ class PersistenceService {
         return await prisma_1.default.player.findMany({
             where: { id: { in: ids } },
             select: { id: true, name: true }
+        });
+    }
+    async getGuildByName(name) {
+        return await prisma_1.default.guild.findUnique({
+            where: { name },
+            include: {
+                members: {
+                    include: {
+                        player: {
+                            select: { id: true, name: true, class: true, level: true }
+                        }
+                    },
+                    orderBy: { joinedAt: 'asc' }
+                }
+            }
+        });
+    }
+    async getGuildById(guildId) {
+        return await prisma_1.default.guild.findUnique({
+            where: { id: guildId },
+            include: {
+                members: {
+                    include: {
+                        player: {
+                            select: { id: true, name: true, class: true, level: true }
+                        }
+                    },
+                    orderBy: { joinedAt: 'asc' }
+                }
+            }
+        });
+    }
+    async getGuildMembershipForPlayer(playerId) {
+        return await prisma_1.default.guildMember.findUnique({
+            where: { playerId },
+            include: {
+                guild: {
+                    include: {
+                        members: {
+                            include: {
+                                player: {
+                                    select: { id: true, name: true, class: true, level: true }
+                                }
+                            },
+                            orderBy: { joinedAt: 'asc' }
+                        }
+                    }
+                }
+            }
+        });
+    }
+    async createGuild(name, leaderPlayerId) {
+        return await prisma_1.default.guild.create({
+            data: {
+                name,
+                members: {
+                    create: {
+                        playerId: leaderPlayerId,
+                        rank: 'leader'
+                    }
+                }
+            },
+            include: {
+                members: {
+                    include: {
+                        player: {
+                            select: { id: true, name: true, class: true, level: true }
+                        }
+                    },
+                    orderBy: { joinedAt: 'asc' }
+                }
+            }
+        });
+    }
+    async addGuildMember(guildId, playerId, rank = 'member') {
+        return await prisma_1.default.guildMember.create({
+            data: {
+                guildId,
+                playerId,
+                rank
+            }
+        });
+    }
+    async updateGuildMemberRank(guildId, playerId, rank) {
+        return await prisma_1.default.guildMember.updateMany({
+            where: { guildId, playerId },
+            data: { rank }
+        });
+    }
+    async removeGuildMember(guildId, playerId) {
+        await prisma_1.default.guildMember.deleteMany({
+            where: { guildId, playerId }
+        });
+    }
+    async deleteGuild(guildId) {
+        await prisma_1.default.guild.deleteMany({
+            where: { id: guildId }
+        });
+    }
+    async findPendingGuildInviteBetween(guildId, fromPlayerId, toPlayerId) {
+        return await prisma_1.default.guildInvite.findFirst({
+            where: {
+                guildId,
+                fromPlayerId,
+                toPlayerId,
+                status: 'pending'
+            }
+        });
+    }
+    async createGuildInvite(guildId, fromPlayerId, toPlayerId, expiresAt) {
+        return await prisma_1.default.guildInvite.create({
+            data: {
+                guildId,
+                fromPlayerId,
+                toPlayerId,
+                expiresAt,
+                status: 'pending'
+            }
+        });
+    }
+    async getPendingGuildInviteById(inviteId) {
+        return await prisma_1.default.guildInvite.findFirst({
+            where: {
+                id: inviteId,
+                status: 'pending'
+            },
+            include: {
+                guild: true
+            }
+        });
+    }
+    async getPendingGuildInvitesForPlayer(playerId) {
+        return await prisma_1.default.guildInvite.findMany({
+            where: {
+                toPlayerId: playerId,
+                status: 'pending'
+            },
+            include: {
+                guild: true,
+                fromPlayer: {
+                    select: { id: true, name: true }
+                }
+            },
+            orderBy: { createdAt: 'desc' }
+        });
+    }
+    async completeGuildInvite(inviteId, status) {
+        await prisma_1.default.guildInvite.updateMany({
+            where: {
+                id: inviteId,
+                status: 'pending'
+            },
+            data: { status }
+        });
+    }
+    async pruneExpiredGuildInvites(now) {
+        await prisma_1.default.guildInvite.updateMany({
+            where: {
+                status: 'pending',
+                expiresAt: { lt: now }
+            },
+            data: { status: 'expired' }
+        });
+    }
+    async clearGuildInvitesForPlayer(playerId) {
+        await prisma_1.default.guildInvite.updateMany({
+            where: {
+                status: 'pending',
+                OR: [{ fromPlayerId: playerId }, { toPlayerId: playerId }]
+            },
+            data: { status: 'cancelled' }
+        });
+    }
+    async getPetsForPlayer(playerId) {
+        return await prisma_1.default.petOwnership.findMany({
+            where: { playerId },
+            orderBy: { createdAt: 'asc' }
+        });
+    }
+    async getPetOwnershipById(ownershipId) {
+        return await prisma_1.default.petOwnership.findUnique({
+            where: { id: ownershipId }
+        });
+    }
+    async createPetOwnership(playerId, templateId, name) {
+        const template = (0, petCatalog_1.getPetTemplate)(templateId);
+        if (!template)
+            throw new Error(`unknown_pet_template:${templateId}`);
+        return await prisma_1.default.petOwnership.create({
+            data: {
+                playerId,
+                templateId,
+                name: String(name || template.name || 'Pet')
+            }
+        });
+    }
+    async updatePetOwnership(ownershipId, patch) {
+        const data = {};
+        if (typeof patch.name === 'string')
+            data.name = patch.name;
+        if (Number.isFinite(Number(patch.level)))
+            data.level = Math.max(1, Math.floor(Number(patch.level)));
+        if (Number.isFinite(Number(patch.xp)))
+            data.xp = Math.max(0, Math.floor(Number(patch.xp)));
+        if (Number.isFinite(Number(patch.loyalty)))
+            data.loyalty = Math.max(0, Math.min(100, Math.floor(Number(patch.loyalty))));
+        if (Number.isFinite(Number(patch.hunger)))
+            data.hunger = Math.max(0, Math.min(100, Math.floor(Number(patch.hunger))));
+        return await prisma_1.default.petOwnership.update({
+            where: { id: ownershipId },
+            data
+        });
+    }
+    async ensureStarterPetsForPlayer(playerId) {
+        const existing = await prisma_1.default.petOwnership.findMany({
+            where: { playerId },
+            select: { templateId: true }
+        });
+        const existingTemplateIds = new Set(existing.map((entry) => String(entry.templateId || '')));
+        const missingTemplateIds = petCatalog_1.STARTER_PET_TEMPLATE_IDS.filter((templateId) => !existingTemplateIds.has(templateId));
+        if (!missingTemplateIds.length)
+            return;
+        for (const templateId of missingTemplateIds) {
+            const template = petCatalog_1.PET_TEMPLATES[templateId];
+            if (!template)
+                continue;
+            await prisma_1.default.petOwnership.create({
+                data: {
+                    playerId,
+                    templateId,
+                    name: String(template.name || 'Pet')
+                }
+            });
+        }
+    }
+    async getActivePetForPlayer(playerId) {
+        return await prisma_1.default.playerActivePet.findUnique({
+            where: { playerId },
+            include: { petOwnership: true }
+        });
+    }
+    async setActivePet(playerId, petOwnershipId, behavior = 'assist') {
+        return await prisma_1.default.playerActivePet.upsert({
+            where: { playerId },
+            update: {
+                petOwnershipId,
+                behavior: String(behavior || 'assist')
+            },
+            create: {
+                playerId,
+                petOwnershipId,
+                behavior: String(behavior || 'assist')
+            }
+        });
+    }
+    async clearActivePet(playerId) {
+        await prisma_1.default.playerActivePet.deleteMany({
+            where: { playerId }
         });
     }
     async savePlayerFromSnapshot(snapshot, options = {}) {

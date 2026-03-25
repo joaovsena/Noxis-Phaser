@@ -88,9 +88,18 @@ class InventoryService {
         const template = config_1.BUILTIN_ITEM_TEMPLATE_BY_ID[templateKey] || config_1.BUILTIN_ITEM_TEMPLATE_BY_ID[String(item?.type || '')] || null;
         return {
             ...item,
-            rarity: String(item?.rarity || template?.rarity || 'common'),
+            rarity: String(item?.rarity || template?.rarity || 'branco'),
+            quality: String(item?.quality || template?.quality || 'normal'),
             spriteId: item?.spriteId || item?.sprite_id || template?.spriteId || null,
             iconUrl: item?.iconUrl || item?.icon_url || template?.iconUrl || '/assets/ui/items/placeholder-transparent.svg',
+            requiredClass: item?.requiredClass || template?.requiredClass || null,
+            requiredLevel: Number.isFinite(Number(item?.requiredLevel))
+                ? Number(item.requiredLevel)
+                : (Number.isFinite(Number(template?.requiredLevel)) ? Number(template.requiredLevel) : null),
+            bindingType: String(item?.bindingType || template?.bindingType || 'unbound'),
+            bonusPercents: item?.bonusPercents && typeof item.bonusPercents === 'object'
+                ? item.bonusPercents
+                : (template?.bonusPercents && typeof template.bonusPercents === 'object' ? template.bonusPercents : {}),
             maxStack: this.isStackableItem(item || template) ? GLOBAL_MAX_STACK : Number(item?.maxStack || template?.maxStack || 1)
         };
     }
@@ -129,6 +138,14 @@ class InventoryService {
                     return;
                 }
             }
+        }
+        const requiredLevel = Math.max(0, Number(found.requiredLevel || 0));
+        if (requiredLevel > 0 && Math.max(1, Number(player.level || 1)) < requiredLevel) {
+            this.sendRaw(player.ws, {
+                type: 'system_message',
+                text: `Nivel insuficiente para equipar. Requer nivel ${requiredLevel}.`
+            });
+            return;
         }
         if (itemType !== 'weapon') {
             const equipSlot = String(found.slot || '');

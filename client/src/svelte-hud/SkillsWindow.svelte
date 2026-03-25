@@ -35,6 +35,29 @@
     if (!selectedSkill?.learned) return;
     castSkill(selectedSkill.id);
   }
+
+  function rankPips(level = 0, maxPoints = 5) {
+    return Array.from({ length: maxPoints }, (_, index) => index < level);
+  }
+
+  function scalingHint(skill: any) {
+    if (!skill) return '';
+    if (skill.role === 'Cura') return 'Cada nivel amplia a cura total e melhora o sustain da rotacao.';
+    if (skill.role === 'Buff') return 'Cada nivel reforca a janela ofensiva ou defensiva e sustenta melhor a equipe.';
+    if (skill.role === 'Area') return 'Cada nivel aumenta o dano e tambem expande a area de impacto.';
+    if (skill.role === 'Controle') return 'Cada nivel fortalece o impacto utilitario e deixa o controle mais confiavel.';
+    if (skill.role === 'Execucao') return 'Cada nivel aumenta o dano base e a pressao contra alvos enfraquecidos.';
+    return 'Cada nivel aumenta o dano base e melhora a consistencia do combo.';
+  }
+
+  function usageHint(skill: any) {
+    if (!skill) return '';
+    if (skill.target === 'self') return 'Use antes de engages, durante burst inimigo ou para segurar fights longas.';
+    if (skill.role === 'Area') return 'Ideal para limpar packs no PvE e disputar espaco em lutas de grupo.';
+    if (skill.role === 'Controle') return 'Melhor para travar perseguicoes, abrir kite ou proteger sua linha traseira.';
+    if (skill.role === 'Execucao') return 'Guarde para fechar abates ou converter uma vantagem curta em eliminacao.';
+    return 'Melhor encaixada na rotacao principal da trilha e com alvo bem definido.';
+  }
 </script>
 
 <Window title="Habilidades" subtitle="Progressao de classe" width="clamp(920px, 82vw, 1120px)" maxWidth="1120px" maxBodyHeight="min(82vh, 880px)" on:close={() => dispatch('close')}>
@@ -84,12 +107,20 @@
           <div class={`tree-row ${selectedSkill?.id === entry.id ? 'selected' : ''} ${entry.learned ? 'learned' : ''} ${!entry.requiredLevelMet || !entry.prereqMet ? 'locked' : ''}`}>
             <button class="tree-node" type="button" on:click={() => selectedSkillId = entry.id}>
               <div class="tier-badge">Lv {entry.requiredLevel}</div>
+              <div class="skill-icon-shell">
+                <img class="skill-icon" src={entry.iconUrl} alt={entry.label} />
+              </div>
               <div class="tree-main">
                 <div class="tree-topline">
                   <span class="skill-name">{entry.label}</span>
                   <span class={`role-chip role-${entry.role.toLowerCase()}`}>{entry.role}</span>
                 </div>
                 <div class="tree-summary">{entry.summary}</div>
+                <div class="rank-track">
+                  {#each rankPips(entry.level, entry.maxPoints) as filled}
+                    <span class:filled></span>
+                  {/each}
+                </div>
                 <div class="tree-meta">
                   <span>Rank {entry.level}/{entry.maxPoints}</span>
                   <span>{entry.target === 'self' ? 'Self cast' : `Alvo • ${entry.range || 0}px`}</span>
@@ -116,8 +147,15 @@
     <aside class="skill-detail-card">
       {#if selectedSkill}
         <div class="card-kicker">Detalhes</div>
-        <div class="detail-title">{selectedSkill.label}</div>
-        <div class="detail-summary">{selectedSkill.summary}</div>
+        <div class="detail-head">
+          <div class="detail-icon-shell">
+            <img class="detail-icon" src={selectedSkill.iconUrl} alt={selectedSkill.label} />
+          </div>
+          <div class="detail-heading">
+            <div class="detail-title">{selectedSkill.label}</div>
+            <div class="detail-summary">{selectedSkill.summary}</div>
+          </div>
+        </div>
 
         <div class="detail-grid">
           <div class="detail-cell">
@@ -136,6 +174,17 @@
             <span class="detail-label">Recarga</span>
             <strong>{(selectedSkill.cooldownMs / 1000).toFixed(selectedSkill.cooldownMs % 1000 === 0 ? 0 : 1)}s</strong>
           </div>
+        </div>
+
+        <div class="detail-rank-panel">
+          <div class="detail-label">Evolucao por rank</div>
+          <div class="rank-track detail-track">
+            {#each rankPips(selectedSkill.level, selectedSkill.maxPoints) as filled}
+              <span class:filled></span>
+            {/each}
+          </div>
+          <div class="detail-summary">{scalingHint(selectedSkill)}</div>
+          <div class="detail-tip">{usageHint(selectedSkill)}</div>
         </div>
 
         <div class="detail-status">
@@ -298,7 +347,7 @@
   .tree-node {
     width: 100%;
     display: grid;
-    grid-template-columns: 82px minmax(0, 1fr);
+    grid-template-columns: 82px 58px minmax(0, 1fr);
     gap: 12px;
     padding: 12px;
     background: linear-gradient(180deg, rgba(15, 13, 11, 0.94), rgba(8, 8, 9, 0.98));
@@ -327,6 +376,32 @@
     color: #f0dfbc;
     font-family: 'Cinzel', serif;
     text-transform: uppercase;
+  }
+
+  .skill-icon-shell,
+  .detail-icon-shell {
+    width: 58px;
+    height: 58px;
+    display: grid;
+    place-items: center;
+    align-self: start;
+    border: 1px solid rgba(201, 168, 106, 0.22);
+    background: rgba(12, 12, 13, 0.96);
+    clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px);
+    overflow: hidden;
+  }
+
+  .detail-icon-shell {
+    width: 72px;
+    height: 72px;
+  }
+
+  .skill-icon,
+  .detail-icon {
+    width: calc(100% - 8px);
+    height: calc(100% - 8px);
+    object-fit: contain;
+    filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.28));
   }
 
   .tree-main {
@@ -389,6 +464,26 @@
     line-height: 1.45;
   }
 
+  .rank-track {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .rank-track span {
+    width: 18px;
+    height: 7px;
+    border-radius: 999px;
+    background: rgba(201, 168, 106, 0.12);
+    border: 1px solid rgba(201, 168, 106, 0.14);
+  }
+
+  .rank-track span.filled {
+    background: linear-gradient(90deg, rgba(235, 196, 122, 0.9), rgba(255, 233, 182, 0.78));
+    border-color: rgba(255, 224, 168, 0.42);
+    box-shadow: 0 0 10px rgba(214, 176, 98, 0.22);
+  }
+
   .tree-meta,
   .locked-note {
     color: rgba(213, 202, 177, 0.68);
@@ -430,6 +525,18 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .detail-head {
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 12px;
+    align-items: start;
+  }
+
+  .detail-heading {
+    display: grid;
+    gap: 6px;
+  }
+
   .detail-cell {
     padding: 10px;
     border: 1px solid rgba(201, 168, 106, 0.14);
@@ -439,6 +546,19 @@
   .detail-cell strong {
     color: #f0dfbc;
     font-size: 0.82rem;
+  }
+
+  .detail-rank-panel {
+    display: grid;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid rgba(201, 168, 106, 0.14);
+    background: rgba(10, 10, 10, 0.52);
+  }
+
+  .detail-track span {
+    width: 22px;
+    height: 8px;
   }
 
   .status-chip.ok {

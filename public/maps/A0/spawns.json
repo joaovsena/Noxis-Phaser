@@ -1,0 +1,42 @@
+{
+  "playerSpawn": {
+    "x": 3160,
+    "y": 3400
+  },
+  "forestPortal": {
+    "x": 5930,
+    "y": 3130,
+    "w": 120,
+    "h": 120
+  },
+  "npcs": {
+    "npc_guard_alden": {
+      "x": 3960,
+      "y": 3160
+    },
+    "npc_curandeira_selene": {
+      "x": 2440,
+      "y": 2440
+    },
+    "npc_mestre_rowan": {
+      "x": 3880,
+      "y": 2440
+    },
+    "npc_cidadao_marek": {
+      "x": 2920,
+      "y": 3480
+    },
+    "npc_ferreiro_borin": {
+      "x": 2280,
+      "y": 4120
+    },
+    "npc_bau_zenon": {
+      "x": 3640,
+      "y": 3960
+    },
+    "npc_mercadora_tessa": {
+      "x": 4200,
+      "y": 3960
+    }
+  }
+}

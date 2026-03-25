@@ -14,6 +14,9 @@
   import PartyWindow from './PartyWindow.svelte';
   import FriendsWindow from './FriendsWindow.svelte';
   import GuildWindow from './GuildWindow.svelte';
+  import PetWindow from './PetWindow.svelte';
+  import TradeWindow from './TradeWindow.svelte';
+  import StorageWindow from './StorageWindow.svelte';
   import AdminWindow from './AdminWindow.svelte';
   import NpcDialogWindow from './NpcDialogWindow.svelte';
   import NotificationsPanel from './NotificationsPanel.svelte';
@@ -28,20 +31,21 @@
   import ProgressBar from './components/ProgressBar.svelte';
   import {
     activateHotbarBinding,
+    activePetStore,
     activeEventsStore,
     adminStore,
     appStore,
     attributesStore,
+    clearCurrentTarget,
     closeAllPanels,
     closeNpcDialog,
-    combatContextStore,
-    friendStore,
+    closeStoragePanel,
+    closeTradePanel,
     hideTooltip,
     hudTransformStyle,
     loadingStore,
     npcStore,
     panelStore,
-    partyStore,
     playerBuffsStore,
     playerMetaStore,
     playerStats,
@@ -52,7 +56,6 @@
     sendUiMessage,
     selectNearestTarget,
     setPvpMode,
-    targetBuffsStore,
     toggleAfk,
     togglePanel,
     worldStore
@@ -90,14 +93,8 @@
     `map:${mapCode}/${mapId}`,
     `ws:${$adminStore.socketConnected ? 'on' : 'off'}`
   ].join(' | ');
-  $: pendingSocialCount =
-    ($partyStore.invites?.length || 0)
-    + ($partyStore.joinRequests?.length || 0)
-    + (Array.isArray($friendStore.state?.incoming) ? $friendStore.state.incoming.length : 0)
-    + ($partyStore.dungeonReady ? 1 : 0);
   $: showDebugHud = forceDebugHud;
   $: showPlayerBuffs = $playerBuffsStore.length > 0;
-  $: showTargetBuffs = $targetBuffsStore.length > 0;
   $: showQuestTracker = $questTrackerStore.length > 0;
   $: showActiveEvents = $activeEventsStore.length > 0;
   $: hasActiveTarget = Boolean($selectedMobStore || $selectedPlayerStore);
@@ -116,9 +113,19 @@
 
   function handleShortcut(event: KeyboardEvent) {
     if (!showHud) return;
+    const key = event.key.toLowerCase();
+    if (key === 'escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
+      clearCurrentTarget();
+      closeAllPanels();
+      hideTooltip();
+      pvpMenuOpen = false;
+      return;
+    }
     const target = event.target as HTMLElement | null;
     if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
-    const key = event.key.toLowerCase();
     if (event.code === 'Quote' || event.key === "'" || event.key === '"') {
       event.preventDefault();
       selectNearestTarget();
@@ -135,16 +142,10 @@
       activateHotbarBinding(key);
       return;
     }
-    if (!['b', 'c', 'v', 'm', 'j', 'g', 'o', 'l', 'h', 'escape'].includes(key)) return;
+    if (!['b', 'c', 'v', 'm', 'j', 'g', 'o', 'l', 'x', 'h'].includes(key)) return;
     event.preventDefault();
     event.stopPropagation();
     if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
-    if (key === 'escape') {
-      closeAllPanels();
-      hideTooltip();
-      pvpMenuOpen = false;
-      return;
-    }
     if (key === 'b') togglePanel('inventory');
     if (key === 'c') togglePanel('character');
     if (key === 'v') togglePanel('skills');
@@ -158,7 +159,11 @@
       togglePanel('friends');
       sendUiMessage({ type: 'friend.list' });
     }
-    if (key === 'l') togglePanel('guild');
+    if (key === 'l') {
+      togglePanel('guild');
+      sendUiMessage({ type: 'guild.state' });
+    }
+    if (key === 'x') togglePanel('pets');
     if (key === 'h' && $adminStore.isAdmin) togglePanel('admin');
   }
 
@@ -314,6 +319,9 @@
             {#if $attributesStore.player?.afkActive}
               <span class="hud-pill">AFK</span>
             {/if}
+            {#if $activePetStore.activeWorldPet}
+              <span class="hud-pill">Pet {$activePetStore.activeWorldPet.name}</span>
+            {/if}
           </div>
         </div>
       </section>
@@ -324,33 +332,12 @@
     </div>
 
     {#if hasActiveTarget}
-      <section class="combat-center hud-section">
-        <div class="combat-head compact">
-          <div>
-            <div class="hud-kicker">Alvo atual</div>
-            <div class="hud-title">Combate</div>
-          </div>
-          <div class="combat-pills">
-            <span class={`hud-pill ${$combatContextStore.inRange ? 'positive' : 'warning'}`}>
-              Alcance {Math.round($combatContextStore.targetDistance)}/{Math.round($combatContextStore.preferredRange)}
-            </span>
-            {#if pendingSocialCount > 0}
-              <span class="hud-pill warning">Solicitacoes {pendingSocialCount}</span>
-            {/if}
-          </div>
-        </div>
-
-        <div class="target-stack">
+      <div class="combat-center">
+        <div class="target-stack compact">
           <PlayerTargetPanel />
           <MobTargetPanel />
         </div>
-
-        {#if showTargetBuffs}
-          <div class="target-buffs">
-            <BuffStrip title="Efeitos no alvo" effects={$targetBuffsStore} emptyLabel="Sem efeitos observados." />
-          </div>
-        {/if}
-      </section>
+      </div>
     {/if}
 
     <div class="left-zone">
@@ -431,6 +418,24 @@
       </div>
     {/if}
 
+    {#if $panelStore.pets}
+      <div class="window-wrap pets-wrap" use:draggablePanel>
+        <PetWindow on:close={() => togglePanel('pets')} />
+      </div>
+    {/if}
+
+    {#if $panelStore.trade}
+      <div class="window-wrap trade-wrap" use:draggablePanel>
+        <TradeWindow on:close={closeTradePanel} />
+      </div>
+    {/if}
+
+    {#if $panelStore.storage}
+      <div class="window-wrap storage-wrap" use:draggablePanel>
+        <StorageWindow on:close={closeStoragePanel} />
+      </div>
+    {/if}
+
     {#if $panelStore.admin && $adminStore.isAdmin}
       <div class="window-wrap admin-wrap" use:draggablePanel>
         <AdminWindow on:close={() => togglePanel('admin')} />
@@ -469,6 +474,15 @@
 {/if}
 
 <style>
+  :global(:root) {
+    --hud-left-reserve: 324px;
+    --bottom-hud-width: min(980px, calc(100vw - 72px), calc(100vw - var(--hud-left-reserve) - 48px));
+    --xp-bar-top: 26px;
+    --hud-menu-top: 104px;
+    --hud-skill-top: 104px;
+    --hud-bottom-bar-height: 132px;
+  }
+
   .hud-root {
     position: fixed;
     inset: 0;
@@ -496,27 +510,32 @@
     width: min(264px, calc(100vw - 24px));
     display: grid;
     gap: 6px;
+    z-index: 15;
   }
 
   .combat-center {
     top: 12px;
     left: 50%;
     transform: translateX(-50%);
-    width: min(244px, calc(100vw - 660px));
-    padding: 10px 12px;
+    width: min(220px, calc(100vw - 700px));
+    padding: 0;
     display: grid;
-    gap: 8px;
+    gap: 6px;
+    z-index: 15;
+    pointer-events: none;
   }
 
   .left-zone {
     left: 12px;
     bottom: 12px;
-    width: min(300px, calc(100vw - 24px));
+    width: min(320px, calc(100vw - 24px));
     display: flex;
     flex-direction: column;
     justify-content: flex-end;
     gap: 6px;
-    max-height: calc(100vh - 228px);
+    max-height: calc(100vh - var(--hud-menu-top, 146px) - 18px);
+    pointer-events: none;
+    z-index: 10;
   }
 
   .left-top-stack {
@@ -525,6 +544,12 @@
     align-content: end;
     overflow: auto;
     padding-right: 2px;
+    pointer-events: auto;
+  }
+
+  .chat-zone {
+    padding-bottom: 8px;
+    pointer-events: none;
   }
 
   .right-zone {
@@ -534,28 +559,25 @@
     display: grid;
     gap: 6px;
     align-content: start;
+    z-index: 15;
   }
 
   .bottom-hud {
-    left: 50%;
+    left: max(50%, calc(var(--hud-left-reserve) + 24px + (var(--bottom-hud-width) / 2)));
     bottom: 12px;
     transform: translateX(-50%);
-    width: min(940px, calc(100vw - 72px));
-    max-width: min(940px, calc(100vw - 72px));
+    width: var(--bottom-hud-width);
+    max-width: var(--bottom-hud-width);
     padding: 0;
     display: grid;
     justify-items: center;
     gap: 6px;
+    z-index: 20;
   }
 
   .player-head,
-  .combat-head,
   .player-meta-row,
-  .player-subtitle,
-  .combat-pills,
-  .xp-head,
-  .dock-label-row,
-  .actionbar-head {
+  .player-subtitle {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -624,7 +646,6 @@
   }
 
   .player-subtitle,
-  .combat-pills,
   .player-meta-grid {
     flex-wrap: wrap;
   }
@@ -646,33 +667,10 @@
     gap: 6px;
   }
 
-  .combat-head {
-    align-items: start;
-    margin-bottom: 0;
-  }
-
-  .combat-center .hud-title {
-    font-size: 0.84rem;
-  }
-
-  .combat-pills {
-    justify-content: flex-end;
-  }
-
   .target-stack {
     display: grid;
     gap: 6px;
-  }
-
-  .target-empty {
-    min-height: 54px;
-    display: grid;
-    place-items: center;
-    font-size: 0.74rem;
-  }
-
-  .target-buffs {
-    margin-top: 2px;
+    pointer-events: auto;
   }
 
   .window-wrap,
@@ -694,6 +692,9 @@
   .party-wrap { top: 166px; right: 280px; }
   .friends-wrap { top: 196px; right: 212px; }
   .guild-wrap { top: 132px; right: 430px; }
+  .pets-wrap { top: 114px; right: 520px; }
+  .trade-wrap { bottom: 150px; left: 50%; transform: translateX(-50%); }
+  .storage-wrap { top: 140px; left: 50%; transform: translateX(-50%); }
   .admin-wrap { top: 74px; right: 40px; }
   .npc-wrap { top: 108px; left: 50%; transform: translateX(-50%); }
 
@@ -745,7 +746,7 @@
 
   @media (max-width: 1440px) {
     .combat-center {
-      width: min(232px, calc(100vw - 560px));
+      width: min(212px, calc(100vw - 590px));
     }
 
     .top-left-zone,
@@ -754,7 +755,7 @@
     }
 
     .left-zone {
-      width: 280px;
+      width: 304px;
     }
   }
 
@@ -789,6 +790,7 @@
     }
 
     .bottom-hud {
+      left: 50%;
       margin-bottom: 72px;
       max-width: none;
       width: calc(100vw - 24px);
@@ -806,10 +808,9 @@
   }
 
   @media (max-width: 760px) {
-    .combat-head,
     .player-head,
     .player-meta-row,
-    .combat-pills {
+    .player-subtitle {
       flex-direction: column;
       align-items: stretch;
     }

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { tooltipStore } from './stores/gameUi';
-  import { classLabel, compareBonusEntries, computeSellCopper, goldValueFromCopper, inventoryCategory, rarityLabel, resolveItemRarity } from './lib/itemTooltip';
+  import { classLabel, compareBonusEntries, computeSellCopper, goldValueFromCopper, inventoryCategory, qualityLabel, rarityLabel, resolveItemRarity, statLabel } from './lib/itemTooltip';
 
   let viewportWidth = 1920;
   let viewportHeight = 1080;
@@ -25,9 +25,11 @@
     return () => window.removeEventListener('resize', syncViewport);
   });
 
-  function formatDiff(value: number) {
+  function formatEntryValue(entry: any, value: number) {
     const safe = Number(value || 0);
-    if (safe === 0) return '=';
+    if (entry?.kind === 'percent') {
+      return `${safe > 0 ? '+' : ''}${Math.round(safe * 100)}%`;
+    }
     return `${safe > 0 ? '+' : ''}${safe}`;
   }
 </script>
@@ -41,9 +43,13 @@
 
     <div class="meta-grid">
       <span class="meta-pill">{inventoryCategory(item)}</span>
+      <span class="meta-pill">{qualityLabel(item)}</span>
       <span class="meta-pill">Qtd {quantity}</span>
       {#if item.requiredClass}
         <span class="meta-pill">{classLabel(String(item.requiredClass))}</span>
+      {/if}
+      {#if item.requiredLevel}
+        <span class="meta-pill">Nivel {item.requiredLevel}</span>
       {/if}
       {#if payload?.showSell}
         <span class="meta-pill">Venda {goldValueFromCopper(computeSellCopper(item))}G</span>
@@ -57,11 +63,11 @@
       <div class="stats-grid">
         {#each comparison as entry}
           <div class="stat-row">
-            <span>{String(entry.key).toUpperCase()}</span>
+            <span>{statLabel(String(entry.key || ''))}{entry.kind === 'percent' ? ' %' : ''}</span>
             <div class="stat-values">
-              <span class="current">{entry.value > 0 ? '+' : ''}{entry.value}</span>
+              <span class="current">{formatEntryValue(entry, entry.value)}</span>
               {#if equipped}
-                <span class={`diff ${entry.diff > 0 ? 'pos' : entry.diff < 0 ? 'neg' : 'neutral'}`}>{formatDiff(entry.diff)}</span>
+                <span class={`diff ${entry.diff > 0 ? 'pos' : entry.diff < 0 ? 'neg' : 'neutral'}`}>{formatEntryValue(entry, entry.diff)}</span>
               {/if}
             </div>
           </div>
@@ -187,15 +193,19 @@
     color: rgba(233, 223, 200, 0.72);
   }
 
-  .rarity-rare .title {
+  .rarity-verde .title {
+    color: #90e07f;
+  }
+
+  .rarity-azul .title {
     color: #7cb7ff;
   }
 
-  .rarity-epic .title {
+  .rarity-roxo .title {
     color: #c58cff;
   }
 
-  .rarity-legendary .title {
+  .rarity-laranja .title {
     color: #ffc46b;
   }
 </style>

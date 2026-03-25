@@ -51,8 +51,41 @@ model Player {
   receivedFriendRequests FriendRequest[] @relation("FriendRequestTo")
   friendshipsA           Friendship[]    @relation("FriendshipA")
   friendshipsB           Friendship[]    @relation("FriendshipB")
+  guildMembership        GuildMember?
+  sentGuildInvites       GuildInvite[]   @relation("GuildInviteFrom")
+  receivedGuildInvites   GuildInvite[]   @relation("GuildInviteTo")
+  petOwnerships          PetOwnership[]
+  activePet              PlayerActivePet?
 
   @@unique([userId, slot])
+}
+
+model PetOwnership {
+  id         String   @id @default(cuid())
+  playerId   Int
+  templateId String
+  name       String
+  level      Int      @default(1)
+  xp         Int      @default(0)
+  loyalty    Int      @default(60)
+  hunger     Int      @default(100)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  player     Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  activeBinding PlayerActivePet?
+
+  @@index([playerId])
+  @@unique([playerId, templateId])
+}
+
+model PlayerActivePet {
+  playerId        Int      @id
+  petOwnershipId  String   @unique
+  behavior        String   @default("assist")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  player          Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  petOwnership    PetOwnership @relation(fields: [petOwnershipId], references: [id], onDelete: Cascade)
 }
 
 model PersistenceJob {
@@ -132,4 +165,42 @@ model FriendRequest {
   expiresAt    DateTime
   fromPlayer   Player   @relation("FriendRequestFrom", fields: [fromPlayerId], references: [id], onDelete: Cascade)
   toPlayer     Player   @relation("FriendRequestTo", fields: [toPlayerId], references: [id], onDelete: Cascade)
+}
+
+model Guild {
+  id        String       @id @default(cuid())
+  name      String       @unique
+  motd      String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  members   GuildMember[]
+  invites   GuildInvite[]
+}
+
+model GuildMember {
+  id        Int      @id @default(autoincrement())
+  guildId   String
+  playerId  Int      @unique
+  rank      String   @default("member")
+  joinedAt  DateTime @default(now())
+  guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  player    Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, playerId])
+}
+
+model GuildInvite {
+  id           String   @id @default(cuid())
+  guildId       String
+  fromPlayerId  Int
+  toPlayerId    Int
+  status        String   @default("pending")
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+  guild         Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  fromPlayer    Player   @relation("GuildInviteFrom", fields: [fromPlayerId], references: [id], onDelete: Cascade)
+  toPlayer      Player   @relation("GuildInviteTo", fields: [toPlayerId], references: [id], onDelete: Cascade)
+
+  @@index([toPlayerId, status])
+  @@index([guildId, status])
 }

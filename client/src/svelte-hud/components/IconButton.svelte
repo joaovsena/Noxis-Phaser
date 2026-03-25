@@ -12,7 +12,14 @@
   const dispatch = createEventDispatcher<{ press: void }>();
 </script>
 
-<button class={`icon-button ${variant} ${showLabel ? '' : 'icon-only'}`} class:active aria-label={label} title={label} type="button" on:click={() => dispatch('press')}>
+<button
+  class={`icon-button ${variant} ${showLabel || (showHotkey && hotkey) ? '' : 'icon-only'}`}
+  class:active
+  aria-label={label}
+  title={`${label}${showHotkey && hotkey ? ` (${hotkey})` : ''}`}
+  type="button"
+  on:click={() => dispatch('press')}
+>
   <span class="icon-frame" aria-hidden="true">
     <svg viewBox="0 0 32 32" role="img">
       {#if icon === 'character'}
@@ -54,6 +61,12 @@
       {:else if icon === 'guild'}
         <path d="M16 6l8 3v6c0 5-3.2 9.2-8 11-4.8-1.8-8-6-8-11V9Z" />
         <path d="M12.5 16l2.5 2.5 4.5-5" />
+      {:else if icon === 'pets'}
+        <circle cx="11" cy="11" r="2.2" />
+        <circle cx="18.5" cy="11.4" r="2" />
+        <circle cx="8.3" cy="16.7" r="2" />
+        <circle cx="15.4" cy="18.1" r="3.6" />
+        <path d="M14 17.2c1.4 1 2.9 1.2 4.1.3" />
       {:else if icon === 'admin'}
         <path d="M16 6l7 4v8c0 4.3-2.8 7.6-7 9-4.2-1.4-7-4.7-7-9v-8Z" />
         <path d="M12 13h8" />
@@ -64,27 +77,35 @@
       {/if}
     </svg>
   </span>
-  {#if showLabel}
-    <span class="label">{label}</span>
+
+  {#if showLabel || (showHotkey && hotkey)}
+    <span class="caption">
+      {#if showLabel}
+        <span class="label">{label}</span>
+      {/if}
+      {#if showHotkey && hotkey}
+        <span class="hotkey">({hotkey})</span>
+      {/if}
+    </span>
   {/if}
-  {#if showHotkey && hotkey}<span class="hotkey">({hotkey})</span>{/if}
 </button>
 
 <style>
   .icon-button {
     pointer-events: auto;
-    min-width: 54px;
+    min-width: 58px;
     border: 0;
     background: transparent;
     display: grid;
     justify-items: center;
-    gap: 2px;
+    gap: 4px;
+    padding: 0;
     color: #ead9b2;
     transition: transform 140ms ease, filter 160ms ease;
   }
 
   .icon-button:hover {
-    transform: translateY(-1px) scale(1.035);
+    transform: translateY(-1px);
     filter: drop-shadow(0 0 12px rgba(201, 168, 106, 0.24));
   }
 
@@ -112,6 +133,15 @@
     filter: drop-shadow(0 0 6px rgba(201, 168, 106, 0.16));
   }
 
+  .caption {
+    display: inline-flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 3px;
+    white-space: nowrap;
+    text-align: center;
+  }
+
   .label,
   .hotkey {
     font-family: 'Cinzel', serif;
@@ -134,14 +164,15 @@
   }
 
   .icon-button.bottom-bar {
-    min-width: 52px;
-    gap: 3px;
-    padding: 0;
+    min-width: 60px;
+    min-height: 52px;
+    gap: 6px;
+    padding: 0 2px 2px;
   }
 
   .icon-button.bottom-bar .icon-frame {
-    width: 22px;
-    height: 22px;
+    width: 30px;
+    height: 30px;
     clip-path: none;
     border: 0;
     background: transparent;
@@ -149,16 +180,21 @@
   }
 
   .icon-button.bottom-bar svg {
-    width: 14px;
-    height: 14px;
-    stroke: rgba(228, 200, 139, 0.92);
+    width: 19px;
+    height: 19px;
+    stroke: rgba(233, 209, 154, 0.95);
+    filter: drop-shadow(0 0 7px rgba(201, 168, 106, 0.18));
+  }
+
+  .icon-button.bottom-bar .caption {
+    gap: 2px;
   }
 
   .icon-button.bottom-bar .label,
   .icon-button.bottom-bar .hotkey {
-    font-size: 0.46rem;
-    letter-spacing: 0.06em;
-    color: rgba(235, 219, 183, 0.86);
+    font-size: 0.48rem;
+    letter-spacing: 0.04em;
+    color: rgba(244, 232, 204, 0.96);
   }
 
   .icon-button.bottom-bar.active .icon-frame {
@@ -167,8 +203,8 @@
   }
 
   .icon-button.bottom-bar.active svg {
-    stroke: #f6ddb0;
-    filter: drop-shadow(0 0 8px rgba(201, 168, 106, 0.32));
+    stroke: #ffe3ad;
+    filter: drop-shadow(0 0 10px rgba(201, 168, 106, 0.34));
   }
 
   .icon-button.bottom-float {
@@ -198,8 +234,25 @@
     filter: drop-shadow(0 0 10px rgba(201, 168, 106, 0.32));
   }
 
-  .icon-button.icon-only .label,
-  .icon-button.icon-only .hotkey {
+  .icon-button.icon-only .caption {
     display: none;
+  }
+
+  @media (max-width: 1280px) {
+    .icon-button.bottom-bar {
+      min-width: 56px;
+      min-height: 48px;
+      gap: 5px;
+    }
+
+    .icon-button.bottom-bar svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    .icon-button.bottom-bar .label,
+    .icon-button.bottom-bar .hotkey {
+      font-size: 0.45rem;
+    }
   }
 </style>

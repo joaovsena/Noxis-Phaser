@@ -17,7 +17,7 @@
       `${Number(currency.copper || 0)}c`
     ].filter((entry) => !entry.startsWith('0'));
     const items = Array.isArray(rewards?.items)
-      ? rewards.items.map((entry: any) => `${Number(entry.quantity || 1)}x ${entry.templateId || 'item'}`)
+      ? rewards.items.map((entry: any) => `${Number(entry.quantity || 1)}x ${entry.name || entry.templateId || 'item'}`)
       : [];
     return [`XP ${xp}`, ...wallet, ...items].filter(Boolean).join(' | ');
   }

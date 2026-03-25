@@ -1,0 +1,15 @@
+{
+  "mapCode": "A3",
+  "mapKey": "undead",
+  "name": "Ermo dos Caidos",
+  "source": "procedural-isometric-generator-v2",
+  "notes": [
+    "Pantanoso, amplo e hostil, com um eixo principal ate o mausoleu.",
+    "Cemiterio e areas secas criam bolsos de combate legiveis.",
+    "Nenhum servico, apenas atmosfera, alvos e pressao de progressao."
+  ],
+  "worldSize": {
+    "width": 6400,
+    "height": 6400
+  }
+}

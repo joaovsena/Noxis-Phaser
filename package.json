@@ -7,6 +7,7 @@
     "build": "npm run build:client && npm run build:server",
     "build:server": "npm run db:generate && tsc",
     "build:client": "vite build --config client/vite.config.ts",
+    "maps:generate": "node scripts/generate-overworld-maps.js",
     "start": "node dist/server/index.js",
     "dev": "ts-node server/index.ts",
     "client:dev": "vite --config client/vite.config.ts",

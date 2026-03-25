@@ -50,8 +50,16 @@ export declare class QuestService {
         slot: string;
         quantity: number;
         requiredClass: string | null;
-        price: any;
-        bonuses: any;
+        requiredLevel: number | null;
+        quality: string;
+        bonusPercents: Record<string, number>;
+        price: {
+            copper?: number;
+            silver?: number;
+            gold?: number;
+            diamond?: number;
+        };
+        bonuses: Record<string, number>;
     } | null)[];
     sendQuestState(player: PlayerRuntime): void;
     handleNpcInteract(player: PlayerRuntime, msg: any): void;
@@ -62,7 +70,11 @@ export declare class QuestService {
     onItemCollected(player: PlayerRuntime, templateId: string, quantity: number): void;
     private buildQuestStatePayload;
     private areAllObjectivesDone;
+    private areQuestRequirementsMet;
+    private isQuestAvailableForPlayer;
     private applyTalkProgress;
+    private resolveQuestRewardsForPlayer;
+    private resolveQuestRewardTemplateId;
     private getQuestState;
     private setQuestState;
 }

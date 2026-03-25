@@ -1,0 +1,15 @@
+{
+  "mapCode": "A0",
+  "mapKey": "city",
+  "name": "Citadela de Alder",
+  "source": "procedural-isometric-generator-v2",
+  "notes": [
+    "Cidade inicial murada com praca central e servicos principais.",
+    "Portao leste conecta a trilha da floresta.",
+    "Mercado, ferreiro, curandeira e bau ficam concentrados no hub."
+  ],
+  "worldSize": {
+    "width": 6400,
+    "height": 6400
+  }
+}

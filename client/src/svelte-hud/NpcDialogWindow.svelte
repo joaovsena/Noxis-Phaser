@@ -1,7 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import Window from './components/Window.svelte';
-  import { inferEquipSlot } from './lib/itemTooltip';
+  import { inferEquipSlot, qualityLabel, rarityLabel } from './lib/itemTooltip';
   import { acceptQuest, buyNpcOffer, completeQuest, enterDungeonFromNpc, equippedSlots, hideTooltip, inventoryStore, npcStore, partyStore, sendUiMessage, showTooltip } from './stores/gameUi';
 
   const dispatch = createEventDispatcher<{ close: void }>();
@@ -23,6 +23,12 @@
   $: dungeonEntry = dialog?.dungeonEntry || null;
   $: canSell = shopOffers.length > 0;
   $: sellableItems = inventoryItems.filter((item: any) => Number(item?.quantity || 1) > 0);
+  $: npcMood = {
+    npc_ferreiro_borin: { label: 'Metalurgia', kicker: 'Armas e aco pesado', accent: '#d8a866' },
+    npc_armeira_maeve: { label: 'Armaduras', kicker: 'Vestes, malhas e couracas', accent: '#c7b58a' },
+    npc_joalheiro_orin: { label: 'Joias', kicker: 'Anelaria e relicarios', accent: '#84c3ff' },
+    npc_mercadora_tessa: { label: 'Suprimentos', kicker: 'Pocoes, materiais e utilidades', accent: '#8fd593' }
+  }[npcId] || { label: 'Interacao', kicker: 'Dialogo e progresso', accent: '#d8a866' };
 
   function walletText(price: any) {
     const safe = price && typeof price === 'object' ? price : {};
@@ -66,11 +72,22 @@
 
 {#if dialog}
   <Window title={dialog.npc?.name || 'NPC'} subtitle="Interacao" width="clamp(520px, 54vw, 680px)" maxWidth="680px" maxBodyHeight="min(82vh, 860px)" on:close={() => dispatch('close')}>
-    <div class="greeting">{dialog.npc?.greeting || 'Saudacoes, aventureiro.'}</div>
+    <div class="hero" style={`--npc-accent:${npcMood.accent};`}>
+      <div class="hero-kicker">{npcMood.label}</div>
+      <div class="hero-title">{dialog.npc?.name || 'NPC'}</div>
+      <div class="hero-subtitle">{npcMood.kicker}</div>
+      <div class="hero-text">{dialog.npc?.greeting || 'Saudacoes, aventureiro.'}</div>
+    </div>
 
     {#if dungeonEntry}
       <section class="block">
-        <div class="block-title">Dungeon: {dungeonEntry.name || 'Instancia'}</div>
+        <div class="block-head">
+          <div>
+            <div class="section-kicker">Entrada especial</div>
+            <div class="block-title">Dungeon: {dungeonEntry.name || 'Instancia'}</div>
+          </div>
+          <div class="meta-inline">Grupo {partyMemberCount || 1}/{Number(dungeonEntry.maxPlayers || 1)}</div>
+        </div>
         <div class="block-text">{dungeonEntry.description || 'Entre com seu grupo e derrote o boss.'}</div>
         <div class="actions">
           {#if !dungeonEntry.opened}
@@ -89,13 +106,33 @@
       <section class="stack">
         {#each quests as quest}
           <article class="block">
-            <div class="block-title">{quest.title || quest.id || 'Quest'}</div>
+            <div class="block-head">
+              <div>
+                <div class="section-kicker">{quest.category === 'main' ? 'Trilha principal' : 'Missao secundaria'}</div>
+                <div class="block-title">{quest.title || quest.id || 'Quest'}</div>
+              </div>
+            </div>
             <div class="block-text">{quest.description || ''}</div>
             {#if Array.isArray(quest.objectives)}
               <div class="objective-list">
                 {#each quest.objectives as objective}
-                  <div class="objective">{objective.text || objective.id || 'Objetivo'} ({Number(objective.required || 1)})</div>
+                  <div class="objective">
+                    <span>{objective.text || objective.id || 'Objetivo'}</span>
+                    <strong>x{Number(objective.required || 1)}</strong>
+                  </div>
                 {/each}
+              </div>
+            {/if}
+            {#if quest.rewards}
+              <div class="reward-row">
+                {#if Number(quest.rewards.xp || 0) > 0}
+                  <span class="reward-pill">XP {Number(quest.rewards.xp || 0)}</span>
+                {/if}
+                {#if Array.isArray(quest.rewards.items)}
+                  {#each quest.rewards.items as reward}
+                    <span class="reward-pill">{Number(reward.quantity || 1)}x {reward.name || reward.templateId || 'Item'}</span>
+                  {/each}
+                {/if}
               </div>
             {/if}
             <div class="actions">
@@ -114,7 +151,10 @@
     {#if shopOffers.length}
       <section class="stack">
         <div class="shop-head">
-          <div class="block-title">Loja</div>
+          <div>
+            <div class="section-kicker">Mercadoria</div>
+            <div class="block-title">Loja</div>
+          </div>
           <div class="wallet">Saldo: {walletText(wallet)}</div>
         </div>
         {#if hasClassOffers}
@@ -125,14 +165,17 @@
           </div>
         {/if}
         {#if filteredOffers.length}
-          <div class="shop-list">
+          <div class="shop-list rich">
             {#each filteredOffers as offer}
               <article class={`shop-card ${walletCopper < priceCopper(offer.price) ? 'disabled' : ''}`} on:mousemove={(event) => inspectOffer(offer, event.clientX, event.clientY)} on:mouseleave={hideTooltip}>
-                <div>
-                  <div class="block-title">{offer.name || 'Item'}</div>
-                  {#if offer.requiredClass}
-                    <div class="block-text">Classe: {offer.requiredClass}</div>
-                  {/if}
+                <div class="offer-main">
+                  <div class="offer-title">{offer.name || 'Item'}</div>
+                  <div class="offer-meta">
+                    <span>{rarityLabel(offer)}</span>
+                    <span>{qualityLabel(offer)}</span>
+                    {#if offer.requiredLevel}<span>Nivel {offer.requiredLevel}</span>{/if}
+                    {#if offer.requiredClass}<span>Classe {offer.requiredClass}</span>{/if}
+                  </div>
                   <div class="block-text">Custo: {walletText(offer.price)}</div>
                 </div>
                 <button type="button" disabled={walletCopper < priceCopper(offer.price)} on:click={() => buyNpcOffer(npcId, String(offer.offerId || ''), 1)}>Comprar</button>
@@ -148,16 +191,23 @@
     {#if canSell}
       <section class="stack">
         <div class="shop-head">
-          <div class="block-title">Venda</div>
+          <div>
+            <div class="section-kicker">Recolhimento</div>
+            <div class="block-title">Venda</div>
+          </div>
           <div class="wallet">Itens no inventario: {sellableItems.length}</div>
         </div>
         {#if sellableItems.length}
-          <div class="shop-list">
+          <div class="shop-list rich">
             {#each sellableItems as item}
               <article class="shop-card" on:mousemove={(event) => inspectInventoryItem(item, event.clientX, event.clientY)} on:mouseleave={hideTooltip}>
-                <div>
-                  <div class="block-title">{item.name || item.templateId || 'Item'}</div>
-                  <div class="block-text">Qtd: {Math.max(1, Number(item.quantity || 1))}</div>
+                <div class="offer-main">
+                  <div class="offer-title">{item.name || item.templateId || 'Item'}</div>
+                  <div class="offer-meta">
+                    <span>{rarityLabel(item)}</span>
+                    <span>{qualityLabel(item)}</span>
+                    <span>Qtd {Math.max(1, Number(item.quantity || 1))}</span>
+                  </div>
                   <div class="block-text">Tipo: {item.type || 'misc'}</div>
                 </div>
                 <button type="button" class="ghost" on:click={() => sellItem(item)}>Vender</button>
@@ -180,7 +230,7 @@
     gap: 10px;
   }
 
-  .greeting,
+  .hero,
   .block,
   .tabs button,
   .actions button,
@@ -188,14 +238,45 @@
     clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px);
   }
 
-  .greeting,
+  .hero,
   .block {
     margin-bottom: 10px;
-    padding: 12px;
+    padding: 14px;
     border: 1px solid rgba(201, 168, 106, 0.2);
     background: rgba(10, 10, 10, 0.72);
     color: rgba(233, 223, 200, 0.78);
     font-size: 0.8rem;
+  }
+
+  .hero {
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.02), transparent 48%),
+      radial-gradient(circle at top right, color-mix(in srgb, var(--npc-accent) 26%, transparent), transparent 52%),
+      rgba(10, 10, 10, 0.8);
+    display: grid;
+    gap: 4px;
+  }
+
+  .hero-kicker,
+  .section-kicker {
+    font-family: 'Cinzel', serif;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: rgba(201, 168, 106, 0.7);
+    font-size: 0.64rem;
+  }
+
+  .hero-title {
+    font-family: 'Cinzel', serif;
+    color: #f0dfbc;
+    font-size: 1.1rem;
+  }
+
+  .hero-subtitle,
+  .hero-text,
+  .meta-inline {
+    color: rgba(233, 223, 200, 0.72);
+    font-size: 0.78rem;
   }
 
   .block-title {
@@ -214,15 +295,22 @@
 
   .actions,
   .shop-head,
-  .tabs {
+  .tabs,
+  .block-head,
+  .reward-row,
+  .offer-meta {
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
     align-items: center;
   }
 
+  .block-head,
   .shop-head {
     justify-content: space-between;
+  }
+
+  .shop-head {
     margin-bottom: 8px;
   }
 
@@ -268,6 +356,41 @@
 
   .shop-card.disabled {
     opacity: 0.56;
+  }
+
+  .offer-main {
+    display: grid;
+    gap: 6px;
+  }
+
+  .offer-title {
+    font-family: 'Cinzel', serif;
+    color: #f2e3c0;
+    font-size: 0.9rem;
+  }
+
+  .offer-meta,
+  .reward-row {
+    gap: 6px;
+  }
+
+  .offer-meta span,
+  .reward-pill {
+    padding: 4px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(201, 168, 106, 0.16);
+    background: rgba(13, 15, 18, 0.64);
+    color: rgba(240, 223, 188, 0.76);
+    font-size: 0.68rem;
+  }
+
+  .objective {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 10px;
+    border: 1px solid rgba(201, 168, 106, 0.1);
+    background: rgba(12, 12, 13, 0.44);
   }
 
   @media (max-width: 700px) {

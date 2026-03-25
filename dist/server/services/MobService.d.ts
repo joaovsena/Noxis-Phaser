@@ -29,14 +29,19 @@ export declare class MobService {
     loadTemplateCache(rawTemplates: Array<any>): void;
     private pickNumber;
     private getTemplate;
-    createMob(kind: string | undefined, mapId: string): Mob;
+    createMob(kind: string | undefined, mapId: string, preferredSpawn?: {
+        x: number;
+        y: number;
+    }): Mob;
     createMobWithOverrides(kind: string, mapId: string, overrides?: Partial<Mob>, options?: {
         skipQuota?: boolean;
         useSpawnFinder?: boolean;
     }): Mob | null;
     private randomIdleDelay;
     private findValidSpawnPoint;
-    spawnMob(kind: string | undefined, mapId: string): void;
+    spawnMob(kind: string | undefined, mapId: string, overrides?: Partial<Mob>, options?: {
+        skipQuota?: boolean;
+    }): void;
     seedMapInstance(mapId: string): void;
     removeMob(mobId: string, options?: {
         skipRespawn?: boolean;

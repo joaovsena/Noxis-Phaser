@@ -43,6 +43,9 @@ export interface PlayerRuntime {
     deathX?: number;
     deathY?: number;
     partyId?: string | null;
+    guildId?: string | null;
+    guildName?: string | null;
+    guildRank?: 'leader' | 'officer' | 'member' | null;
     skillCooldowns?: Record<string, number>;
     skillLevels?: Record<string, number>;
     activeSkillEffects?: Array<any>;
@@ -69,6 +72,52 @@ export interface PlayerRuntime {
     afkOriginMapKey?: string;
     afkOriginMapId?: string;
     afkNextThinkAt?: number;
+    petOwnerships?: PetOwnershipRecord[];
+    activePetOwnershipId?: string | null;
+    petBehavior?: PetBehavior;
+}
+
+export type PetRole = 'offensive' | 'support' | 'defensive';
+export type PetMoveStyle = 'ground' | 'flying' | 'heavy' | 'ranged';
+export type PetBehavior = 'follow' | 'assist' | 'passive';
+
+export interface PetOwnershipRecord {
+    id: string;
+    templateId: string;
+    name: string;
+    level: number;
+    xp: number;
+    loyalty: number;
+    hunger: number;
+    role: PetRole;
+    moveStyle: PetMoveStyle;
+    biomeKey: string;
+}
+
+export interface PetRuntime {
+    id: string;
+    ownershipId: string;
+    templateId: string;
+    ownerPlayerId: number;
+    ownerName: string;
+    name: string;
+    role: PetRole;
+    moveStyle: PetMoveStyle;
+    biomeKey: string;
+    mapKey: string;
+    mapId: string;
+    x: number;
+    y: number;
+    hp: number;
+    maxHp: number;
+    level: number;
+    xp: number;
+    loyalty: number;
+    hunger: number;
+    behavior: PetBehavior;
+    lastActionAt: number;
+    lastSupportAt: number;
+    visualSeed: number;
 }
 
 export interface Mob {
@@ -113,12 +162,17 @@ export interface GroundItem {
     id: string;
     templateId?: string;
     rarity?: string | null;
+    quality?: string | null;
     spriteId?: string | null;
     iconUrl?: string | null;
     type: string;
     name: string;
     slot: string;
     bonuses: any;
+    bonusPercents?: any;
+    requiredClass?: string | null;
+    requiredLevel?: number | null;
+    bindingType?: string | null;
     quantity?: number;
     stackable?: boolean;
     maxStack?: number;
@@ -170,8 +224,38 @@ export interface TargetMobMessage {
 
 export interface ChatMessage {
     type: 'chat_send';
-    scope: 'local' | 'map' | 'global';
+    scope: 'local' | 'map' | 'global' | 'world' | 'group' | 'guild' | 'whisper' | 'trade';
     text: string;
+    targetName?: string;
+}
+
+export interface PetSummonMessage {
+    type: 'pet.summon';
+    petOwnershipId: string;
+}
+
+export interface PetUnsummonMessage {
+    type: 'pet.unsummon';
+}
+
+export interface PetFeedMessage {
+    type: 'pet.feed';
+    petOwnershipId?: string;
+}
+
+export interface PetRenameMessage {
+    type: 'pet.rename';
+    petOwnershipId: string;
+    name: string;
+}
+
+export interface PetSetBehaviorMessage {
+    type: 'pet.setBehavior';
+    behavior: PetBehavior;
+}
+
+export interface PetStateRequestMessage {
+    type: 'pet.state';
 }
 
 export interface PickupItemMessage {
@@ -331,6 +415,107 @@ export interface FriendListMessage {
     type: 'friend.list';
 }
 
+export interface TradeRequestMessage {
+    type: 'trade.request';
+    targetPlayerId?: number;
+    targetName?: string;
+}
+
+export interface TradeRespondMessage {
+    type: 'trade.respond';
+    requestId: string;
+    accept: boolean;
+}
+
+export interface TradeSetItemMessage {
+    type: 'trade.setItem';
+    itemId: string;
+    quantity: number;
+}
+
+export interface TradeRemoveItemMessage {
+    type: 'trade.removeItem';
+    itemId: string;
+}
+
+export interface TradeSetCurrencyMessage {
+    type: 'trade.setCurrency';
+    wallet: {
+        copper?: number;
+        silver?: number;
+        gold?: number;
+        diamond?: number;
+    };
+}
+
+export interface TradeLockMessage {
+    type: 'trade.lock';
+}
+
+export interface TradeConfirmMessage {
+    type: 'trade.confirm';
+}
+
+export interface TradeCancelMessage {
+    type: 'trade.cancel';
+}
+
+export interface StorageOpenMessage {
+    type: 'storage.open';
+    npcId?: string;
+}
+
+export interface StorageCloseMessage {
+    type: 'storage.close';
+}
+
+export interface StorageDepositMessage {
+    type: 'storage.deposit';
+    itemId: string;
+    quantity?: number;
+}
+
+export interface StorageWithdrawMessage {
+    type: 'storage.withdraw';
+    itemId: string;
+    quantity?: number;
+}
+
+export interface GuildCreateMessage {
+    type: 'guild.create';
+    name: string;
+}
+
+export interface GuildInviteMessage {
+    type: 'guild.invite';
+    targetName: string;
+}
+
+export interface GuildRespondInviteMessage {
+    type: 'guild.respondInvite';
+    inviteId: string;
+    accept: boolean;
+}
+
+export interface GuildLeaveMessage {
+    type: 'guild.leave';
+}
+
+export interface GuildKickMessage {
+    type: 'guild.kick';
+    targetPlayerId: number;
+}
+
+export interface GuildSetRankMessage {
+    type: 'guild.setRank';
+    targetPlayerId: number;
+    rank: 'leader' | 'officer' | 'member';
+}
+
+export interface GuildStateMessage {
+    type: 'guild.state';
+}
+
 export interface StatsAllocateMessage {
     type: 'stats.allocate';
     allocation: {
@@ -471,6 +656,31 @@ export type WSMessage =
     | FriendDeclineMessage
     | FriendRemoveMessage
     | FriendListMessage
+    | TradeRequestMessage
+    | TradeRespondMessage
+    | TradeSetItemMessage
+    | TradeRemoveItemMessage
+    | TradeSetCurrencyMessage
+    | TradeLockMessage
+    | TradeConfirmMessage
+    | TradeCancelMessage
+    | StorageOpenMessage
+    | StorageCloseMessage
+    | StorageDepositMessage
+    | StorageWithdrawMessage
+    | PetSummonMessage
+    | PetUnsummonMessage
+    | PetFeedMessage
+    | PetRenameMessage
+    | PetSetBehaviorMessage
+    | PetStateRequestMessage
+    | GuildCreateMessage
+    | GuildInviteMessage
+    | GuildRespondInviteMessage
+    | GuildLeaveMessage
+    | GuildKickMessage
+    | GuildSetRankMessage
+    | GuildStateMessage
     | StatsAllocateMessage
     | PlayerSetPvpModeMessage
     | CombatAttackMessage

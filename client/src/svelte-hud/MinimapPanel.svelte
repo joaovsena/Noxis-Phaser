@@ -1,14 +1,58 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import { onDestroy, onMount } from 'svelte';
-  import { leaveDungeon, mapSettingsStore, playerMetaStore, selectedAutoAttackStore, selectedMobStore, setMapSetting, setSelectedAutoAttack, skillsStore, switchInstance, toggleMapSettings, worldStore } from './stores/gameUi';
+  import { drawMapPreview, loadMapPreview, previewPointToWorld, type MapPreviewData, worldPointToPreview } from '../game/maps/MapPreview';
+  import {
+    leaveDungeon,
+    mapSettingsStore,
+    playerMetaStore,
+    selectedAutoAttackStore,
+    selectedMobStore,
+    setMapSetting,
+    setSelectedAutoAttack,
+    skillsStore,
+    switchInstance,
+    toggleMapSettings,
+    worldStore
+  } from './stores/gameUi';
 
   const dispatch = createEventDispatcher<{ close: void }>();
   export let fixed = false;
   export let showClose = true;
+
   let canvasEl: HTMLCanvasElement | null = null;
   let drawQueued = false;
   let rafId = 0;
+  let previewData: MapPreviewData | null = null;
+  let previewKey = '';
+  let previewRequestId = 0;
+  let minimapViewport: { centerX: number; centerY: number; zoom?: number } | null = null;
+
+  $: minimapViewport = $worldStore.player
+    ? {
+        centerX: Number($worldStore.player.x || 0),
+        centerY: Number($worldStore.player.y || 0),
+        zoom: 3.4
+      }
+    : null;
+
+  async function syncPreview() {
+    const world = $worldStore.world;
+    const mapTiled = world?.mapTiled || null;
+    const key = `${String(mapTiled?.tmjUrl || '')}|${Number(world?.world?.width || 0)}x${Number(world?.world?.height || 0)}|${String(world?.mapCode || $worldStore.mapCode || '')}|${String(world?.mapKey || '')}`;
+    if (key === previewKey) return;
+    previewKey = key;
+    const requestId = ++previewRequestId;
+    const nextPreview = await loadMapPreview({
+      tmjUrl: mapTiled?.tmjUrl || null,
+      world: world?.world || null,
+      mapCode: String(world?.mapCode || $worldStore.mapCode || ''),
+      mapKey: String(world?.mapKey || '')
+    });
+    if (requestId !== previewRequestId) return;
+    previewData = nextPreview;
+    scheduleDraw();
+  }
 
   function draw() {
     drawQueued = false;
@@ -24,40 +68,26 @@
 
     const width = canvas.width;
     const height = canvas.height;
-    const worldWidth = Math.max(1, Number(bounds.width || 1));
-    const worldHeight = Math.max(1, Number(bounds.height || 1));
     const selectedMobId = String($selectedMobStore?.id || '');
-    const mapCode = String(world?.mapCode || state.mapCode || '').toUpperCase();
-    const palette = mapCode === 'A2'
-      ? { base: '#c4a36a', line: 'rgba(110, 77, 34, 0.28)' }
-      : mapCode === 'DNG'
-        ? { base: '#b8aa8d', line: 'rgba(72, 56, 33, 0.24)' }
-        : { base: '#89a74c', line: 'rgba(76, 109, 34, 0.24)' };
 
-    ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = palette.base;
-    ctx.fillRect(0, 0, width, height);
-
-    const offset = ((Number(player.x || 0) + Number(player.y || 0)) / 22) % 18;
-    ctx.strokeStyle = palette.line;
-    ctx.lineWidth = 1;
-    for (let x = -height; x < width + height; x += 18) {
-      ctx.beginPath();
-      ctx.moveTo(x + offset, 0);
-      ctx.lineTo(x + height + offset, height);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(x - offset, 0);
-      ctx.lineTo(x - height - offset, height);
-      ctx.stroke();
+    if (previewData) {
+      drawMapPreview(ctx, previewData, width, height, { showGrid: false, viewport: minimapViewport });
+    } else {
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = '#2d3c2d';
+      ctx.fillRect(0, 0, width, height);
     }
 
     const drawPoint = (worldX: number, worldY: number, color: string, radius: number, stroke = '') => {
-      const px = (worldX / worldWidth) * width;
-      const py = (worldY / worldHeight) * height;
+      const point = previewData
+        ? worldPointToPreview(worldX, worldY, previewData, width, height, minimapViewport)
+        : {
+            x: (worldX / Math.max(1, Number(bounds.width || 1))) * width,
+            y: (worldY / Math.max(1, Number(bounds.height || 1))) * height
+          };
       ctx.beginPath();
       ctx.fillStyle = color;
-      ctx.arc(px, py, radius, 0, Math.PI * 2);
+      ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
       ctx.fill();
       if (stroke) {
         ctx.strokeStyle = stroke;
@@ -108,16 +138,26 @@
     const world = $worldStore.world;
     if (!canvas || !world?.world) return;
     const rect = canvas.getBoundingClientRect();
-    const nx = Math.max(0, Math.min(1, (event.clientX - rect.left) / Math.max(1, rect.width)));
-    const ny = Math.max(0, Math.min(1, (event.clientY - rect.top) / Math.max(1, rect.height)));
-    const x = nx * Math.max(1, Number(world.world.width || 1));
-    const y = ny * Math.max(1, Number(world.world.height || 1));
+    const localX = Math.max(0, Math.min(rect.width, event.clientX - rect.left));
+    const localY = Math.max(0, Math.min(rect.height, event.clientY - rect.top));
+    const target = previewData
+      ? previewPointToWorld(localX, localY, previewData, rect.width, rect.height, minimapViewport)
+      : {
+          x: (localX / Math.max(1, rect.width)) * Math.max(1, Number(world.world.width || 1)),
+          y: (localY / Math.max(1, rect.height)) * Math.max(1, Number(world.world.height || 1))
+        };
+    const x = target.x;
+    const y = target.y;
     window.dispatchEvent(new CustomEvent('noxis:svelte-minimap-move', { detail: { x, y } }));
   }
 
+  $: syncPreview();
   $: $worldStore, $selectedMobStore, $mapSettingsStore, scheduleDraw();
 
-  onMount(() => scheduleDraw());
+  onMount(() => {
+    void syncPreview();
+    scheduleDraw();
+  });
   onDestroy(() => {
     if (rafId) cancelAnimationFrame(rafId);
   });
@@ -307,6 +347,7 @@
     border: 1px solid rgba(201, 168, 106, 0.22);
     background: #0c120b;
     cursor: pointer;
+    image-rendering: crisp-edges;
   }
 
   .legend-row,

@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import { PlayerRuntime } from '../models/types';
 import { DungeonTemplate, DUNGEON_BY_ENTRY_NPC, DUNGEON_BY_ID } from '../content/dungeons';
 import { clamp, distance } from '../utils/math';
-import { composeMapInstanceId } from '../config';
+import { composeMapInstanceId, DEFAULT_PLAYER_SPAWN_BY_MAP_KEY } from '../config';
 import { DungeonMap } from './DungeonMap';
 import { generateDungeonLayout } from './ProceduralDungeonGenerator';
 
@@ -800,8 +800,8 @@ export class DungeonService {
         const fallback = {
             mapKey: 'forest',
             mapId: 'Z1',
-            x: 500,
-            y: 500
+            x: DEFAULT_PLAYER_SPAWN_BY_MAP_KEY.forest?.x || 500,
+            y: DEFAULT_PLAYER_SPAWN_BY_MAP_KEY.forest?.y || 500
         };
         const origin = state?.origin || fallback;
         const mapWorld = this.getMapWorld(origin.mapKey);

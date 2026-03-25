@@ -1,0 +1,1397 @@
+{
+  "url": "http://127.0.0.1:3000",
+  "username": "diagmn6gj1vm",
+  "password": "diag123",
+  "characterName": "Diag6gj1vm",
+  "startedAt": "2026-03-25T19:49:23.748Z",
+  "states": [
+    {
+      "atMs": 2,
+      "phase": "character_select",
+      "playerId": null,
+      "worldStatic": false,
+      "worldState": false,
+      "inventoryState": false,
+      "resolvedWorld": false,
+      "bootStage": "socket:character-select",
+      "lastPacket": "auth_character_select | 149 chars | players 0 | mobs 0",
+      "lastError": "",
+      "wsMessages": 4
+    },
+    {
+      "atMs": 1050,
+      "phase": "in_game",
+      "playerId": 39,
+      "worldStatic": true,
+      "worldState": true,
+      "inventoryState": true,
+      "resolvedWorld": true,
+      "bootStage": "socket:bootstrap-world:ready-sent",
+      "lastPacket": "world_state | 2341 chars | players 1 | mobs 0",
+      "lastError": "",
+      "wsMessages": 54
+    }
+  ],
+  "finalState": {
+    "connectionPhase": "in_game",
+    "socketConnected": true,
+    "authMessage": "Autenticado. Aguardando estado do mundo...",
+    "selectedCharacterSlot": null,
+    "characterSlots": [
+      {
+        "slot": 0,
+        "id": 39,
+        "name": "Diag6gj1vm",
+        "class": "archer",
+        "gender": "female",
+        "level": 1
+      },
+      null,
+      null
+    ],
+    "playerId": 39,
+    "worldStatic": {
+      "type": "world_static",
+      "mapCode": "A0",
+      "mapKey": "city",
+      "mapTheme": "city",
+      "mapFeatures": [],
+      "portals": [
+        {
+          "id": "city_to_forest_01",
+          "x": 5930,
+          "y": 3130,
+          "w": 120,
+          "h": 120,
+          "toMapKey": "forest",
+          "toX": 260,
+          "toY": 3440
+        }
+      ],
+      "world": {
+        "width": 6400,
+        "height": 6400
+      },
+      "mapTiled": {
+        "mapCode": "A0",
+        "assetKey": "A0",
+        "tmjUrl": "/maps/A0/a0.tmj",
+        "tilesBaseUrl": "/maps/A0/tiles",
+        "orientation": "isometric",
+        "worldTileSize": 80,
+        "worldScale": 1
+      },
+      "mapId": "Z1"
+    },
+    "worldState": {
+      "type": "world_state",
+      "players": {
+        "39": {
+          "id": 39,
+          "username": "diagmn6gj1vm",
+          "name": "Diag6gj1vm",
+          "class": "archer",
+          "gender": "female",
+          "x": 3160,
+          "y": 3400,
+          "mapKey": "city",
+          "mapId": "Z1",
+          "pvpMode": "peace",
+          "dead": false,
+          "role": "player",
+          "level": 1,
+          "hp": 120,
+          "maxHp": 120,
+          "afkActive": false,
+          "equippedWeaponName": null,
+          "equippedBySlot": {},
+          "wallet": {
+            "copper": 0,
+            "silver": 0,
+            "gold": 0,
+            "diamond": 0
+          },
+          "xp": 0,
+          "xpToNext": 100,
+          "stats": {
+            "str": 8,
+            "int": 5,
+            "dex": 12,
+            "vit": 7,
+            "physicalAttack": 16,
+            "magicAttack": 15,
+            "physicalDefense": 12.4,
+            "magicDefense": 7.5,
+            "accuracy": 18,
+            "evasion": 9.600000000000001,
+            "criticalChance": 0.0024000000000000002,
+            "luck": 1.7,
+            "moveSpeed": 110,
+            "attackSpeed": 130,
+            "attackRange": 220,
+            "damageType": "physical",
+            "maxHp": 120
+          },
+          "skillLevels": {},
+          "skillCooldowns": {},
+          "skillPointsAvailable": 0,
+          "allocatedStats": {
+            "str": 0,
+            "int": 0,
+            "dex": 0,
+            "vit": 0
+          },
+          "unspentPoints": 0,
+          "activeSkillEffects": []
+        }
+      },
+      "mobs": [],
+      "groundItems": [],
+      "activeEvents": [],
+      "npcs": [
+        {
+          "id": "npc_guard_alden",
+          "name": "Guarda Alden",
+          "x": 3960,
+          "y": 3160,
+          "role": "quest_giver",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        },
+        {
+          "id": "npc_curandeira_selene",
+          "name": "Curandeira Selene",
+          "x": 2440,
+          "y": 2440,
+          "role": "quest_giver",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        },
+        {
+          "id": "npc_mestre_rowan",
+          "name": "Mestre Rowan",
+          "x": 3880,
+          "y": 2440,
+          "role": "quest_giver",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        },
+        {
+          "id": "npc_cidadao_marek",
+          "name": "Cidadao Marek",
+          "x": 2920,
+          "y": 3480,
+          "role": "quest_giver",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        },
+        {
+          "id": "npc_ferreiro_borin",
+          "name": "Ferreiro Borin",
+          "x": 2280,
+          "y": 4120,
+          "role": "shopkeeper",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        },
+        {
+          "id": "npc_mercadora_tessa",
+          "name": "Mercadora Tessa",
+          "x": 4200,
+          "y": 3960,
+          "role": "shopkeeper",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        },
+        {
+          "id": "npc_bau_zenon",
+          "name": "Guardiao do Bau",
+          "x": 3640,
+          "y": 3960,
+          "role": "chest_keeper",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        }
+      ],
+      "mapKey": "city",
+      "mapId": "Z1"
+    },
+    "resolvedWorld": {
+      "type": "world_state",
+      "mapCode": "A0",
+      "mapKey": "city",
+      "mapTheme": "city",
+      "mapFeatures": [],
+      "portals": [
+        {
+          "id": "city_to_forest_01",
+          "x": 5930,
+          "y": 3130,
+          "w": 120,
+          "h": 120,
+          "toMapKey": "forest",
+          "toX": 260,
+          "toY": 3440
+        }
+      ],
+      "world": {
+        "width": 6400,
+        "height": 6400
+      },
+      "mapTiled": {
+        "mapCode": "A0",
+        "assetKey": "A0",
+        "tmjUrl": "/maps/A0/a0.tmj",
+        "tilesBaseUrl": "/maps/A0/tiles",
+        "orientation": "isometric",
+        "worldTileSize": 80,
+        "worldScale": 1
+      },
+      "mapId": "Z1",
+      "players": {
+        "39": {
+          "id": 39,
+          "username": "diagmn6gj1vm",
+          "name": "Diag6gj1vm",
+          "class": "archer",
+          "gender": "female",
+          "x": 3160,
+          "y": 3400,
+          "mapKey": "city",
+          "mapId": "Z1",
+          "pvpMode": "peace",
+          "dead": false,
+          "role": "player",
+          "level": 1,
+          "hp": 120,
+          "maxHp": 120,
+          "afkActive": false,
+          "equippedWeaponName": null,
+          "equippedBySlot": {},
+          "wallet": {
+            "copper": 0,
+            "silver": 0,
+            "gold": 0,
+            "diamond": 0
+          },
+          "xp": 0,
+          "xpToNext": 100,
+          "stats": {
+            "str": 8,
+            "int": 5,
+            "dex": 12,
+            "vit": 7,
+            "physicalAttack": 16,
+            "magicAttack": 15,
+            "physicalDefense": 12.4,
+            "magicDefense": 7.5,
+            "accuracy": 18,
+            "evasion": 9.600000000000001,
+            "criticalChance": 0.0024000000000000002,
+            "luck": 1.7,
+            "moveSpeed": 110,
+            "attackSpeed": 130,
+            "attackRange": 220,
+            "damageType": "physical",
+            "maxHp": 120
+          },
+          "skillLevels": {},
+          "skillCooldowns": {},
+          "skillPointsAvailable": 0,
+          "allocatedStats": {
+            "str": 0,
+            "int": 0,
+            "dex": 0,
+            "vit": 0
+          },
+          "unspentPoints": 0,
+          "activeSkillEffects": []
+        }
+      },
+      "mobs": [],
+      "groundItems": [],
+      "activeEvents": [],
+      "npcs": [
+        {
+          "id": "npc_guard_alden",
+          "name": "Guarda Alden",
+          "x": 3960,
+          "y": 3160,
+          "role": "quest_giver",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        },
+        {
+          "id": "npc_curandeira_selene",
+          "name": "Curandeira Selene",
+          "x": 2440,
+          "y": 2440,
+          "role": "quest_giver",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        },
+        {
+          "id": "npc_mestre_rowan",
+          "name": "Mestre Rowan",
+          "x": 3880,
+          "y": 2440,
+          "role": "quest_giver",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        },
+        {
+          "id": "npc_cidadao_marek",
+          "name": "Cidadao Marek",
+          "x": 2920,
+          "y": 3480,
+          "role": "quest_giver",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        },
+        {
+          "id": "npc_ferreiro_borin",
+          "name": "Ferreiro Borin",
+          "x": 2280,
+          "y": 4120,
+          "role": "shopkeeper",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        },
+        {
+          "id": "npc_mercadora_tessa",
+          "name": "Mercadora Tessa",
+          "x": 4200,
+          "y": 3960,
+          "role": "shopkeeper",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        },
+        {
+          "id": "npc_bau_zenon",
+          "name": "Guardiao do Bau",
+          "x": 3640,
+          "y": 3960,
+          "role": "chest_keeper",
+          "spriteKey": null,
+          "hitbox": {
+            "w": 54,
+            "h": 80,
+            "offsetX": 0,
+            "offsetY": 0
+          },
+          "anchor": {
+            "x": 0.5,
+            "y": 1
+          },
+          "interactRange": 170
+        }
+      ]
+    },
+    "authPayload": {
+      "type": "auth_success",
+      "playerId": 39,
+      "mapKey": "city",
+      "mapId": "Z1",
+      "world": {
+        "width": 6400,
+        "height": 6400
+      },
+      "mapTiled": {
+        "mapCode": "A0",
+        "assetKey": "A0",
+        "tmjUrl": "/maps/A0/a0.tmj",
+        "tilesBaseUrl": "/maps/A0/tiles",
+        "orientation": "isometric",
+        "worldTileSize": 80,
+        "worldScale": 1
+      },
+      "role": "player",
+      "statusIds": {
+        "physicalAttack": 1,
+        "magicAttack": 2,
+        "physicalDefense": 3,
+        "magicDefense": 4,
+        "moveSpeed": 5,
+        "attackSpeed": 6,
+        "attackRange": 7,
+        "maxHp": 8
+      },
+      "hotbarBindings": {
+        "1": null,
+        "2": null,
+        "3": null,
+        "4": null,
+        "5": null,
+        "6": null,
+        "7": null,
+        "8": null,
+        "q": null,
+        "w": null,
+        "e": null,
+        "r": null,
+        "a": null,
+        "s": null,
+        "d": null,
+        "f": null
+      }
+    },
+    "chatMessages": [],
+    "inventoryState": {
+      "type": "inventory_state",
+      "inventory": [],
+      "equippedWeaponId": null,
+      "equippedBySlot": {},
+      "wallet": {
+        "copper": 0,
+        "silver": 0,
+        "gold": 0,
+        "diamond": 0
+      }
+    },
+    "hotbarBindings": {
+      "1": null,
+      "2": null,
+      "3": null,
+      "4": null,
+      "5": null,
+      "6": null,
+      "7": null,
+      "8": null,
+      "q": null,
+      "w": null,
+      "e": null,
+      "r": null,
+      "a": null,
+      "s": null,
+      "d": null,
+      "f": null
+    },
+    "questState": [],
+    "partyState": null,
+    "partyAreaList": [],
+    "friendState": {
+      "type": "friend.state",
+      "friends": [],
+      "incoming": [],
+      "outgoing": []
+    },
+    "tradeState": {
+      "type": "trade.state",
+      "incomingRequest": null,
+      "outgoingRequest": null,
+      "session": null
+    },
+    "storageState": {
+      "type": "storage.state",
+      "open": false,
+      "npc": null,
+      "capacity": 36,
+      "items": []
+    },
+    "guildState": {
+      "type": "guild.state",
+      "guild": null,
+      "invites": []
+    },
+    "lastCombatEvent": null,
+    "dead": false,
+    "selectedPlayerId": null,
+    "npcDialog": null,
+    "npcShopOpen": false,
+    "dungeonReadyState": null,
+    "selectedMobId": null,
+    "pendingDeleteItemId": null,
+    "partyInvites": [],
+    "partyJoinRequests": [],
+    "skillEffects": [],
+    "combatBursts": [],
+    "lastMoveAck": null,
+    "adminResult": null,
+    "adminMobPeacefulEnabled": false,
+    "partyWaypoints": [],
+    "networkPingMs": 6,
+    "autoAttackEnabled": true,
+    "pathDebugEnabled": false,
+    "interactionDebugEnabled": false
+  },
+  "bootDiagnostics": {
+    "savedAt": "2026-03-25T19:49:28.920Z",
+    "startedAt": "2026-03-25T19:49:25.836Z",
+    "uptimeMs": 3083,
+    "heartbeatGapMs": 493,
+    "counters": {
+      "wsMessages": 55,
+      "worldStateMessages": 30,
+      "storeUpdates": 45,
+      "slowStoreUpdates": 0,
+      "sceneSyncs": 34,
+      "slowSceneSyncs": 1,
+      "fetches": 4,
+      "slowFetches": 0,
+      "errors": 0
+    },
+    "summary": {
+      "attempt": 1,
+      "stage": "socket:bootstrap-world:ready-sent",
+      "connectionPhase": "in_game",
+      "socketConnected": true,
+      "runtimeReady": true,
+      "playerId": 39,
+      "worldStaticReady": true,
+      "worldStateReady": true,
+      "inventoryReady": true,
+      "resolvedWorldReady": true,
+      "localPlayerReady": true,
+      "currentMapId": "Z1",
+      "lastPacket": "world_state | 2341 chars | players 1 | mobs 0",
+      "lastRequest": "tileset:200 /maps/A0/a0.tsx em 25ms",
+      "lastError": "",
+      "lastSceneReason": "sync",
+      "sceneMapUrl": "/maps/A0/a0.tmj",
+      "sceneLoadingMapUrl": "-",
+      "scenePlayers": 1,
+      "sceneMobs": 0,
+      "sceneNpcs": 7,
+      "sceneGroundItems": 0
+    },
+    "logs": [
+      {
+        "seq": 74,
+        "at": "16:49:28",
+        "relMs": 2215,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote world_static | 416 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 73,
+        "at": "16:49:28",
+        "relMs": 2179,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote storage.state | 73 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 72,
+        "at": "16:49:28",
+        "relMs": 2179,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote trade.state | 83 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 71,
+        "at": "16:49:28",
+        "relMs": 2179,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote debug.step | 86 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 70,
+        "at": "16:49:28",
+        "relMs": 2178,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote guild.state | 48 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 69,
+        "at": "16:49:27",
+        "relMs": 2125,
+        "scope": "scene",
+        "event": "sync",
+        "message": "WorldScene sync | map /maps/A0/a0.tmj | loading -.",
+        "level": "info"
+      },
+      {
+        "seq": 68,
+        "at": "16:49:27",
+        "relMs": 2125,
+        "scope": "scene",
+        "event": "slow-sync",
+        "message": "WorldScene.syncFromStore lento (30.10ms) | players 1 | mobs 0 | npcs 7 | itens 0.",
+        "level": "warn"
+      },
+      {
+        "seq": 67,
+        "at": "16:49:27",
+        "relMs": 2068,
+        "scope": "hud",
+        "event": "chat-mounted",
+        "message": "ChatWindow montado.",
+        "level": "info"
+      },
+      {
+        "seq": 66,
+        "at": "16:49:27",
+        "relMs": 2055,
+        "scope": "hud",
+        "event": "loading-state",
+        "message": "world ok | map ok | player ok | inventory ok",
+        "level": "info"
+      },
+      {
+        "seq": 65,
+        "at": "16:49:27",
+        "relMs": 2043,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote debug.step | 87 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 64,
+        "at": "16:49:27",
+        "relMs": 2043,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote friend.state | 64 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 63,
+        "at": "16:49:27",
+        "relMs": 2043,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote debug.step | 80 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 62,
+        "at": "16:49:27",
+        "relMs": 2043,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote party.areaList | 38 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 61,
+        "at": "16:49:27",
+        "relMs": 2042,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote party.state | 35 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 60,
+        "at": "16:49:27",
+        "relMs": 2042,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote debug.step | 86 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 59,
+        "at": "16:49:27",
+        "relMs": 2042,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote quest.state | 34 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 58,
+        "at": "16:49:27",
+        "relMs": 2042,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote debug.packet | 79 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 57,
+        "at": "16:49:27",
+        "relMs": 2041,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote debug.step | 90 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 56,
+        "at": "16:49:27",
+        "relMs": 2041,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote bootstrap.world | 2969 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 55,
+        "at": "16:49:27",
+        "relMs": 2041,
+        "scope": "stage",
+        "event": "socket:bootstrap-world:ready-sent",
+        "message": "bootstrap.ready enviado ao servidor.",
+        "level": "info"
+      },
+      {
+        "seq": 54,
+        "at": "16:49:27",
+        "relMs": 2041,
+        "scope": "stage",
+        "event": "socket:bootstrap-world:store-updated",
+        "message": "bootstrap.world aplicado | phase in_game | world yes | inv yes | resolved yes.",
+        "level": "info"
+      },
+      {
+        "seq": 53,
+        "at": "16:49:27",
+        "relMs": 2040,
+        "scope": "main",
+        "event": "runtime-shell",
+        "message": "syncRuntimeShell | phase in_game | ready yes | static ok | state ok | inv ok.",
+        "level": "info"
+      },
+      {
+        "seq": 52,
+        "at": "16:49:27",
+        "relMs": 2040,
+        "scope": "store",
+        "event": "readiness",
+        "message": "Runtime in_game | ws on | static ok | state ok | inv ok | resolved ok | player ok | map Z1.",
+        "level": "info"
+      },
+      {
+        "seq": 51,
+        "at": "16:49:27",
+        "relMs": 2040,
+        "scope": "socket",
+        "event": "bootstrap-world:start",
+        "message": "Aplicando bootstrap.world | static yes | players 1 | mobs 0 | inv yes.",
+        "level": "info"
+      },
+      {
+        "seq": 50,
+        "at": "16:49:27",
+        "relMs": 2040,
+        "scope": "stage",
+        "event": "socket:bootstrap.world",
+        "message": "bootstrap.world recebido | static yes | state yes | inv yes.",
+        "level": "info"
+      },
+      {
+        "seq": 49,
+        "at": "16:49:27",
+        "relMs": 2039,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote debug.packet | 83 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 48,
+        "at": "16:49:27",
+        "relMs": 2017,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote debug.step | 89 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 47,
+        "at": "16:49:27",
+        "relMs": 2017,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote bootstrap.auth | 822 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 46,
+        "at": "16:49:27",
+        "relMs": 2016,
+        "scope": "stage",
+        "event": "socket:bootstrap-auth:done",
+        "message": "bootstrap.auth aplicado | static yes | player 39 | phase character_select.",
+        "level": "info"
+      },
+      {
+        "seq": 45,
+        "at": "16:49:27",
+        "relMs": 2016,
+        "scope": "main",
+        "event": "runtime-shell",
+        "message": "syncRuntimeShell | phase character_select | ready no | static ok | state no | inv no.",
+        "level": "info"
+      },
+      {
+        "seq": 44,
+        "at": "16:49:27",
+        "relMs": 2016,
+        "scope": "store",
+        "event": "readiness",
+        "message": "Runtime character_select | ws on | static ok | state no | inv no | resolved ok | player no | map Z1.",
+        "level": "info"
+      },
+      {
+        "seq": 43,
+        "at": "16:49:27",
+        "relMs": 2016,
+        "scope": "socket",
+        "event": "bootstrap-auth:start",
+        "message": "Aplicando bootstrap.auth | player 39 | hotbar yes.",
+        "level": "info"
+      },
+      {
+        "seq": 42,
+        "at": "16:49:27",
+        "relMs": 2016,
+        "scope": "stage",
+        "event": "socket:bootstrap-auth",
+        "message": "Bootstrap auth recebido para player 39.",
+        "level": "info"
+      },
+      {
+        "seq": 41,
+        "at": "16:49:27",
+        "relMs": 2015,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote debug.packet | 82 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 40,
+        "at": "16:49:27",
+        "relMs": 2015,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote debug.packet | 80 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 39,
+        "at": "16:49:27",
+        "relMs": 2000,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote debug.step | 81 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 38,
+        "at": "16:49:27",
+        "relMs": 1740,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote auth_character_select | 149 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 37,
+        "at": "16:49:27",
+        "relMs": 1739,
+        "scope": "main",
+        "event": "runtime-shell",
+        "message": "syncRuntimeShell | phase character_select | ready no | static no | state no | inv no.",
+        "level": "info"
+      },
+      {
+        "seq": 36,
+        "at": "16:49:27",
+        "relMs": 1739,
+        "scope": "store",
+        "event": "readiness",
+        "message": "Runtime character_select | ws on | static no | state no | inv no | resolved no | player no | map -.",
+        "level": "info"
+      },
+      {
+        "seq": 35,
+        "at": "16:49:27",
+        "relMs": 1739,
+        "scope": "stage",
+        "event": "socket:character-select",
+        "message": "Lista de personagens recebida.",
+        "level": "info"
+      },
+      {
+        "seq": 34,
+        "at": "16:49:27",
+        "relMs": 1449,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote auth_character_required | 96 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 33,
+        "at": "16:49:27",
+        "relMs": 1448,
+        "scope": "main",
+        "event": "runtime-shell",
+        "message": "syncRuntimeShell | phase character_create | ready no | static no | state no | inv no.",
+        "level": "info"
+      },
+      {
+        "seq": 32,
+        "at": "16:49:27",
+        "relMs": 1448,
+        "scope": "store",
+        "event": "readiness",
+        "message": "Runtime character_create | ws on | static no | state no | inv no | resolved no | player no | map -.",
+        "level": "info"
+      },
+      {
+        "seq": 31,
+        "at": "16:49:26",
+        "relMs": 762,
+        "scope": "socket",
+        "event": "packet",
+        "message": "Pacote auth_ok | 68 chars | players 0 | mobs 0.",
+        "level": "info"
+      },
+      {
+        "seq": 30,
+        "at": "16:49:26",
+        "relMs": 651,
+        "scope": "scene",
+        "event": "sync",
+        "message": "WorldScene sync | map /maps/A0/a0.tmj | loading -.",
+        "level": "info"
+      },
+      {
+        "seq": 29,
+        "at": "16:49:26",
+        "relMs": 608,
+        "scope": "scene",
+        "event": "map:loaded",
+        "message": "WorldScene map:loaded | map /maps/A0/a0.tmj | loading -.",
+        "level": "info"
+      },
+      {
+        "seq": 28,
+        "at": "16:49:26",
+        "relMs": 608,
+        "scope": "stage",
+        "event": "scene:map:loaded",
+        "message": "Mapa /maps/A0/a0.tmj processado em 71ms.",
+        "level": "info"
+      },
+      {
+        "seq": 27,
+        "at": "16:49:26",
+        "relMs": 608,
+        "scope": "scene",
+        "event": "map:texture-skip",
+        "message": "Texturas de tile ignoradas porque o mapa entrou em modo seguro.",
+        "level": "info"
+      },
+      {
+        "seq": 26,
+        "at": "16:49:26",
+        "relMs": 608,
+        "scope": "scene",
+        "event": "map:rendered",
+        "message": "WorldScene map:rendered | map /maps/A0/a0.tmj | loading /maps/A0/a0.tmj.",
+        "level": "info"
+      },
+      {
+        "seq": 25,
+        "at": "16:49:26",
+        "relMs": 574,
+        "scope": "stage",
+        "event": "scene:map:graphics-safe",
+        "message": "Modo seguro do mapa ativado (6400x3240, 3 camadas, ~237MB estimados).",
+        "level": "info"
+      },
+      {
+        "seq": 24,
+        "at": "16:49:26",
+        "relMs": 573,
+        "scope": "fetch",
+        "event": "request",
+        "message": "Fetch tileset:200 /maps/A0/a0.tsx em 25ms.",
+        "level": "info"
+      },
+      {
+        "seq": 23,
+        "at": "16:49:26",
+        "relMs": 573,
+        "scope": "fetch",
+        "event": "request",
+        "message": "Fetch 200 /maps/A0/a0.tsx em 24ms.",
+        "level": "info"
+      },
+      {
+        "seq": 22,
+        "at": "16:49:26",
+        "relMs": 545,
+        "scope": "fetch",
+        "event": "request",
+        "message": "Fetch map:200 /maps/A0/a0.tmj em 7ms.",
+        "level": "info"
+      },
+      {
+        "seq": 21,
+        "at": "16:49:26",
+        "relMs": 545,
+        "scope": "fetch",
+        "event": "request",
+        "message": "Fetch 200 /maps/A0/a0.tmj em 7ms.",
+        "level": "info"
+      },
+      {
+        "seq": 20,
+        "at": "16:49:26",
+        "relMs": 538,
+        "scope": "scene",
+        "event": "sync",
+        "message": "WorldScene sync | map - | loading /maps/A0/a0.tmj.",
+        "level": "info"
+      },
+      {
+        "seq": 19,
+        "at": "16:49:26",
+        "relMs": 537,
+        "scope": "scene",
+        "event": "map:loading",
+        "message": "WorldScene map:loading | map - | loading /maps/A0/a0.tmj.",
+        "level": "info"
+      },
+      {
+        "seq": 18,
+        "at": "16:49:26",
+        "relMs": 537,
+        "scope": "stage",
+        "event": "scene:map:loading",
+        "message": "Carregando mapa /maps/A0/a0.tmj.",
+        "level": "info"
+      },
+      {
+        "seq": 17,
+        "at": "16:49:26",
+        "relMs": 536,
+        "scope": "stage",
+        "event": "scene:create:done",
+        "message": "WorldScene.create concluido em 59ms.",
+        "level": "info"
+      },
+      {
+        "seq": 16,
+        "at": "16:49:26",
+        "relMs": 489,
+        "scope": "main",
+        "event": "runtime-shell",
+        "message": "syncRuntimeShell | phase auth | ready no | static no | state no | inv no.",
+        "level": "info"
+      },
+      {
+        "seq": 15,
+        "at": "16:49:26",
+        "relMs": 489,
+        "scope": "store",
+        "event": "readiness",
+        "message": "Runtime auth | ws on | static no | state no | inv no | resolved no | player no | map -.",
+        "level": "info"
+      },
+      {
+        "seq": 14,
+        "at": "16:49:26",
+        "relMs": 488,
+        "scope": "stage",
+        "event": "socket:open",
+        "message": "WebSocket conectado. readyState=1.",
+        "level": "info"
+      },
+      {
+        "seq": 13,
+        "at": "16:49:26",
+        "relMs": 479,
+        "scope": "scene",
+        "event": "boot",
+        "message": "WorldScene boot | map - | loading -.",
+        "level": "info"
+      },
+      {
+        "seq": 12,
+        "at": "16:49:26",
+        "relMs": 479,
+        "scope": "scene",
+        "event": "map:fallback",
+        "message": "WorldScene map:fallback | map - | loading -.",
+        "level": "info"
+      },
+      {
+        "seq": 11,
+        "at": "16:49:26",
+        "relMs": 477,
+        "scope": "stage",
+        "event": "scene:create:start",
+        "message": "WorldScene.create iniciado.",
+        "level": "info"
+      },
+      {
+        "seq": 10,
+        "at": "16:49:25",
+        "relMs": 142,
+        "scope": "stage",
+        "event": "socket:connect:start",
+        "message": "Abrindo websocket principal.",
+        "level": "info"
+      },
+      {
+        "seq": 9,
+        "at": "16:49:25",
+        "relMs": 141,
+        "scope": "stage",
+        "event": "main:hud-mounted",
+        "message": "HUD Svelte montada.",
+        "level": "info"
+      },
+      {
+        "seq": 8,
+        "at": "16:49:25",
+        "relMs": 133,
+        "scope": "main",
+        "event": "runtime-shell",
+        "message": "syncRuntimeShell | phase connecting | ready no | static no | state no | inv no.",
+        "level": "info"
+      },
+      {
+        "seq": 7,
+        "at": "16:49:25",
+        "relMs": 133,
+        "scope": "store",
+        "event": "readiness",
+        "message": "Runtime connecting | ws off | static no | state no | inv no | resolved no | player no | map -.",
+        "level": "info"
+      },
+      {
+        "seq": 6,
+        "at": "16:49:25",
+        "relMs": 132,
+        "scope": "stage",
+        "event": "phaser:prewarmed",
+        "message": "Phaser inicializado fora da rota critica do login.",
+        "level": "info"
+      },
+      {
+        "seq": 5,
+        "at": "16:49:25",
+        "relMs": 132,
+        "scope": "stage",
+        "event": "phaser:create:done",
+        "message": "Phaser pronto em 131ms.",
+        "level": "info"
+      },
+      {
+        "seq": 4,
+        "at": "16:49:25",
+        "relMs": 1,
+        "scope": "stage",
+        "event": "phaser:create:start",
+        "message": "Criando instancia do Phaser.",
+        "level": "info"
+      },
+      {
+        "seq": 3,
+        "at": "16:49:25",
+        "relMs": 1,
+        "scope": "stage",
+        "event": "main:bridge-ready",
+        "message": "Bridge DOM/Svelte preparada.",
+        "level": "info"
+      },
+      {
+        "seq": 2,
+        "at": "16:49:25",
+        "relMs": 0,
+        "scope": "stage",
+        "event": "main:init",
+        "message": "Cliente inicializado.",
+        "level": "info"
+      },
+      {
+        "seq": 1,
+        "at": "16:49:25",
+        "relMs": 0,
+        "scope": "boot",
+        "event": "reset",
+        "message": "Nova tentativa de boot: main:init.",
+        "level": "info"
+      }
+    ]
+  },
+  "loadingDiagnostics": {
+    "savedAt": "2026-03-25T19:49:28.405Z",
+    "phase": "in_game",
+    "playerId": 39,
+    "mapCode": "A0",
+    "mapId": "Z1",
+    "socketConnected": true,
+    "loading": {
+      "active": false,
+      "progress": 0,
+      "title": "Preparando jornada",
+      "detail": "Aguardando comando de entrada.",
+      "pendingWorldEntry": false,
+      "ready": true
+    },
+    "packets": {
+      "authSuccess": "16:49:27 auth_success | playerId 39 | mapa city/Z1",
+      "worldStatic": "16:49:28 world_static | mapa city/Z1",
+      "worldState": "16:49:28 world_state | players 1 | mobs 0",
+      "inventoryState": "16:49:27 inventory_state | itens 0",
+      "announcedPacket": "16:49:27 debug.packet | #3 -> quest.state",
+      "wsOpen": "16:49:26 ws_open | readyState 1",
+      "wsError": null,
+      "wsClose": null,
+      "lastPacket": "16:49:28 world_state | players 1 | mobs 0"
+    },
+    "trace": [
+      "16:49:27 Estado minimo do mundo concluido para liberar a HUD.",
+      "16:49:27 Fase alterada para in_game.",
+      "16:49:27 WS => bootstrap.ready enviado.",
+      "16:49:27 WS <= bootstrap.world (worldStatic yes | worldState yes | inventory yes).",
+      "16:49:27 WS <= bootstrap.auth (playerId 39 | hotbar yes).",
+      "16:49:27 Fase alterada para character_select.",
+      "16:49:27 WS <= auth_character_select (3 slots).",
+      "16:49:27 Fase alterada para character_create.",
+      "16:49:26 Fase alterada para auth.",
+      "16:49:25 Fase alterada para connecting.",
+      "16:49:25 Runtime HUD conectado ao GameStore."
+    ]
+  },
+  "logs": []
+}

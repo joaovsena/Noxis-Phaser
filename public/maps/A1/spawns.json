@@ -1,13 +1,48 @@
 {
-  "playerSpawn": { "x": 1180, "y": 2400 },
-  "mobSpawns": [
-    { "x": 980, "y": 2180, "kind": "normal" },
-    { "x": 1320, "y": 2340, "kind": "normal" },
-    { "x": 1820, "y": 2380, "kind": "elite" },
-    { "x": 2140, "y": 2120, "kind": "subboss" }
-  ],
-  "pointsOfInterest": [
-    { "id": "a1-clear-1", "x": 1080, "y": 1960, "label": "Clareira Sul-Oeste" },
-    { "id": "a1-clear-2", "x": 1960, "y": 2040, "label": "Clareira Sul-Leste" }
-  ]
+  "cityPortal": {
+    "x": 170,
+    "y": 3370,
+    "w": 120,
+    "h": 120
+  },
+  "dungeonPortal": {
+    "x": 2890,
+    "y": 1370,
+    "w": 120,
+    "h": 120
+  },
+  "lavaPortal": {
+    "x": 6090,
+    "y": 3130,
+    "w": 120,
+    "h": 120
+  },
+  "eventCenter": {
+    "x": 4440,
+    "y": 2760
+  },
+  "mobZones": {
+    "outskirts": {
+      "x": 1560,
+      "y": 4040
+    },
+    "bridge": {
+      "x": 3160,
+      "y": 3480
+    },
+    "ruins": {
+      "x": 2840,
+      "y": 1240
+    }
+  },
+  "npcs": {
+    "npc_scout_lina": {
+      "x": 1880,
+      "y": 2920
+    },
+    "npc_dungeon_warden": {
+      "x": 2680,
+      "y": 1880
+    }
+  }
 }

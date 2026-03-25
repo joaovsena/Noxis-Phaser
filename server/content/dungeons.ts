@@ -46,7 +46,7 @@ export const DUNGEON_TEMPLATES: DungeonTemplate[] = [
         entryNpcId: 'npc_dungeon_warden',
         entryPortalId: 'forest_dungeon_ruins_01',
         entrySpawn: { x: 420, y: 420 },
-        exitSpawn: { mapKey: 'forest', mapId: 'Z1', x: 610, y: 540 },
+        exitSpawn: { mapKey: 'forest', mapId: 'Z1', x: 2680, y: 1880 },
         mobs: [
             { id: 'pack_1_a', kind: 'normal', x: 560, y: 460 },
             { id: 'pack_1_b', kind: 'normal', x: 620, y: 480 },

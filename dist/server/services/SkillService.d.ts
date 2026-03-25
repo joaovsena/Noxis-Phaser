@@ -1,20 +1,5 @@
 import { PlayerRuntime } from '../models/types';
-type SkillDef = {
-    id: string;
-    classId: 'knight' | 'archer' | 'druid' | 'assassin';
-    name: string;
-    cooldownMs: number;
-    target: 'mob' | 'self';
-    range?: number;
-    power?: number;
-    magic?: boolean;
-    aoeRadius?: number;
-    hpCostPct?: number;
-    lostHpScale?: number;
-    healVitScale?: number;
-    buff?: any;
-    effectKey?: string;
-};
+import type { SkillDef } from '../content/skillCatalog';
 type SendRawFn = (ws: any, payload: any) => void;
 type NormalizeClassIdFn = (rawClass: any) => string;
 type GetSkillLevelFn = (player: PlayerRuntime, skillId: string) => number;
@@ -73,6 +58,7 @@ export declare class SkillService {
     handleSkillCast(player: PlayerRuntime, msg: any): void;
     private applyMobDamageOverTime;
     handleSkillLearn(player: PlayerRuntime, msg: any): void;
+    private scaleBuffForLevel;
 }
 export {};
 //# sourceMappingURL=SkillService.d.ts.map
