@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import { displayItemName } from '../lib/itemTooltip';
 
   export let item: any = null;
   export let hotkey = '';
@@ -97,9 +98,9 @@
   {/if}
   {#if item}
     {#if item.iconUrl}
-      <img src={item.iconUrl} alt={item.name || 'Item'} />
+      <img src={item.iconUrl} alt={displayItemName(item)} />
     {:else}
-      <span class="fallback-mark">{String(item.name || 'SK').slice(0, 2).toUpperCase()}</span>
+      <span class="fallback-mark">{String(displayItemName(item) || 'SK').slice(0, 2).toUpperCase()}</span>
     {/if}
     {#if item.quantity > 1}<span class="qty">{item.quantity}</span>{/if}
   {/if}
@@ -142,7 +143,7 @@
 
   .slot-shell.bottom-bar {
     clip-path: none;
-    border-radius: 8px;
+    border-radius: 6px;
     border-color: rgba(201, 168, 106, 0.18);
     background:
       radial-gradient(circle at top, rgba(255, 231, 183, 0.04), transparent 38%),
@@ -169,7 +170,7 @@
   }
 
   .slot-shell.bottom-bar .slot-chrome {
-    border-radius: 5px;
+    border-radius: 4px;
   }
 
   .cooldown-mask {

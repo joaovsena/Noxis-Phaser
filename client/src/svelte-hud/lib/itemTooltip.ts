@@ -21,6 +21,25 @@ const QUALITY_LABELS: Record<string, string> = {
   excelente: 'Excelente'
 };
 
+const SLOT_LABELS: Record<string, string> = {
+  weapon: 'Arma',
+  helmet: 'Capacete',
+  chest: 'Peitoral',
+  pants: 'Calcas',
+  gloves: 'Luvas',
+  boots: 'Botas',
+  ring: 'Anel',
+  necklace: 'Colar'
+};
+
+const CATEGORY_LABELS: Record<string, string> = {
+  equipment: 'Equipamento',
+  consumables: 'Consumivel',
+  quest: 'Missao',
+  materials: 'Material',
+  misc: 'Item'
+};
+
 const STAT_LABELS: Record<string, string> = {
   physicalAttack: 'Ataque Fisico',
   magicAttack: 'Ataque Magico',
@@ -55,6 +74,24 @@ export function qualityLabel(item: any) {
   return QUALITY_LABELS[resolveItemQuality(item)] || 'Normal';
 }
 
+export function normalizeWallet(source: any) {
+  const toInt = (value: unknown) => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return 0;
+    return Math.max(0, Math.floor(parsed));
+  };
+  const carryFromCopper = Math.floor(toInt(source?.copper) / 100);
+  const copper = toInt(source?.copper) % 100;
+  const silverRaw = toInt(source?.silver) + carryFromCopper;
+  const carryFromSilver = Math.floor(silverRaw / 100);
+  const silver = silverRaw % 100;
+  const goldRaw = toInt(source?.gold) + carryFromSilver;
+  const carryFromGold = Math.floor(goldRaw / 100);
+  const gold = goldRaw % 100;
+  const diamond = toInt(source?.diamond) + carryFromGold;
+  return { diamond, gold, silver, copper };
+}
+
 export function inferEquipSlot(item: any) {
   const explicit = String(item?.slot || '').toLowerCase();
   if (explicit) return explicit;
@@ -70,8 +107,24 @@ export function classLabel(classId: string) {
   return CLASS_LABELS[String(classId || '').toLowerCase()] || String(classId || 'Livre');
 }
 
+export function slotLabel(slot: string) {
+  const key = String(slot || '').toLowerCase();
+  return SLOT_LABELS[key] || String(slot || 'Item');
+}
+
 export function statLabel(key: string) {
   return STAT_LABELS[String(key || '')] || String(key || '');
+}
+
+export function stripItemAffixSuffix(name: string) {
+  return String(name || '')
+    .replace(/\s+(branco|verde|azul|roxo|laranja)\s*\/\s*(pobre|normal|bom|otimo|excelente)\s*$/i, '')
+    .trim();
+}
+
+export function displayItemName(item: any) {
+  const fallback = String(item?.name || item?.templateId || 'Item');
+  return stripItemAffixSuffix(fallback) || fallback;
 }
 
 export function computeSellCopper(item: any) {
@@ -115,6 +168,30 @@ export function inventoryCategory(item: any) {
     || type.includes('reagent')
   ) return 'materials';
   return 'misc';
+}
+
+export function itemTypeLabel(item: any) {
+  const equipSlot = inferEquipSlot(item);
+  if (equipSlot && equipSlot !== 'consumable' && equipSlot !== 'material') {
+    return `${CATEGORY_LABELS.equipment} - ${slotLabel(equipSlot)}`;
+  }
+  const category = inventoryCategory(item);
+  return CATEGORY_LABELS[category] || CATEGORY_LABELS.misc;
+}
+
+export function inferItemTier(item: any) {
+  const templateId = String(item?.templateId || '');
+  const templateMatch = templateId.match(/_t(\d+)_/i);
+  if (templateMatch) {
+    const safe = Math.max(0, Math.floor(Number(templateMatch[1] || 0)));
+    if (safe > 0) return safe;
+  }
+  const name = String(item?.name || '');
+  if (/aprendiz/i.test(name)) return 1;
+  if (/explorador/i.test(name)) return 2;
+  if (/veterano/i.test(name)) return 3;
+  if (/ascendente/i.test(name)) return 4;
+  return 0;
 }
 
 export function compareBonusEntries(item: any, equipped: any) {

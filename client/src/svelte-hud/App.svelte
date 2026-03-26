@@ -28,7 +28,6 @@
   import QuestTrackerPanel from './QuestTrackerPanel.svelte';
   import WorldEventsPanel from './WorldEventsPanel.svelte';
   import BottomBar from './BottomBar.svelte';
-  import ProgressBar from './components/ProgressBar.svelte';
   import {
     activateHotbarBinding,
     activePetStore,
@@ -98,6 +97,23 @@
   $: showQuestTracker = $questTrackerStore.length > 0;
   $: showActiveEvents = $activeEventsStore.length > 0;
   $: hasActiveTarget = Boolean($selectedMobStore || $selectedPlayerStore);
+  $: playerModeLabel = $playerMetaStore.pvpMode === 'peace' ? 'Paz' : $playerMetaStore.pvpMode === 'group' ? 'Grupo' : 'Mal';
+  $: playerClassToken = String($playerStats.className || 'knight').toLowerCase();
+  $: playerPortraitMark = playerClassToken.slice(0, 1).toUpperCase() || 'A';
+  $: playerPrimaryValue = Number($attributesStore.player?.hp || 0);
+  $: playerPrimaryMax = Math.max(1, Number($attributesStore.player?.maxHp || 1));
+  $: playerPrimaryRatio = Math.max(0, Math.min(1, playerPrimaryValue / playerPrimaryMax));
+  $: playerManaValue = Number($attributesStore.player?.mp || $attributesStore.player?.mana || $attributesStore.player?.energy || 0);
+  $: playerManaMax = Number($attributesStore.player?.maxMp || $attributesStore.player?.maxMana || $attributesStore.player?.maxEnergy || 0);
+  $: playerUsesXpFallback = playerManaMax <= 0 && Number($playerStats.xpToNext || 0) > 0;
+  $: playerSecondaryValue = playerUsesXpFallback ? Number($playerStats.xp || 0) : playerManaValue;
+  $: playerSecondaryMax = Math.max(1, playerUsesXpFallback ? Number($playerStats.xpToNext || 1) : (playerManaMax || 1));
+  $: playerSecondaryDisplayMax = playerUsesXpFallback ? Number($playerStats.xpToNext || 0) : Number(playerManaMax || 0);
+  $: playerSecondaryRatio = Math.max(0, Math.min(1, playerSecondaryValue / playerSecondaryMax));
+  $: playerSecondaryTone = playerUsesXpFallback ? 'xp' : 'mana';
+  $: playerSecondaryLabel = playerUsesXpFallback
+    ? `XP ${playerSecondaryValue} / ${playerSecondaryDisplayMax}`
+    : `MP ${playerSecondaryValue} / ${playerSecondaryDisplayMax}`;
 
   function pulseHotkey(key: string) {
     const safeKey = String(key || '').toLowerCase();
@@ -261,22 +277,52 @@
 {:else if showHud}
   <div class="hud-root" style={$hudTransformStyle}>
     <div class="top-left-zone">
-      <section class="player-unit hud-section">
-        <div class="player-head">
-          <div class="player-identity">
-            <div class="hud-kicker">Personagem</div>
-            <div class="player-name">{$attributesStore.player?.name || 'Aventureiro'}</div>
-            <div class="player-subtitle">
-              <span>{$playerStats.className}</span>
+      <section class={`player-unit class-${playerClassToken}`}>
+        <div class="player-frame-main">
+          <div class="player-portrait-shell">
+            <div class="player-portrait-core">{playerPortraitMark}</div>
+            <span class="player-level-badge">{$playerStats.level}</span>
+          </div>
+
+          <div class="player-frame-body">
+            <div class="player-frame-header">
+              <div class="player-headline">
+                <div class="player-mode">Modo {playerModeLabel.toLowerCase()}</div>
+                <div class="player-nameplate">{$attributesStore.player?.name || 'Aventureiro'}</div>
+              </div>
+
+              <div class="player-status-cluster">
+                <span class={`player-status-dot ${$adminStore.socketConnected ? 'active' : ''}`}></span>
+                <span class={`player-status-dot ${$loadingStore.ready ? 'active' : ''}`}></span>
+                <div class="player-orb"></div>
+              </div>
+            </div>
+
+            <div class="player-bar-stack">
+              <div class="player-bar health">
+                <div class="player-bar-fill health-fill" style={`transform: scaleX(${playerPrimaryRatio});`}></div>
+                <span>HP {playerPrimaryValue} / {playerPrimaryMax}</span>
+              </div>
+
+              <div class={`player-bar ${playerSecondaryTone}`}>
+                <div class={`player-bar-fill ${playerSecondaryTone}-fill`} style={`transform: scaleX(${playerSecondaryRatio});`}></div>
+                <span>{playerSecondaryLabel}</span>
+              </div>
+            </div>
+
+            <div class="player-footer-line">
+              <span>{playerClassToken}</span>
               <span>Nv. {$playerStats.level}</span>
               <span>{$playerMetaStore.currentInstance}</span>
             </div>
           </div>
+        </div>
 
+        <div class="player-utility-row">
           <div class="player-actions">
             <button class="hud-btn mini ghost" type="button" on:click={returnToCharacterSelect}>Trocar</button>
             <button class="hud-btn mini" type="button" on:click={() => pvpMenuOpen = !pvpMenuOpen}>
-              PvP {$playerMetaStore.pvpMode === 'peace' ? 'Paz' : $playerMetaStore.pvpMode === 'group' ? 'Grupo' : 'Mal'}
+              PvP {playerModeLabel}
             </button>
             {#if pvpMenuOpen}
               <div class="player-pvp-menu">
@@ -299,16 +345,7 @@
               </div>
             {/if}
           </div>
-        </div>
 
-        <ProgressBar
-          value={$attributesStore.player?.hp || 0}
-          max={$attributesStore.player?.maxHp || 1}
-          label={`HP ${$attributesStore.player?.hp || 0} / ${$attributesStore.player?.maxHp || 0}`}
-          tone="health"
-        />
-
-        <div class="player-meta-row">
           <div class="player-meta-grid">
             {#if $playerStats.unspentPoints > 0}
               <span class="hud-pill warning">Atributos {$playerStats.unspentPoints}</span>
@@ -481,13 +518,15 @@
     --hud-menu-top: 104px;
     --hud-skill-top: 104px;
     --hud-bottom-bar-height: 132px;
+    --hud-responsive-scale: 1;
   }
 
   .hud-root {
     position: fixed;
     inset: 0;
     pointer-events: none;
-    transform-origin: center center;
+    overflow: hidden;
+    transform-origin: top center;
     padding: 12px;
   }
 
@@ -507,7 +546,7 @@
   .top-left-zone {
     top: 12px;
     left: 12px;
-    width: min(264px, calc(100vw - 24px));
+    width: min(332px, calc(100vw - 24px));
     display: grid;
     gap: 6px;
     z-index: 15;
@@ -517,7 +556,7 @@
     top: 12px;
     left: 50%;
     transform: translateX(-50%);
-    width: min(220px, calc(100vw - 700px));
+    width: min(238px, calc(100vw - 700px));
     padding: 0;
     display: grid;
     gap: 6px;
@@ -575,28 +614,235 @@
     z-index: 20;
   }
 
-  .player-head,
-  .player-meta-row,
-  .player-subtitle {
+  .player-unit {
+    padding: 8px 10px 10px;
+    border: 1px solid rgba(215, 188, 129, 0.52);
+    border-radius: 18px;
+    background:
+      radial-gradient(circle at top left, rgba(255, 255, 255, 0.08), transparent 34%),
+      linear-gradient(180deg, rgba(41, 29, 17, 0.96), rgba(8, 8, 10, 0.98));
+    box-shadow:
+      inset 0 1px 0 rgba(255, 233, 188, 0.14),
+      inset 0 0 0 1px rgba(85, 62, 30, 0.82),
+      0 14px 26px rgba(0, 0, 0, 0.28);
+    display: grid;
+    gap: 8px;
+  }
+
+  .player-unit.class-knight {
+    --player-accent: #5ea8ff;
+    --player-accent-soft: #c6e3ff;
+    --player-portrait-bg: linear-gradient(180deg, #426ca9, #121b2d 88%);
+  }
+
+  .player-unit.class-archer {
+    --player-accent: #7dd4ff;
+    --player-accent-soft: #d9f5ff;
+    --player-portrait-bg: linear-gradient(180deg, #5a4b9e, #1c1833 88%);
+  }
+
+  .player-unit.class-druid {
+    --player-accent: #72d8b4;
+    --player-accent-soft: #dbfff3;
+    --player-portrait-bg: linear-gradient(180deg, #3a7f61, #11221d 88%);
+  }
+
+  .player-unit.class-assassin {
+    --player-accent: #e786be;
+    --player-accent-soft: #fde4f3;
+    --player-portrait-bg: linear-gradient(180deg, #73466c, #1c111b 88%);
+  }
+
+  .player-frame-main {
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 10px;
+    align-items: center;
+  }
+
+  .player-portrait-shell {
+    position: relative;
+    width: 70px;
+    height: 70px;
+    padding: 3px;
+    border-radius: 18px 18px 14px 14px;
+    border: 1px solid rgba(233, 214, 169, 0.58);
+    background:
+      linear-gradient(180deg, rgba(74, 53, 27, 0.98), rgba(24, 17, 11, 0.98));
+    box-shadow:
+      inset 0 0 0 1px rgba(85, 61, 29, 0.88),
+      0 8px 16px rgba(0, 0, 0, 0.24);
+  }
+
+  .player-portrait-core {
+    width: 100%;
+    height: 100%;
+    border-radius: 14px 14px 10px 10px;
+    display: grid;
+    place-items: center;
+    background:
+      radial-gradient(circle at 45% 22%, rgba(255, 255, 255, 0.28), transparent 30%),
+      var(--player-portrait-bg, linear-gradient(180deg, #52637b, #11141a 88%));
+    color: var(--player-accent-soft, #ecf5ff);
+    font-family: var(--hud-font-display);
+    font-size: 1.5rem;
+    text-transform: uppercase;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.82);
+  }
+
+  .player-level-badge {
+    position: absolute;
+    left: -8px;
+    bottom: -7px;
+    min-width: 26px;
+    height: 26px;
+    padding: 0 7px;
+    border-radius: 999px;
+    border: 1px solid rgba(236, 220, 173, 0.62);
+    background: linear-gradient(180deg, #2f2313, #0b0909);
+    color: #f6e3bc;
+    font-weight: 700;
+    font-size: 0.8rem;
+    display: grid;
+    place-items: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.34);
+  }
+
+  .player-frame-body {
+    min-width: 0;
+    display: grid;
+    gap: 4px;
+  }
+
+  .player-frame-header,
+  .player-utility-row,
+  .player-footer-line {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
   }
 
-  .player-head {
-    align-items: flex-start;
-    margin-bottom: 8px;
-  }
-
-  .player-unit {
-    padding: 10px 12px;
-  }
-
-  .player-identity {
+  .player-headline {
     min-width: 0;
     display: grid;
-    gap: 4px;
+    gap: 1px;
+  }
+
+  .player-mode {
+    color: rgba(249, 235, 191, 0.84);
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .player-nameplate {
+    color: #fff5e6;
+    font-family: var(--hud-font-display);
+    font-size: 0.88rem;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.82);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .player-status-cluster {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-shrink: 0;
+  }
+
+  .player-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(218, 236, 188, 0.42);
+    background: rgba(39, 64, 29, 0.48);
+    box-shadow: inset 0 0 0 1px rgba(8, 13, 9, 0.5);
+  }
+
+  .player-status-dot.active {
+    background: radial-gradient(circle at 35% 35%, #cbff87, #26bc38);
+    box-shadow: 0 0 10px rgba(111, 230, 111, 0.42);
+  }
+
+  .player-orb {
+    width: 28px;
+    height: 28px;
+    margin-left: 3px;
+    border-radius: 999px;
+    border: 1px solid rgba(223, 207, 160, 0.58);
+    background:
+      radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.48), transparent 24%),
+      radial-gradient(circle at 50% 55%, color-mix(in srgb, var(--player-accent, #77bbff) 58%, transparent), rgba(24, 40, 58, 0.88) 62%),
+      linear-gradient(180deg, rgba(47, 67, 93, 0.98), rgba(8, 13, 17, 0.98));
+    box-shadow:
+      inset 0 0 0 1px rgba(46, 63, 83, 0.92),
+      0 0 14px color-mix(in srgb, var(--player-accent, #77bbff) 34%, transparent);
+  }
+
+  .player-bar-stack {
+    display: grid;
+    gap: 3px;
+  }
+
+  .player-bar {
+    position: relative;
+    height: 13px;
+    overflow: hidden;
+    border-radius: 999px;
+    border: 1px solid rgba(229, 209, 156, 0.34);
+    background:
+      linear-gradient(180deg, rgba(18, 16, 18, 0.96), rgba(5, 5, 6, 0.98));
+    box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.48);
+  }
+
+  .player-bar-fill {
+    position: absolute;
+    inset: 0;
+    transform-origin: left center;
+  }
+
+  .health-fill {
+    background: linear-gradient(90deg, #7d120f, #d3312a 58%, #ef9c57);
+  }
+
+  .mana-fill {
+    background: linear-gradient(90deg, #214d89, #488af3 56%, #9ce5ff);
+  }
+
+  .xp-fill {
+    background: linear-gradient(90deg, #7e5a14, #d39d29 54%, #f3d986);
+  }
+
+  .player-bar::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent 58%);
+    pointer-events: none;
+  }
+
+  .player-bar span {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-size: 0.56rem;
+    color: #fbf3e1;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.82);
+    letter-spacing: 0.02em;
+  }
+
+  .player-footer-line {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 7px;
+    color: rgba(235, 224, 202, 0.74);
+    font-size: 0.58rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
   }
 
   .player-actions {
@@ -604,13 +850,13 @@
     display: flex;
     gap: 6px;
     flex-wrap: wrap;
-    justify-content: flex-end;
+    justify-content: flex-start;
   }
 
   .player-pvp-menu {
     position: absolute;
     top: calc(100% + 8px);
-    right: 0;
+    left: 0;
     min-width: 150px;
     padding: 10px;
     border-radius: 14px;
@@ -637,34 +883,14 @@
     box-shadow: 0 0 0 1px rgba(201, 168, 106, 0.12), 0 0 16px rgba(201, 168, 106, 0.12);
   }
 
-  .player-name {
-    font-family: var(--hud-font-display);
-    color: var(--hud-gold);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    font-size: 0.84rem;
-  }
-
-  .player-subtitle,
   .player-meta-grid {
     flex-wrap: wrap;
-  }
-
-  .player-subtitle {
-    color: var(--hud-text-soft);
-    font-size: 0.62rem;
-    text-transform: uppercase;
-    justify-content: flex-start;
-  }
-
-  .player-meta-row {
-    margin-top: 8px;
-    align-items: start;
   }
 
   .player-meta-grid {
     display: flex;
     gap: 6px;
+    justify-content: flex-end;
   }
 
   .target-stack {
@@ -711,6 +937,7 @@
     place-items: start center;
     padding-top: 20px;
     pointer-events: none;
+    transform-origin: top center;
   }
 
   .hud-fallback-card {
@@ -746,10 +973,13 @@
 
   @media (max-width: 1440px) {
     .combat-center {
-      width: min(212px, calc(100vw - 590px));
+      width: min(232px, calc(100vw - 590px));
     }
 
-    .top-left-zone,
+    .top-left-zone {
+      width: 300px;
+    }
+
     .right-zone {
       width: 236px;
     }
@@ -760,8 +990,12 @@
   }
 
   @media (max-width: 1180px) {
+    :global(:root) {
+      --hud-responsive-scale: clamp(0.72, calc(100vw / 1180), 1);
+    }
+
     .hud-root {
-      padding: 12px;
+      padding: 10px;
     }
 
     .top-left-zone,
@@ -770,30 +1004,36 @@
     .right-zone,
     .bottom-hud,
     .debug-zone {
-      position: static;
-      transform: none;
-      width: auto;
+      position: absolute;
     }
 
-    .hud-root {
-      overflow: auto;
-      display: grid;
-      gap: 12px;
-      align-content: start;
-    }
-
-    .left-zone,
-    .right-zone,
     .top-left-zone {
-      max-height: none;
-      width: auto;
+      top: 10px;
+      left: 10px;
+      width: min(284px, calc(100vw - 20px));
+    }
+
+    .combat-center {
+      top: 10px;
+    }
+
+    .left-zone {
+      left: 10px;
+      bottom: 10px;
+    }
+
+    .right-zone {
+      top: 10px;
+      right: 10px;
     }
 
     .bottom-hud {
-      left: 50%;
-      margin-bottom: 72px;
-      max-width: none;
-      width: calc(100vw - 24px);
+      bottom: 10px;
+    }
+
+    .debug-zone {
+      right: 10px;
+      bottom: 10px;
     }
 
     .window-wrap,
@@ -808,11 +1048,30 @@
   }
 
   @media (max-width: 760px) {
-    .player-head,
-    .player-meta-row,
-    .player-subtitle {
+    .player-frame-main {
+      grid-template-columns: 58px minmax(0, 1fr);
+      gap: 8px;
+    }
+
+    .player-portrait-shell {
+      width: 56px;
+      height: 56px;
+    }
+
+    .player-level-badge {
+      min-width: 22px;
+      height: 22px;
+      font-size: 0.7rem;
+    }
+
+    .player-utility-row {
       flex-direction: column;
-      align-items: stretch;
+      align-items: flex-start;
+    }
+
+    .player-meta-grid {
+      justify-content: flex-start;
     }
   }
+
 </style>

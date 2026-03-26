@@ -10,20 +10,17 @@
   const categories = [
     { id: 'all', label: 'Tudo' },
     { id: 'equipment', label: 'Equip.' },
-    { id: 'consumables', label: 'Consum.' },
-    { id: 'materials', label: 'Materiais' },
-    { id: 'quest', label: 'Quest' },
-    { id: 'misc', label: 'Diversos' }
+    { id: 'consumables', label: 'Consum.' }
   ] as const;
 
   let activeCategory: typeof categories[number]['id'] = 'all';
   let search = '';
+  let searchOpen = false;
   let splitTarget: any = null;
   let splitAmount = 1;
   let deleteTarget: any = null;
 
   $: normalizedSearch = search.trim().toLowerCase();
-  $: occupiedSlots = ($inventoryStore.inventory || []).length;
   $: wallet = $inventoryStore.wallet || {};
   $: visibleSlots = $inventorySlots.map((entry) => {
     const category = entry.item ? inventoryCategory(entry.item) : 'empty';
@@ -49,6 +46,11 @@
   function openDelete(item: any) {
     if (!item) return;
     deleteTarget = item;
+  }
+
+  function toggleSearch() {
+    if (searchOpen) search = '';
+    searchOpen = !searchOpen;
   }
 
   function confirmSplit() {
@@ -107,70 +109,91 @@
     }, x, y);
   }
 
-  function walletText() {
-    return [`${Number(wallet.diamond || 0)}d`, `${Number(wallet.gold || 0)}g`, `${Number(wallet.silver || 0)}s`, `${Number(wallet.copper || 0)}c`]
-      .filter((entry) => !entry.startsWith('0'))
-      .join(' ') || '0c';
+  function normalizeWallet(source: any) {
+    const toInt = (value: unknown) => {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) return 0;
+      return Math.max(0, Math.floor(parsed));
+    };
+    const carryFromCopper = Math.floor(toInt(source?.copper) / 100);
+    const copper = toInt(source?.copper) % 100;
+    const silverRaw = toInt(source?.silver) + carryFromCopper;
+    const carryFromSilver = Math.floor(silverRaw / 100);
+    const silver = silverRaw % 100;
+    const goldRaw = toInt(source?.gold) + carryFromSilver;
+    const carryFromGold = Math.floor(goldRaw / 100);
+    const gold = goldRaw % 100;
+    const diamond = toInt(source?.diamond) + carryFromGold;
+    return { diamond, gold, silver, copper };
   }
+
+  $: walletDisplay = normalizeWallet(wallet);
+  $: walletTokens = [
+    { key: 'diamond', amount: walletDisplay.diamond, css: 'coin-diamond' },
+    { key: 'gold', amount: walletDisplay.gold, css: 'coin-gold' },
+    { key: 'silver', amount: walletDisplay.silver, css: 'coin-silver' },
+    { key: 'copper', amount: walletDisplay.copper, css: 'coin-copper' }
+  ];
 </script>
 
-<Window title="Inventario" subtitle="Bolsa, stacks e equipamentos" width="clamp(600px, 60vw, 700px)" maxWidth="700px" maxBodyHeight="min(80vh, 840px)" on:close={() => dispatch('close')}>
+<Window title="Inventario" subtitle="Bolsa" width="clamp(430px, 38vw, 500px)" maxWidth="500px" maxBodyHeight="min(74vh, 620px)" on:close={() => dispatch('close')}>
   <div class="inventory-shell">
-    <div class="summary-row">
-      <div class="summary-card">
-        <div class="hud-kicker">Capacidade</div>
-        <div class="summary-value">{occupiedSlots}/36</div>
-      </div>
-      <div class="summary-card">
-        <div class="hud-kicker">Filtro</div>
-        <div class="summary-value">{categories.find((entry) => entry.id === activeCategory)?.label || 'Tudo'}</div>
-      </div>
-      <div class="summary-card wallet">
-        <div class="hud-kicker">Carteira</div>
-        <div class="summary-value">{walletText()}</div>
+    <div class="inventory-topbar">
+      <div class="category-row">
+        {#each categories as category}
+          <button class={`hud-tab category-chip ${activeCategory === category.id ? 'active' : 'ghost'}`} type="button" on:click={() => activeCategory = category.id}>
+            {category.label}
+          </button>
+        {/each}
       </div>
     </div>
 
-    <div class="toolbar-row">
-      <input bind:value={search} class="hud-input" type="search" placeholder="Buscar item..." />
-      <button class="hud-btn" type="button" on:click={() => sendUiMessage({ type: 'inventory_sort' })}>Organizar</button>
-    </div>
+    {#if searchOpen}
+      <div class="search-row">
+        <input bind:value={search} class="hud-input" type="search" placeholder="Buscar item..." />
+      </div>
+    {/if}
 
-    <div class="category-row">
-      {#each categories as category}
-        <button class={`hud-tab ${activeCategory === category.id ? 'active' : 'ghost'}`} type="button" on:click={() => activeCategory = category.id}>
-          {category.label}
-        </button>
-      {/each}
-    </div>
+    <div class="inventory-body">
+      <div class="inventory-grid">
+        {#each visibleSlots as slot (slot.slotIndex)}
+          <div class={`inventory-drop-shell ${slot.hidden ? 'filtered' : ''}`} role="group" aria-label={`Inventario ${slot.slotIndex + 1}`} on:dragover|preventDefault on:drop={(event) => handleDrop(slot.slotIndex, event)}>
+            <Slot
+              item={slot.item}
+              size={48}
+              searchHidden={slot.hidden}
+              on:ctrlclick={(event) => openSplit(event.detail)}
+              on:contextaction={(event) => openDelete(event.detail)}
+              on:dragstart={(event) => event.detail && beginDrag({ source: 'inventory', itemId: String(event.detail.id) })}
+              on:dblactivate={(event) => event.detail && activateInventoryItem(event.detail)}
+              on:inspect={(event) => inspectItem(event.detail.item, event.detail.x, event.detail.y)}
+              on:inspectend={hideTooltip}
+            />
+          </div>
+        {/each}
+      </div>
 
-    <div class="inventory-grid">
-      {#each visibleSlots as slot (slot.slotIndex)}
-        <div class={`inventory-drop-shell ${slot.hidden ? 'filtered' : ''}`} role="group" aria-label={`Inventario ${slot.slotIndex + 1}`} on:dragover|preventDefault on:drop={(event) => handleDrop(slot.slotIndex, event)}>
-          <Slot
-            item={slot.item}
-            size={60}
-            searchHidden={slot.hidden}
-            on:ctrlclick={(event) => openSplit(event.detail)}
-            on:contextaction={(event) => openDelete(event.detail)}
-            on:dragstart={(event) => event.detail && beginDrag({ source: 'inventory', itemId: String(event.detail.id) })}
-            on:dblactivate={(event) => event.detail && activateInventoryItem(event.detail)}
-            on:inspect={(event) => inspectItem(event.detail.item, event.detail.x, event.detail.y)}
-            on:inspectend={hideTooltip}
-          />
-          <div class="slot-index">{slot.slotIndex + 1}</div>
+      <aside class="actions-sidebar">
+        <button class="side-action" type="button" on:click={() => sendUiMessage({ type: 'inventory_sort' })}>Ordenar</button>
+        <button class={`side-action ${searchOpen || normalizedSearch ? 'active' : ''}`} type="button" on:click={toggleSearch}>Buscar</button>
+        <div class={`side-action drop-action ${deleteTarget ? 'active' : ''}`} role="button" tabindex="-1" on:dragover|preventDefault on:drop={handleDeleteDrop}>
+          Destruir
         </div>
-      {/each}
+      </aside>
     </div>
 
-    <div class="hint-row">
-      <span>Duplo clique usa/equipa</span>
-      <span>Ctrl + clique divide pilha</span>
-      <span>Botao direito prepara exclusao</span>
-    </div>
-
-    <div class="delete-dropzone" role="button" tabindex="-1" on:dragover|preventDefault on:drop={handleDeleteDrop}>
-      Arraste aqui para destruir um item
+    <div class="inventory-footer">
+      <div class="wallet-strip" aria-label="Carteira">
+        <span class="wallet-label">Moeda</span>
+        <div class="wallet-chain">
+          {#each walletTokens as token}
+            <span class="wallet-token">
+              <span class={`coin-dot ${token.css}`}></span>
+              <span class="coin-amount">{token.amount}</span>
+            </span>
+          {/each}
+        </div>
+      </div>
     </div>
 
     {#if splitTarget}
@@ -200,44 +223,124 @@
 
 <style>
   .inventory-shell,
-  .summary-row,
-  .category-row {
+  .inventory-body {
     display: grid;
-    gap: 12px;
+    gap: 8px;
   }
 
-  .summary-row {
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  }
-
-  .summary-card,
   .modal-card {
-    padding: 12px;
+    padding: 10px;
     border-radius: 14px;
     border: 1px solid rgba(201, 168, 106, 0.18);
     background: rgba(7, 9, 12, 0.62);
   }
 
-  .summary-value {
-    margin-top: 6px;
-    color: var(--hud-gold);
-    font-family: var(--hud-font-display);
-    text-transform: uppercase;
-    font-size: 0.82rem;
+  .inventory-topbar,
+  .search-row,
+  .inventory-footer {
+    min-width: 0;
   }
 
-  .wallet .summary-value {
-    color: var(--hud-warning);
+  .inventory-body {
+    grid-template-columns: max-content 88px;
+    align-items: start;
+    justify-content: start;
+    gap: 4px;
   }
 
-  .toolbar-row {
+  .actions-sidebar {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 5px;
+  }
+
+  .wallet-strip,
+  .wallet-chain,
+  .wallet-token {
+    display: flex;
+    align-items: center;
+  }
+
+  .wallet-strip {
+    flex-wrap: wrap;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .wallet-label {
+    font-family: var(--hud-font-display);
+    color: var(--hud-gold);
+    font-size: 0.64rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .wallet-chain {
+    flex-wrap: wrap;
     gap: 10px;
   }
 
+  .wallet-token {
+    gap: 4px;
+  }
+
+  .coin-dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 999px;
+    display: inline-block;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25) inset, 0 0 6px rgba(0, 0, 0, 0.35);
+  }
+
+  .coin-diamond {
+    background: radial-gradient(circle at 30% 28%, #b9ecff, #4aaeff 56%, #2366be);
+  }
+
+  .coin-gold {
+    background: radial-gradient(circle at 30% 28%, #ffe8ab, #e0b33a 58%, #936b13);
+  }
+
+  .coin-silver {
+    background: radial-gradient(circle at 30% 28%, #f2f6ff, #b8c2d4 58%, #6a768c);
+  }
+
+  .coin-copper {
+    background: radial-gradient(circle at 30% 28%, #f2c4a6, #bf6f3c 58%, #7f4221);
+  }
+
+  .coin-amount {
+    min-width: 12px;
+    color: var(--hud-text);
+    font-size: 0.9rem;
+    font-weight: 700;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+
   .category-row {
-    grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+    display: flex;
+    gap: 3px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+
+  .category-row::-webkit-scrollbar {
+    display: none;
+  }
+
+  .search-row :global(.hud-input) {
+    min-height: 34px;
+    padding: 0 10px;
+    font-size: 0.74rem;
+  }
+
+  .category-chip {
+    min-width: fit-content;
+    min-height: 22px;
+    padding: 0 7px;
+    font-size: 0.52rem;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
   }
 
   .hud-tab.active {
@@ -247,56 +350,65 @@
 
   .inventory-grid {
     display: grid;
-    grid-template-columns: repeat(6, 60px);
-    gap: 12px;
-    justify-content: center;
+    grid-template-columns: repeat(6, 48px);
+    gap: 2px;
+    justify-content: start;
+    align-content: start;
   }
 
   .inventory-drop-shell {
     position: relative;
-    min-width: 60px;
-    min-height: 76px;
-    display: grid;
-    justify-items: center;
-    gap: 6px;
+    min-width: 48px;
+    min-height: 48px;
   }
 
   .inventory-drop-shell.filtered {
     opacity: 0.4;
   }
 
-  .slot-index,
-  .hint-row,
-  p {
-    color: var(--hud-text-soft);
+  .inventory-footer {
+    padding-top: 2px;
   }
 
-  .slot-index {
-    font-size: 0.66rem;
-  }
-
-  .hint-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    font-size: 0.72rem;
-  }
-
-  .delete-dropzone {
-    min-height: 42px;
+  .side-action {
+    min-height: 28px;
     display: grid;
     place-items: center;
-    border: 1px dashed rgba(205, 116, 100, 0.42);
-    border-radius: 12px;
-    background: linear-gradient(180deg, rgba(36, 14, 12, 0.94), rgba(16, 8, 8, 0.98));
-    color: #efc1b5;
+    padding: 0 6px;
+    border-radius: 10px;
+    border: 1px solid rgba(201, 168, 106, 0.24);
+    background: linear-gradient(180deg, rgba(28, 22, 15, 0.94), rgba(10, 8, 7, 0.98));
+    color: #f0dfbc;
     font-family: var(--hud-font-display);
-    font-size: 0.72rem;
+    font-size: 0.58rem;
+    text-align: center;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.03em;
+    transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+  }
+
+  .side-action:hover,
+  .side-action.active {
+    transform: translateY(-1px);
+    border-color: rgba(201, 168, 106, 0.4);
+    box-shadow: 0 0 0 1px rgba(201, 168, 106, 0.08), 0 0 12px rgba(201, 168, 106, 0.12);
+  }
+
+  .drop-action {
+    border-style: dashed;
+    color: #efc1b5;
+    border-color: rgba(205, 116, 100, 0.36);
+    background: linear-gradient(180deg, rgba(36, 14, 12, 0.92), rgba(16, 8, 8, 0.98));
+  }
+
+  .drop-action:hover,
+  .drop-action.active {
+    border-color: rgba(205, 116, 100, 0.58);
+    box-shadow: 0 0 0 1px rgba(205, 116, 100, 0.08), 0 0 12px rgba(205, 116, 100, 0.1);
   }
 
   .modal-card {
+    grid-column: 1 / -1;
     margin-top: 4px;
   }
 
@@ -317,25 +429,21 @@
     margin-top: 10px;
   }
 
-  @media (max-width: 820px) {
-    .summary-row,
-    .category-row {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .toolbar-row {
+  @media (max-width: 760px) {
+    .inventory-body {
       grid-template-columns: 1fr;
     }
-  }
 
-  @media (max-width: 720px) {
-    .summary-row,
-    .category-row {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+    .wallet-strip {
+      justify-content: flex-start;
+    }
+
+    .actions-sidebar {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 
     .inventory-grid {
-      grid-template-columns: repeat(4, 60px);
+      justify-content: start;
     }
   }
 </style>

@@ -13,7 +13,7 @@
 </script>
 
 <button
-  class={`icon-button ${variant} ${showLabel || (showHotkey && hotkey) ? '' : 'icon-only'}`}
+  class={`icon-button ${variant} icon-${icon} ${showLabel || (showHotkey && hotkey) ? '' : 'icon-only'}`}
   class:active
   aria-label={label}
   title={`${label}${showHotkey && hotkey ? ` (${hotkey})` : ''}`}
@@ -164,47 +164,115 @@
   }
 
   .icon-button.bottom-bar {
-    min-width: 60px;
-    min-height: 52px;
-    gap: 6px;
+    min-width: 64px;
+    min-height: 54px;
+    gap: 5px;
     padding: 0 2px 2px;
+    --menu-icon-color: #f2d492;
+    --menu-icon-glow: rgba(233, 201, 130, 0.28);
   }
 
   .icon-button.bottom-bar .icon-frame {
-    width: 30px;
-    height: 30px;
+    width: 28px;
+    height: 28px;
     clip-path: none;
     border: 0;
+    border-radius: 0;
     background: transparent;
     box-shadow: none;
   }
 
   .icon-button.bottom-bar svg {
-    width: 19px;
-    height: 19px;
-    stroke: rgba(233, 209, 154, 0.95);
-    filter: drop-shadow(0 0 7px rgba(201, 168, 106, 0.18));
+    width: 18px;
+    height: 18px;
+    stroke: var(--menu-icon-color);
+    filter: drop-shadow(0 0 8px var(--menu-icon-glow));
   }
 
   .icon-button.bottom-bar .caption {
-    gap: 2px;
+    display: grid;
+    gap: 1px;
+    justify-items: center;
+    line-height: 1;
   }
 
-  .icon-button.bottom-bar .label,
-  .icon-button.bottom-bar .hotkey {
-    font-size: 0.48rem;
+  .icon-button.bottom-bar .label {
+    font-size: 0.5rem;
+    font-weight: 700;
     letter-spacing: 0.04em;
-    color: rgba(244, 232, 204, 0.96);
+    color: #fff4d3;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+  }
+
+  .icon-button.bottom-bar .hotkey {
+    font-size: 0.44rem;
+    letter-spacing: 0.06em;
+    color: rgba(255, 239, 199, 0.86);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  }
+
+  .icon-button.bottom-bar:hover {
+    transform: translateY(-1px);
+    filter: drop-shadow(0 0 12px rgba(201, 168, 106, 0.2));
+  }
+
+  .icon-button.bottom-bar.active {
+    filter: drop-shadow(0 0 14px rgba(201, 168, 106, 0.24));
   }
 
   .icon-button.bottom-bar.active .icon-frame {
     border: 0;
-    box-shadow: none;
+    background: transparent;
   }
 
   .icon-button.bottom-bar.active svg {
-    stroke: #ffe3ad;
-    filter: drop-shadow(0 0 10px rgba(201, 168, 106, 0.34));
+    stroke: #fff1c0;
+    filter: drop-shadow(0 0 10px var(--menu-icon-glow));
+  }
+
+  .icon-button.bottom-bar.icon-character {
+    --menu-icon-color: #ffd27d;
+    --menu-icon-glow: rgba(255, 202, 122, 0.34);
+  }
+
+  .icon-button.bottom-bar.icon-inventory {
+    --menu-icon-color: #9ac7ff;
+    --menu-icon-glow: rgba(116, 182, 255, 0.34);
+  }
+
+  .icon-button.bottom-bar.icon-skills {
+    --menu-icon-color: #86ffd8;
+    --menu-icon-glow: rgba(112, 255, 214, 0.32);
+  }
+
+  .icon-button.bottom-bar.icon-map {
+    --menu-icon-color: #9dff95;
+    --menu-icon-glow: rgba(133, 255, 132, 0.32);
+  }
+
+  .icon-button.bottom-bar.icon-quests {
+    --menu-icon-color: #ffb873;
+    --menu-icon-glow: rgba(255, 185, 112, 0.34);
+  }
+
+  .icon-button.bottom-bar.icon-party {
+    --menu-icon-color: #ffd7fa;
+    --menu-icon-glow: rgba(255, 188, 247, 0.32);
+  }
+
+  .icon-button.bottom-bar.icon-friends {
+    --menu-icon-color: #9fe7ff;
+    --menu-icon-glow: rgba(121, 223, 255, 0.34);
+  }
+
+  .icon-button.bottom-bar.icon-guild {
+    --menu-icon-color: #ffe26c;
+    --menu-icon-glow: rgba(255, 228, 108, 0.34);
+  }
+
+  .icon-button.bottom-bar.icon-pets {
+    --menu-icon-color: #a7bcff;
+    --menu-icon-glow: rgba(162, 186, 255, 0.34);
   }
 
   .icon-button.bottom-float {
@@ -240,19 +308,22 @@
 
   @media (max-width: 1280px) {
     .icon-button.bottom-bar {
-      min-width: 56px;
-      min-height: 48px;
-      gap: 5px;
+      min-width: 58px;
+      min-height: 50px;
+      padding: 0 1px 1px;
     }
 
     .icon-button.bottom-bar svg {
-      width: 18px;
-      height: 18px;
+      width: 17px;
+      height: 17px;
     }
 
-    .icon-button.bottom-bar .label,
+    .icon-button.bottom-bar .label {
+      font-size: 0.5rem;
+    }
+
     .icon-button.bottom-bar .hotkey {
-      font-size: 0.45rem;
+      font-size: 0.42rem;
     }
   }
 </style>

@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { bootDiagnostics } from '../debug/BootDiagnostics';
 import type { GameStore } from '../state/GameStore';
 import type { GameSocket } from '../net/GameSocket';
+import { displayItemName } from '../../svelte-hud/lib/itemTooltip';
 import { loadMapDocument, type LoadedMapDocument } from '../maps/MapDocument';
 import {
   classifyMapTile,
@@ -65,6 +66,7 @@ type MobMarker = {
   outline: Phaser.GameObjects.Ellipse;
   figure: Phaser.GameObjects.Container;
   glow: Phaser.GameObjects.Ellipse;
+  baseScale: number;
 };
 
 type PetMarker = {
@@ -87,6 +89,7 @@ type NpcMarker = {
   figure: Phaser.GameObjects.Container;
   outline: Phaser.GameObjects.Ellipse;
   glow: Phaser.GameObjects.Ellipse;
+  baseScale: number;
 };
 
 type GroundItemMarker = {
@@ -989,7 +992,7 @@ export class WorldScene extends Phaser.Scene {
         selected ? 0xffd36a : hovered ? 0xfff0b3 : 0xf4f8ff,
         selected ? 0.95 : hovered ? 0.72 : 0.18
       );
-      marker.figure.setScale(selected ? 1.08 : hovered ? 1.04 : 1);
+      marker.figure.setScale(marker.baseScale * (selected ? 1.08 : hovered ? 1.04 : 1));
       marker.hpBg.setFillStyle(active ? 0x253041 : 0x1a2230, active ? 0.98 : 0.92);
       marker.badge.setAlpha(active ? 1 : 0.88);
     });
@@ -1001,7 +1004,7 @@ export class WorldScene extends Phaser.Scene {
       marker.glow.setScale(hovered ? 1.06 : 1);
       marker.outline.setStrokeStyle(hovered ? 3 : 2, hovered ? 0xffefb3 : 0xd4f1df, hovered ? 0.92 : 0.4);
       marker.badge.setAlpha(hovered ? 1 : 0.9);
-      marker.figure.setScale(hovered ? 1.04 : 1);
+      marker.figure.setScale(marker.baseScale * (hovered ? 1.04 : 1));
       marker.body.setScale(1);
     });
 
@@ -1231,40 +1234,47 @@ export class WorldScene extends Phaser.Scene {
       if (!this.isWithinStreamRange(localPlayer, mob, WORLD_OBJECT_STREAM_RANGE)) return;
       visibleMobIds.add(mobId);
       let marker = this.mobMarkers.get(mobId);
+      const baseScale = this.getMobBaseScale(mob);
+      const hpWidth = Math.round(44 + (baseScale * 12));
+      const hpY = Math.round(-18 - (baseScale * 14));
+      const badgeY = hpY - 12;
+      const groundOffset = Math.round(13 * Math.max(0, baseScale - 1));
       if (!marker) {
-        const glow = this.add.ellipse(0, 4, 54, 26, 0xffd36a, 0.18);
+        const glow = this.add.ellipse(0, 4, 54 * baseScale, 26 * baseScale, 0xffd36a, 0.18);
         glow.setVisible(false);
-        const outline = this.add.ellipse(0, 4, 38, 16, 0x08111b, 0);
+        const outline = this.add.ellipse(0, 4, 38 * baseScale, 16 * baseScale, 0x08111b, 0);
         outline.setStrokeStyle(2, 0xf4f8ff, 0.18);
         const figure = this.createMobFigure(mob);
-        const hpBg = this.add.rectangle(0, -30, 48, 6, 0x1a2230, 0.92);
-        const hpBar = this.add.rectangle(-24, -30, 48, 6, 0x4bd06d, 1).setOrigin(0, 0.5);
-        const badge = this.add.text(0, -42, String(mob.kind || 'Mob'), {
+        figure.setScale(baseScale);
+        const hpBg = this.add.rectangle(0, hpY, hpWidth, 6, 0x1a2230, 0.92);
+        const hpBar = this.add.rectangle(-hpWidth / 2, hpY, hpWidth, 6, 0x4bd06d, 1).setOrigin(0, 0.5);
+        const badge = this.add.text(0, badgeY, String(mob.kind || 'Mob'), {
           fontFamily: 'Segoe UI',
-          fontSize: '13px',
+          fontSize: `${Math.round(12 + Math.max(0, (baseScale - 1) * 2))}px`,
           color: '#edf5ff',
           backgroundColor: 'rgba(8,17,27,0.68)',
           padding: { x: 6, y: 2 }
         }).setOrigin(0.5);
         const body = this.add.container(0, 0, [glow, outline, figure, hpBg, hpBar, badge]);
-        body.setSize(56, 56);
-        const hitArea = this.add.zone(0, 0, 40, 40);
-        hitArea.setInteractive(new Phaser.Geom.Circle(0, 0, 20), Phaser.Geom.Circle.Contains);
+        body.setSize(56 * baseScale, 56 * baseScale);
+        const hitRadius = Math.max(22, Math.round(20 * baseScale));
+        const hitArea = this.add.zone(0, 0, hitRadius * 2, hitRadius * 2);
+        hitArea.setInteractive(new Phaser.Geom.Circle(0, 0, hitRadius), Phaser.Geom.Circle.Contains);
         hitArea.setData('interactionKind', 'mob');
         hitArea.setData('interactionId', mobId);
         this.entityLayer.add(body);
         this.entityLayer.add(hitArea);
-        marker = { body, hitArea, badge, hpBar, hpBg, outline, figure, glow };
+        marker = { body, hitArea, badge, hpBar, hpBg, outline, figure, glow, baseScale };
         this.mobMarkers.set(mobId, marker);
       }
 
       marker.badge.setText(`${this.getMobLabel(mob.kind)}${mob.level ? ` Lv.${Number(mob.level)}` : ''}`);
-      marker.hpBar.width = 48 * Math.max(0, Math.min(1, Number(mob.hp || 0) / Math.max(1, Number(mob.maxHp || 1))));
+      marker.hpBar.width = hpWidth * Math.max(0, Math.min(1, Number(mob.hp || 0) / Math.max(1, Number(mob.maxHp || 1))));
       const projected = this.worldToScreen(Number(mob.x || 0), Number(mob.y || 0));
-      marker.body.setPosition(projected.x, projected.y);
-      marker.body.setDepth(projected.y);
-      marker.hitArea.setPosition(projected.x, projected.y);
-      marker.hitArea.setDepth(projected.y + 0.5);
+      marker.body.setPosition(projected.x, projected.y - groundOffset);
+      marker.body.setDepth(projected.y - groundOffset);
+      marker.hitArea.setPosition(projected.x, projected.y - groundOffset);
+      marker.hitArea.setDepth(projected.y - groundOffset + 0.5);
     });
 
     Array.from(this.mobMarkers.keys()).forEach((id) => {
@@ -1286,37 +1296,43 @@ export class WorldScene extends Phaser.Scene {
       if (!this.isWithinStreamRange(localPlayer, npc, WORLD_OBJECT_STREAM_RANGE)) return;
       visibleNpcIds.add(npcId);
       let marker = this.npcMarkers.get(npcId);
+      const baseScale = this.getNpcBaseScale(npc);
+      const badgeY = Math.round(-34 - (baseScale - 1) * 24);
+      const groundOffset = Math.round(8 + ((baseScale - 1) * 12));
       if (!marker) {
-        const glow = this.add.ellipse(0, 8, 46, 28, 0xffefb3, 0.18);
+        const glow = this.add.ellipse(0, 8, 46 * baseScale, 28 * baseScale, 0xffefb3, 0.18);
         glow.setVisible(false);
-        const outline = this.add.ellipse(0, 8, 34, 18, 0x08111b, 0);
+        const outline = this.add.ellipse(0, 8, 34 * baseScale, 18 * baseScale, 0x08111b, 0);
         outline.setStrokeStyle(2, 0xd4f1df, 0.4);
         const figure = this.createNpcFigure(npc);
-        const badge = this.add.text(0, -34, String(npc.name || 'NPC'), {
+        figure.setScale(baseScale);
+        const badge = this.add.text(0, badgeY, String(npc.name || 'NPC'), {
           fontFamily: 'Segoe UI',
-          fontSize: '13px',
+          fontSize: `${Math.round(13 + Math.max(0, (baseScale - 1) * 2))}px`,
           color: '#edf5ff',
           backgroundColor: 'rgba(8,17,27,0.68)',
           padding: { x: 6, y: 2 }
         }).setOrigin(0.5);
         const body = this.add.container(0, 0, [glow, outline, figure, badge]);
-        body.setSize(40, 52);
-        const hitArea = this.add.zone(0, 0, 34, 46);
-        hitArea.setInteractive(new Phaser.Geom.Rectangle(-17, -23, 34, 46), Phaser.Geom.Rectangle.Contains);
+        const hitWidth = Math.max(44, Math.round(34 * baseScale));
+        const hitHeight = Math.max(62, Math.round(46 * baseScale));
+        body.setSize(hitWidth, hitHeight);
+        const hitArea = this.add.zone(0, 0, hitWidth, hitHeight);
+        hitArea.setInteractive(new Phaser.Geom.Rectangle(-hitWidth / 2, -hitHeight / 2, hitWidth, hitHeight), Phaser.Geom.Rectangle.Contains);
         hitArea.setData('interactionKind', 'npc');
         hitArea.setData('interactionId', npcId);
         this.entityLayer.add(body);
         this.entityLayer.add(hitArea);
-        marker = { body, hitArea, badge, figure, outline, glow };
+        marker = { body, hitArea, badge, figure, outline, glow, baseScale };
         this.npcMarkers.set(npcId, marker);
       }
 
       marker.badge.setText(String(npc.name || 'NPC'));
       const projected = this.worldToScreen(Number(npc.x || 0), Number(npc.y || 0));
-      marker.body.setPosition(projected.x, projected.y - 8);
-      marker.body.setDepth(projected.y - 8);
-      marker.hitArea.setPosition(projected.x, projected.y - 8);
-      marker.hitArea.setDepth(projected.y - 7.5);
+      marker.body.setPosition(projected.x, projected.y - groundOffset);
+      marker.body.setDepth(projected.y - groundOffset);
+      marker.hitArea.setPosition(projected.x, projected.y - groundOffset);
+      marker.hitArea.setDepth(projected.y - groundOffset + 0.5);
     });
 
     Array.from(this.npcMarkers.keys()).forEach((id) => {
@@ -1390,7 +1406,7 @@ export class WorldScene extends Phaser.Scene {
         glow.setVisible(false);
         const diamond = this.add.rectangle(0, 0, 16, 16, 0xd8b56f, 1).setAngle(45);
         diamond.setStrokeStyle(1, 0xa46f2c, 0.7);
-        const badge = this.add.text(0, -20, String(item.name || item.templateId || 'Item'), {
+        const badge = this.add.text(0, -20, displayItemName(item), {
           fontFamily: 'Segoe UI',
           fontSize: '12px',
           color: '#fff5d8',
@@ -1413,7 +1429,7 @@ export class WorldScene extends Phaser.Scene {
       marker.body.setDepth(projected.y);
       marker.hitArea.setPosition(projected.x, projected.y);
       marker.hitArea.setDepth(projected.y + 0.5);
-      marker.badge.setText(String(item.name || item.templateId || 'Item'));
+      marker.badge.setText(displayItemName(item));
     });
 
     Array.from(this.groundItemMarkers.keys()).forEach((id) => {
@@ -1965,15 +1981,24 @@ export class WorldScene extends Phaser.Scene {
     } as PetMarker;
   }
 
+  private getMobBaseScale(mob: any) {
+    const explicitScale = Number(mob?.renderScale ?? mob?.scaleMultiplier ?? 0);
+    if (Number.isFinite(explicitScale) && explicitScale > 0) return explicitScale;
+    const kind = String(mob?.kind || 'normal').toLowerCase();
+    if (kind === 'boss') return 2.15;
+    if (kind === 'subboss') return 1.8;
+    if (kind === 'elite') return 1.5;
+    return 1.18;
+  }
+
+  private getNpcBaseScale(npc: any) {
+    const explicitScale = Number(npc?.renderScale ?? npc?.scaleMultiplier ?? 0);
+    if (Number.isFinite(explicitScale) && explicitScale > 0) return explicitScale;
+    return 1.68;
+  }
+
   private createMobFigure(mob: any) {
     const palette = this.getMobPalette(String(mob?.kind || 'normal'));
-    const scale = String(mob?.kind || '').toLowerCase() === 'boss'
-      ? 1.28
-      : String(mob?.kind || '').toLowerCase() === 'subboss'
-        ? 1.14
-        : String(mob?.kind || '').toLowerCase() === 'elite'
-          ? 1.06
-          : 1;
     const shadow = this.add.ellipse(0, 9, 26, 10, 0x05080d, 0.32);
     const body = this.add.ellipse(0, -1, 26, 20, palette.primary, 1);
     const belly = this.add.ellipse(0, 3, 16, 10, palette.secondary, 0.95);
@@ -1998,7 +2023,6 @@ export class WorldScene extends Phaser.Scene {
       pupilLeft,
       pupilRight
     ]);
-    figure.setScale(scale);
     return figure;
   }
 

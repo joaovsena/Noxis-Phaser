@@ -1739,6 +1739,8 @@ export class GameController {
     }
 
     handleStatsAllocate(player: PlayerRuntime, msg: any) {
+        this.recomputePlayerStats(player);
+
         const allocation = msg && typeof msg.allocation === 'object' ? msg.allocation : {};
         const sanitized: Record<PrimaryStat, number> = {
             str: 0,

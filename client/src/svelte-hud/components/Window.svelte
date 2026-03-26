@@ -11,13 +11,14 @@
   export let scrollable = true;
   export let defaultCollapsed = false;
   export let maxBodyHeight = 'min(72vh, 760px)';
+  export let theme: 'default' | 'classic' = 'default';
 
   const dispatch = createEventDispatcher<{ close: void }>();
   let collapsed = defaultCollapsed;
 </script>
 
 {#if visible}
-  <section class="window-shell" style={`--window-width:${width}; --window-max-width:${maxWidth};`}>
+  <section class={`window-shell theme-${theme}`} style={`--window-width:${width}; --window-max-width:${maxWidth};`}>
     <header class="window-header" data-window-drag-handle="true">
       <div class="title-block">
         <div class="subtitle-chip">{subtitle || 'Noxis UI'}</div>
@@ -221,5 +222,86 @@
     .window-footer {
       padding: 0 14px 14px;
     }
+  }
+
+  .window-shell.theme-classic {
+    border: 1px solid rgba(218, 192, 124, 0.58);
+    border-radius: 16px;
+    background:
+      radial-gradient(circle at top left, rgba(255, 242, 205, 0.08), transparent 28%),
+      linear-gradient(180deg, rgba(66, 59, 37, 0.98), rgba(44, 40, 26, 0.98));
+    box-shadow:
+      inset 0 1px 0 rgba(255, 240, 200, 0.14),
+      inset 0 0 0 1px rgba(87, 69, 33, 0.82),
+      0 22px 48px rgba(0, 0, 0, 0.34);
+    backdrop-filter: none;
+  }
+
+  .window-shell.theme-classic::before {
+    inset: 6px;
+    border: 1px solid rgba(228, 210, 158, 0.28);
+    border-radius: 12px;
+  }
+
+  .window-shell.theme-classic::after {
+    opacity: 0.14;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 18%),
+      radial-gradient(circle at 10% 0%, rgba(232, 205, 129, 0.2), transparent 24%);
+  }
+
+  .window-shell.theme-classic .window-header {
+    justify-content: center;
+    padding: 10px 18px 8px;
+    border-bottom: 1px solid rgba(222, 196, 126, 0.16);
+  }
+
+  .window-shell.theme-classic .title-block {
+    justify-items: center;
+    width: 100%;
+    text-align: center;
+  }
+
+  .window-shell.theme-classic .subtitle-chip {
+    display: none;
+  }
+
+  .window-shell.theme-classic h2 {
+    font-size: 1rem;
+    text-transform: none;
+    letter-spacing: 0.02em;
+    color: #fff6d6;
+  }
+
+  .window-shell.theme-classic .header-actions {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+  }
+
+  .window-shell.theme-classic .chrome-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 999px;
+    border-color: rgba(228, 204, 138, 0.42);
+    background: linear-gradient(180deg, rgba(87, 69, 31, 0.96), rgba(31, 25, 17, 0.98));
+    color: #f4e2bc;
+  }
+
+  .window-shell.theme-classic .close-btn {
+    color: #f8e8c8;
+  }
+
+  .window-shell.theme-classic .window-body {
+    padding: 12px 14px 14px;
+  }
+
+  .window-shell.theme-classic .window-body.scrollable {
+    max-height: min(var(--window-body-max), calc(100vh - 136px));
+    padding-right: 8px;
+  }
+
+  .window-shell.theme-classic .window-footer {
+    padding: 0 14px 14px;
   }
 </style>

@@ -1373,6 +1373,7 @@ class GameController {
         this.setAfkState(player, !Boolean(player.afkActive));
     }
     handleStatsAllocate(player, msg) {
+        this.recomputePlayerStats(player);
         const allocation = msg && typeof msg.allocation === 'object' ? msg.allocation : {};
         const sanitized = {
             str: 0,

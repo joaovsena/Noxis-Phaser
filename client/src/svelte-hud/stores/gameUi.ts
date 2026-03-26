@@ -3,6 +3,7 @@ import { bootDiagnostics } from '../../game/debug/BootDiagnostics';
 import type { GameStore } from '../../game/state/GameStore';
 import type { GameSocket } from '../../game/net/GameSocket';
 import { getSkillIconUrl } from '../lib/proceduralSkillIcons';
+import { displayItemName } from '../lib/itemTooltip';
 
 type InventoryUiState = {
   inventory: any[];
@@ -506,14 +507,18 @@ export const playerStats = derived(attributesStore, ($attributesStore) => {
   const stats = player?.stats && typeof player.stats === 'object'
     ? player.stats
     : {};
+  const level = Math.max(1, Number(player.level || 1));
+  const allocatedCost = Number(base.str || 0) + Number(base.int || 0) + Number(base.dex || 0) + Number(base.vit || 0);
+  const reportedUnspent = Number(player.unspentPoints || 0);
+  const derivedUnspent = Math.max(0, ((level - 1) * 5) - allocatedCost);
   return {
-    level: Number(player.level || 1),
+    level,
     xp: Number(player.xp || 0),
     xpToNext: Number(player.xpToNext || 0),
     hp: Number(player.hp || 0),
     maxHp: Number(player.maxHp || 0),
     className: String(player.class || 'knight'),
-    unspentPoints: Number(player.unspentPoints || 0),
+    unspentPoints: Math.max(reportedUnspent, derivedUnspent),
     base,
     combat: {
       physicalAttack: Number(stats.physicalAttack || 0),
@@ -636,7 +641,7 @@ export const hotbarSlots = derived(
     if (binding?.type === 'item') {
       const item = findItemById($inventoryStore, String(binding.itemId || ''));
       iconUrl = resolveIcon(item || binding);
-      label = String(binding.itemName || item?.name || 'Item');
+      label = displayItemName(item || { name: binding.itemName, templateId: binding.itemType });
     }
     if (binding?.type === 'action' && binding.actionId === 'skill_cast') {
       skillId = String(binding.skillId || '');
@@ -732,7 +737,7 @@ export const combatContextStore = derived(
 export const hudTransformStyle = derived(
   [hudScaleStore, hudBrowserCompensationStore],
   ([$hudScaleStore, $hudBrowserCompensationStore]) =>
-    `transform: scale(${$hudBrowserCompensationStore}); --hud-scale: ${$hudScaleStore};`
+    `transform: scale(calc(var(--hud-responsive-scale, 1) * ${$hudScaleStore} * ${$hudBrowserCompensationStore})); --hud-scale: ${$hudScaleStore};`
 );
 
 function buildSkillTree(): SkillTreeNode[] {

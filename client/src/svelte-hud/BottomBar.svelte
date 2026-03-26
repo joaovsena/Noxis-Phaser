@@ -150,42 +150,44 @@
     </div>
 
     <div class="hotbar-cluster" bind:this={hotbarClusterEl} aria-label="Hotbar principal">
-      <div class="hotbar-row">
-        {#each topRow as slot}
-          <div class="slot-wrapper" role="group" aria-label={`Slot ${slot.key.toUpperCase()}`} on:dragover|preventDefault on:drop={(event) => dropOnHotbar(slot.key, event)}>
-            <Slot
-              variant="bottom-bar"
-              item={slot.binding?.type === 'item' ? { ...slot.binding, iconUrl: slot.iconUrl, name: slot.label } : (slot.iconUrl ? { iconUrl: slot.iconUrl, name: slot.label } : slot.binding ? { name: slot.label } : null)}
-              hotkey={slot.key.toUpperCase()}
-              size={36}
-              pressed={Boolean(hotkeyPulse[slot.key])}
-              unavailable={Boolean(slot.binding && slot.cooldownEndsAt > hotbarNow)}
-              cooldownRemainingMs={Math.max(0, slot.cooldownEndsAt - hotbarNow)}
-              cooldownTotalMs={slot.cooldownMs}
-              on:dragstart={() => slot.binding && beginDrag({ source: 'hotbar', key: slot.key })}
-              on:contextaction={() => slot.binding && clearHotbarBinding(slot.key)}
-            />
-          </div>
-        {/each}
-      </div>
+      <div class="hotbar-shell">
+        <div class="hotbar-row">
+          {#each topRow as slot}
+            <div class="slot-wrapper" role="group" aria-label={`Slot ${slot.key.toUpperCase()}`} on:dragover|preventDefault on:drop={(event) => dropOnHotbar(slot.key, event)}>
+              <Slot
+                variant="bottom-bar"
+                item={slot.binding?.type === 'item' ? { ...slot.binding, iconUrl: slot.iconUrl, name: slot.label } : (slot.iconUrl ? { iconUrl: slot.iconUrl, name: slot.label } : slot.binding ? { name: slot.label } : null)}
+                hotkey={slot.key.toUpperCase()}
+                size={36}
+                pressed={Boolean(hotkeyPulse[slot.key])}
+                unavailable={Boolean(slot.binding && slot.cooldownEndsAt > hotbarNow)}
+                cooldownRemainingMs={Math.max(0, slot.cooldownEndsAt - hotbarNow)}
+                cooldownTotalMs={slot.cooldownMs}
+                on:dragstart={() => slot.binding && beginDrag({ source: 'hotbar', key: slot.key })}
+                on:contextaction={() => slot.binding && clearHotbarBinding(slot.key)}
+              />
+            </div>
+          {/each}
+        </div>
 
-      <div class="hotbar-row">
-        {#each bottomRow as slot}
-          <div class="slot-wrapper" role="group" aria-label={`Slot ${slot.key.toUpperCase()}`} on:dragover|preventDefault on:drop={(event) => dropOnHotbar(slot.key, event)}>
-            <Slot
-              variant="bottom-bar"
-              item={slot.binding?.type === 'item' ? { ...slot.binding, iconUrl: slot.iconUrl, name: slot.label } : (slot.iconUrl ? { iconUrl: slot.iconUrl, name: slot.label } : slot.binding ? { name: slot.label } : null)}
-              hotkey={slot.key.toUpperCase()}
-              size={36}
-              pressed={Boolean(hotkeyPulse[slot.key])}
-              unavailable={Boolean(slot.binding && slot.cooldownEndsAt > hotbarNow)}
-              cooldownRemainingMs={Math.max(0, slot.cooldownEndsAt - hotbarNow)}
-              cooldownTotalMs={slot.cooldownMs}
-              on:dragstart={() => slot.binding && beginDrag({ source: 'hotbar', key: slot.key })}
-              on:contextaction={() => slot.binding && clearHotbarBinding(slot.key)}
-            />
-          </div>
-        {/each}
+        <div class="hotbar-row">
+          {#each bottomRow as slot}
+            <div class="slot-wrapper" role="group" aria-label={`Slot ${slot.key.toUpperCase()}`} on:dragover|preventDefault on:drop={(event) => dropOnHotbar(slot.key, event)}>
+              <Slot
+                variant="bottom-bar"
+                item={slot.binding?.type === 'item' ? { ...slot.binding, iconUrl: slot.iconUrl, name: slot.label } : (slot.iconUrl ? { iconUrl: slot.iconUrl, name: slot.label } : slot.binding ? { name: slot.label } : null)}
+                hotkey={slot.key.toUpperCase()}
+                size={36}
+                pressed={Boolean(hotkeyPulse[slot.key])}
+                unavailable={Boolean(slot.binding && slot.cooldownEndsAt > hotbarNow)}
+                cooldownRemainingMs={Math.max(0, slot.cooldownEndsAt - hotbarNow)}
+                cooldownTotalMs={slot.cooldownMs}
+                on:dragstart={() => slot.binding && beginDrag({ source: 'hotbar', key: slot.key })}
+                on:contextaction={() => slot.binding && clearHotbarBinding(slot.key)}
+              />
+            </div>
+          {/each}
+        </div>
       </div>
     </div>
 
@@ -216,7 +218,7 @@
   .bottom-bar {
     position: relative;
     width: 100%;
-    min-height: 132px;
+    min-height: 154px;
     pointer-events: none;
   }
 
@@ -230,91 +232,110 @@
 
   .action-layer {
     left: 50%;
-    bottom: 24px;
+    bottom: 44px;
     transform: translateX(-50%);
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     align-items: flex-end;
-    gap: 10px;
-    width: max-content;
-    max-width: calc(100% - 12px);
+    gap: 16px;
+    width: 100%;
+    max-width: 100%;
     z-index: 25;
   }
 
   .menu-strip {
     display: flex;
     align-items: flex-end;
-    gap: 5px;
+    gap: 6px;
+    padding: 0;
     pointer-events: auto;
   }
 
   .menu-strip.left {
     justify-content: flex-end;
+    justify-self: end;
   }
 
   .menu-strip.right {
     justify-content: flex-start;
+    justify-self: start;
   }
 
   .xp-layer {
-    left: 0;
-    right: 0;
-    bottom: 0;
+    left: 50%;
+    bottom: -18px;
+    transform: translateX(-50%);
+    width: max(260px, min(560px, calc(100% - 220px)));
     z-index: 20;
     pointer-events: none;
+    display: grid;
+    justify-items: center;
+    gap: 1px;
   }
 
   .xp-line {
     position: relative;
     width: 100%;
-    height: 14px;
+    height: 16px;
     overflow: hidden;
     border-radius: 999px;
-    border: 1px solid rgba(201, 168, 106, 0.24);
+    border: 1px solid rgba(201, 168, 106, 0.34);
     background:
-      linear-gradient(180deg, rgba(31, 24, 18, 0.94), rgba(10, 10, 10, 0.98));
+      radial-gradient(circle at top, rgba(255, 251, 234, 0.08), transparent 44%),
+      linear-gradient(180deg, rgba(49, 36, 18, 0.96), rgba(14, 11, 8, 0.98));
     box-shadow:
-      0 10px 22px rgba(0, 0, 0, 0.22),
-      inset 0 1px 0 rgba(255, 243, 215, 0.05);
+      0 10px 22px rgba(0, 0, 0, 0.2),
+      inset 0 1px 0 rgba(255, 243, 215, 0.08),
+      inset 0 0 0 1px rgba(88, 62, 26, 0.48);
   }
 
   .xp-line-fill {
     width: 100%;
     height: 100%;
     transform-origin: left center;
-    background: linear-gradient(90deg, rgba(141, 101, 26, 0.9), rgba(214, 163, 63, 0.98) 55%, rgba(240, 211, 141, 0.95));
+    background: linear-gradient(90deg, rgba(141, 55, 255, 0.96), rgba(214, 87, 242, 0.98) 55%, rgba(255, 191, 239, 0.94));
   }
 
   .xp-readout,
   .map-readout {
-    bottom: 1px;
+    position: relative;
+    bottom: auto;
     color: rgba(243, 226, 187, 0.9);
     font-family: var(--hud-font-display);
-    font-size: 0.56rem;
+    font-size: 0.58rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
   }
 
   .xp-readout {
-    left: 50%;
-    transform: translateX(-50%);
+    left: auto;
+    transform: none;
   }
 
   .map-readout {
-    right: 8px;
+    right: auto;
+    opacity: 0.84;
   }
 
   .hotbar-cluster {
     display: grid;
-    gap: 4px;
     justify-items: center;
+    justify-self: center;
+    padding: 0;
     pointer-events: auto;
     z-index: 30;
+  }
+
+  .hotbar-shell {
+    display: grid;
+    gap: 5px;
   }
 
   .hotbar-row {
     display: grid;
     grid-template-columns: repeat(8, 36px);
-    gap: 4px;
+    gap: 5px;
   }
 
   .slot-wrapper {
@@ -326,43 +347,47 @@
 
   @media (max-width: 1360px) {
     .bottom-bar {
-      min-height: 128px;
+      min-height: 146px;
     }
 
     .action-layer {
-      bottom: 22px;
-      gap: 8px;
+      bottom: 40px;
+      gap: 10px;
     }
   }
 
   @media (max-width: 1120px) {
     .bottom-bar {
-      min-height: 124px;
+      min-height: 138px;
     }
 
     .action-layer {
-      bottom: 20px;
-      gap: 6px;
+      bottom: 34px;
+      gap: 8px;
     }
 
     .hotbar-row {
       grid-template-columns: repeat(8, 34px);
-      gap: 3px;
+      gap: 4px;
     }
 
     .slot-wrapper {
       width: 34px;
       height: 34px;
     }
+
+    .menu-strip {
+      gap: 4px;
+    }
   }
 
   @media (max-width: 760px) {
     .bottom-bar {
-      min-height: 114px;
+      min-height: 124px;
     }
 
     .action-layer {
-      bottom: 18px;
+      bottom: 28px;
       gap: 4px;
     }
 
@@ -379,6 +404,11 @@
     .xp-readout,
     .map-readout {
       font-size: 0.5rem;
+    }
+
+    .xp-layer {
+      bottom: -14px;
+      width: min(360px, calc(100% - 80px));
     }
   }
 </style>

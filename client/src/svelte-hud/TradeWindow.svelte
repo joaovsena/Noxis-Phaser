@@ -2,6 +2,7 @@
   import { createEventDispatcher } from 'svelte';
   import Window from './components/Window.svelte';
   import Slot from './components/Slot.svelte';
+  import { displayItemName } from './lib/itemTooltip';
   import {
     cancelTrade,
     closeTradePanel,
@@ -143,7 +144,7 @@
                   <div class="offer-item">
                     <Slot item={entry.item} size={42} />
                     <div>
-                      <div class="row-title">{entry.item?.name || 'Item'}</div>
+                      <div class="row-title">{displayItemName(entry.item)}</div>
                       <div class="hud-meta">Qtd {Number(entry.quantity || 1)}</div>
                     </div>
                   </div>
@@ -165,7 +166,7 @@
                   <div class="offer-item">
                     <Slot item={item} size={42} />
                     <div>
-                      <div class="row-title">{item.name || 'Item'}</div>
+                      <div class="row-title">{displayItemName(item)}</div>
                       <div class="hud-meta">Qtd {Math.max(1, Number(item.quantity || 1))}</div>
                     </div>
                   </div>
@@ -200,7 +201,7 @@
                   <div class="offer-item">
                     <Slot item={entry.item} size={42} />
                     <div>
-                      <div class="row-title">{entry.item?.name || 'Item'}</div>
+                      <div class="row-title">{displayItemName(entry.item)}</div>
                       <div class="hud-meta">Qtd {Number(entry.quantity || 1)}</div>
                     </div>
                   </div>
