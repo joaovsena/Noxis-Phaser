@@ -1,8 +1,10 @@
 import Phaser from 'phaser';
+import { get } from 'svelte/store';
 import { bootDiagnostics } from '../debug/BootDiagnostics';
 import type { GameStore } from '../state/GameStore';
 import type { GameSocket } from '../net/GameSocket';
 import { displayItemName } from '../../svelte-hud/lib/itemTooltip';
+import { cancelSkillAim, confirmSkillAim, skillAimStore } from '../../svelte-hud/stores/gameUi';
 import { loadMapDocument, type LoadedMapDocument } from '../maps/MapDocument';
 import {
   classifyMapTile,
@@ -82,6 +84,21 @@ type PetMarker = {
   wingTweens?: Phaser.Tweens.Tween[];
 };
 
+type SummonMarker = {
+  body: Phaser.GameObjects.Container;
+  badge: Phaser.GameObjects.Text;
+  hpBar: Phaser.GameObjects.Rectangle;
+  hpBg: Phaser.GameObjects.Rectangle;
+  figure: Phaser.GameObjects.Container;
+  shadow: Phaser.GameObjects.Ellipse;
+  ownerText: Phaser.GameObjects.Text;
+  moveStyle: string;
+  summonRole: string;
+  baseScale: number;
+  bobTween?: Phaser.Tweens.Tween;
+  wingTweens?: Phaser.Tweens.Tween[];
+};
+
 type NpcMarker = {
   body: Phaser.GameObjects.Container;
   hitArea: Phaser.GameObjects.Zone;
@@ -96,8 +113,12 @@ type GroundItemMarker = {
   body: Phaser.GameObjects.Container;
   hitArea: Phaser.GameObjects.Zone;
   badge: Phaser.GameObjects.Text;
-  diamond: Phaser.GameObjects.Rectangle;
-  glow: Phaser.GameObjects.Rectangle;
+  iconPlate: Phaser.GameObjects.Rectangle;
+  iconFallback: Phaser.GameObjects.Text;
+  iconImage: Phaser.GameObjects.Image | null;
+  glow: Phaser.GameObjects.Ellipse;
+  iconUrl: string | null;
+  iconTextureKey: string | null;
 };
 
 type PortalMarker = {
@@ -168,6 +189,16 @@ const DIRECTION_COLUMN: Record<FacingDirection, number> = {
   se: 7
 };
 
+function hashText(input: string) {
+  let hash = 2166136261;
+  const text = String(input || '');
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
 export class WorldScene extends Phaser.Scene {
   private readonly services: SceneServices;
   private mapDocument: LoadedMapDocument | null = null;
@@ -176,9 +207,11 @@ export class WorldScene extends Phaser.Scene {
   private entityLayer!: Phaser.GameObjects.Container;
   private debugOverlay!: Phaser.GameObjects.Graphics;
   private interactionDebugOverlay!: Phaser.GameObjects.Graphics;
+  private skillAimOverlay!: Phaser.GameObjects.Graphics;
   private localPlayerAnchor!: Phaser.GameObjects.Arc;
   private playerMarkers = new Map<string, PlayerMarker>();
   private petMarkers = new Map<string, PetMarker>();
+  private summonMarkers = new Map<string, SummonMarker>();
   private mobMarkers = new Map<string, MobMarker>();
   private npcMarkers = new Map<string, NpcMarker>();
   private groundItemMarkers = new Map<string, GroundItemMarker>();
@@ -202,6 +235,8 @@ export class WorldScene extends Phaser.Scene {
   private entityDepthDirty = false;
   private lastDepthSortAt = 0;
   private processedLocalChatIds = new Set<string>();
+  private groundItemIconTextureLoading = new Set<string>();
+  private pickupShortcutListener: EventListener | null = null;
   private renderTileSize = 100;
   private renderTileWidth = 48;
   private renderTileHeight = 24;
@@ -233,6 +268,19 @@ export class WorldScene extends Phaser.Scene {
     this.mapContainer = this.add.container(0, 0);
     this.entityLayer = this.add.container(0, 0);
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer, currentlyOver: Phaser.GameObjects.GameObject[]) => {
+      const aim = get(skillAimStore);
+      if (aim.active) {
+        if (pointer.rightButtonDown()) {
+          cancelSkillAim();
+          pointer.event?.stopPropagation?.();
+          return;
+        }
+        const world = this.screenToWorld(pointer.worldX, pointer.worldY);
+        if (confirmSkillAim(world?.x, world?.y)) {
+          pointer.event?.stopPropagation?.();
+          return;
+        }
+      }
       if (pointer.rightButtonDown()) return;
       if (this.handleWorldInteractionClick(pointer.worldX, pointer.worldY)) return;
       if (currentlyOver.length > 0) return;
@@ -240,6 +288,10 @@ export class WorldScene extends Phaser.Scene {
       this.queueMoveFromScreenPoint(pointer.worldX, pointer.worldY);
     });
     this.input.on('gameobjectdown', (pointer: Phaser.Input.Pointer, gameObject: Phaser.GameObjects.GameObject) => {
+      if (get(skillAimStore).active) {
+        pointer.event?.stopPropagation?.();
+        return;
+      }
       const kind = String(gameObject.getData('interactionKind') || '');
       const id = String(gameObject.getData('interactionId') || '');
       if (!kind || !id) return;
@@ -255,14 +307,21 @@ export class WorldScene extends Phaser.Scene {
     this.debugOverlay.setDepth(20000);
     this.interactionDebugOverlay = this.add.graphics();
     this.interactionDebugOverlay.setDepth(19990);
+    this.skillAimOverlay = this.add.graphics();
+    this.skillAimOverlay.setDepth(19980);
     this.localPlayerAnchor = this.add.circle(0, 0, 8, 0x000000, 0);
     this.localPlayerAnchor.setVisible(false);
     this.cameras.main.startFollow(this.localPlayerAnchor, true, 0.09, 0.09);
+    this.input.mouse?.disableContextMenu();
     this.input.on('wheel', (_pointer: Phaser.Input.Pointer, _objects: Phaser.GameObjects.GameObject[], _deltaX: number, deltaY: number) => {
       const direction = deltaY > 0 ? -1 : 1;
       this.userZoomFactor = Phaser.Math.Clamp(this.userZoomFactor + direction * 0.05, 0.75, 1.25);
       this.applyCameraZoom();
     });
+    this.pickupShortcutListener = () => {
+      this.pickupNearestGroundItem();
+    };
+    window.addEventListener('noxis:pickup-nearest-ground-item', this.pickupShortcutListener);
     this.drawEmergencyMapFallback();
     this.publishDebugState('boot');
     await this.ensurePlayerAssets();
@@ -332,6 +391,7 @@ export class WorldScene extends Phaser.Scene {
     this.updateHoverCursor();
     this.updateInteractionVisuals();
     this.updatePlayerSpeechBubbles(time);
+    this.renderSkillAimPreview();
     this.renderPathDebugOverlay();
     this.renderInteractionDebugOverlay();
   }
@@ -345,6 +405,10 @@ export class WorldScene extends Phaser.Scene {
     if (this.syncRafId !== null) {
       cancelAnimationFrame(this.syncRafId);
       this.syncRafId = null;
+    }
+    if (this.pickupShortcutListener) {
+      window.removeEventListener('noxis:pickup-nearest-ground-item', this.pickupShortcutListener);
+      this.pickupShortcutListener = null;
     }
     this.mapRenderTextures.forEach((texture) => texture.destroy());
     this.mapRenderTextures = [];
@@ -746,7 +810,7 @@ export class WorldScene extends Phaser.Scene {
 
     this.groundItemMarkers.forEach((marker) => {
       this.interactionDebugOverlay.lineStyle(2, 0xffd27a, 0.92);
-      this.interactionDebugOverlay.strokeRect(marker.hitArea.x - 13, marker.hitArea.y - 13, 26, 26);
+      this.interactionDebugOverlay.strokeRect(marker.hitArea.x - 21, marker.hitArea.y - 21, 42, 42);
     });
   }
 
@@ -808,6 +872,29 @@ export class WorldScene extends Phaser.Scene {
     this.queueMoveToWorld(Number(item.x || 0), Number(item.y || 0), true);
   }
 
+  public pickupNearestGroundItem() {
+    const state = this.services.store.getState();
+    const localPlayerId = String(state.playerId || '');
+    const localMarker = localPlayerId ? this.playerMarkers.get(localPlayerId) : null;
+    if (!localMarker) return false;
+
+    if (this.hoveredInteraction?.kind === 'groundItem' && this.hoveredInteraction.id) {
+      this.pickupGroundItem(this.hoveredInteraction.id);
+      return true;
+    }
+
+    const items = Array.isArray(state.resolvedWorld?.groundItems) ? state.resolvedWorld.groundItems : [];
+    const candidate = items
+      .map((item: any) => ({
+        item,
+        distance: Math.hypot(Number(item?.x || 0) - localMarker.currentWorldX, Number(item?.y || 0) - localMarker.currentWorldY)
+      }))
+      .sort((left, right) => left.distance - right.distance)[0] || null;
+    if (!candidate?.item?.id) return false;
+    this.pickupGroundItem(String(candidate.item.id));
+    return true;
+  }
+
   private getInteractionAtWorldPoint(worldX: number, worldY: number): HoverInteraction | null {
     for (const [mobId, marker] of this.mobMarkers) {
       if (!marker.body.visible) continue;
@@ -825,7 +912,7 @@ export class WorldScene extends Phaser.Scene {
 
     for (const [itemId, marker] of this.groundItemMarkers) {
       if (!marker.body.visible) continue;
-      if (worldX >= marker.hitArea.x - 13 && worldX <= marker.hitArea.x + 13 && worldY >= marker.hitArea.y - 13 && worldY <= marker.hitArea.y + 13) {
+      if (worldX >= marker.hitArea.x - 21 && worldX <= marker.hitArea.x + 21 && worldY >= marker.hitArea.y - 21 && worldY <= marker.hitArea.y + 21) {
         return { kind: 'groundItem', id: itemId };
       }
     }
@@ -879,6 +966,11 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private updateHoverCursor() {
+    if (get(skillAimStore).active) {
+      this.hoveredInteraction = null;
+      this.applyCursor('sword');
+      return;
+    }
     const pointer = this.input.activePointer;
     const world = this.screenToWorld(pointer.worldX, pointer.worldY);
     if (!world) {
@@ -962,6 +1054,9 @@ export class WorldScene extends Phaser.Scene {
     this.petMarkers.forEach((marker) => {
       marker.body.setVisible(isVisible(marker.body.x, marker.body.y));
     });
+    this.summonMarkers.forEach((marker) => {
+      marker.body.setVisible(isVisible(marker.body.x, marker.body.y));
+    });
     this.mobMarkers.forEach((marker) => {
       const visible = isVisible(marker.body.x, marker.body.y);
       marker.body.setVisible(visible);
@@ -1015,11 +1110,35 @@ export class WorldScene extends Phaser.Scene {
       marker.glow.setVisible(active);
       marker.glow.setAlpha(selected ? 0.26 : hovered ? 0.18 : 0);
       marker.glow.setScale(selected ? 1.14 : hovered ? 1.08 : 1);
-      marker.diamond.setFillStyle(selected ? 0xf3d58a : hovered ? 0xffebaa : 0xd8b56f, selected ? 1 : 0.96);
-      marker.diamond.setStrokeStyle(active ? 2 : 1, selected ? 0xfff7cf : hovered ? 0xffe09b : 0xa46f2c, active ? 0.95 : 0.7);
-      marker.diamond.setScale(selected ? 1.08 : hovered ? 1.04 : 1);
+      marker.iconPlate.setFillStyle(selected ? 0x2c2417 : hovered ? 0x251f16 : 0x17130f, 0.98);
+      marker.iconPlate.setStrokeStyle(active ? 2 : 1, selected ? 0xfff7cf : hovered ? 0xffe09b : 0xa46f2c, active ? 0.95 : 0.74);
+      marker.iconPlate.setScale(selected ? 1.08 : hovered ? 1.04 : 1);
+      if (marker.iconImage) {
+        const iconSize = selected ? 30 : hovered ? 29 : 28;
+        marker.iconImage.setDisplaySize(iconSize, iconSize);
+      }
+      marker.iconFallback.setScale(selected ? 1.02 : hovered ? 0.98 : 0.94);
       marker.badge.setAlpha(active ? 1 : 0.82);
     });
+  }
+
+  private ensureGroundItemIconTexture(iconUrl: string) {
+    const safeIconUrl = String(iconUrl || '').trim();
+    if (!safeIconUrl) return '';
+    const key = `ground-item:${hashText(safeIconUrl).toString(36)}`;
+    if (this.textures.exists(key) || this.groundItemIconTextureLoading.has(key)) return key;
+    const image = new Image();
+    this.groundItemIconTextureLoading.add(key);
+    image.onload = () => {
+      if (!this.textures.exists(key)) this.textures.addImage(key, image);
+      this.groundItemIconTextureLoading.delete(key);
+      this.scheduleSyncFromStore();
+    };
+    image.onerror = () => {
+      this.groundItemIconTextureLoading.delete(key);
+    };
+    image.src = safeIconUrl;
+    return key;
   }
 
   private getMapVisualTheme(map?: LoadedMapDocument): MapVisualTheme {
@@ -1165,6 +1284,7 @@ export class WorldScene extends Phaser.Scene {
 
     const players = world?.players || {};
     const pets = Array.isArray((world as any)?.pets) ? (world as any).pets : [];
+    const summons = Array.isArray((world as any)?.summons) ? (world as any).summons : [];
     const mobs = Array.isArray(world?.mobs) ? world.mobs : [];
     const npcs = Array.isArray(world?.npcs) ? world.npcs : [];
     const groundItems = Array.isArray(world?.groundItems) ? world.groundItems : [];
@@ -1172,6 +1292,7 @@ export class WorldScene extends Phaser.Scene {
     const localPlayer = state.playerId ? players[String(state.playerId)] : null;
     const visibleIds = new Set<string>();
     const visiblePetIds = new Set<string>();
+    const visibleSummonIds = new Set<string>();
     const visibleMobIds = new Set<string>();
     const visibleNpcIds = new Set<string>();
     const visibleGroundItemIds = new Set<string>();
@@ -1225,6 +1346,36 @@ export class WorldScene extends Phaser.Scene {
       marker?.wingTweens?.forEach((tween) => tween.stop());
       marker?.body.destroy(true);
       this.petMarkers.delete(id);
+      this.entityDepthDirty = true;
+    });
+
+    summons.forEach((summon: any) => {
+      const summonId = String(summon.id || '');
+      if (!summonId) return;
+      if (!this.isWithinStreamRange(localPlayer, summon, WORLD_OBJECT_STREAM_RANGE)) return;
+      visibleSummonIds.add(summonId);
+      let marker = this.summonMarkers.get(summonId);
+      if (!marker) {
+        marker = this.createSummonMarker(summon);
+        this.summonMarkers.set(summonId, marker);
+      }
+      const hpRatio = Math.max(0, Math.min(1, Number(summon.hp || 0) / Math.max(1, Number(summon.maxHp || 1))));
+      marker.badge.setText(`${this.getSummonLabel(summon)} Lv.${Number(summon.level || 1)}`);
+      marker.ownerText.setText(String(summon.ownerName || 'Necromante'));
+      marker.hpBar.width = Math.round((44 + marker.baseScale * 12) * hpRatio);
+      const projected = this.worldToScreen(Number(summon.x || 0), Number(summon.y || 0));
+      const yOffset = String(summon.moveStyle || '').toLowerCase() === 'flying' ? -18 : -6;
+      marker.body.setPosition(projected.x, projected.y + yOffset);
+      marker.body.setDepth(projected.y + yOffset);
+    });
+
+    Array.from(this.summonMarkers.keys()).forEach((id) => {
+      if (visibleSummonIds.has(id)) return;
+      const marker = this.summonMarkers.get(id);
+      marker?.bobTween?.stop();
+      marker?.wingTweens?.forEach((tween) => tween.stop());
+      marker?.body.destroy(true);
+      this.summonMarkers.delete(id);
       this.entityDepthDirty = true;
     });
 
@@ -1402,28 +1553,54 @@ export class WorldScene extends Phaser.Scene {
       visibleGroundItemIds.add(itemId);
       let marker = this.groundItemMarkers.get(itemId);
       if (!marker) {
-        const glow = this.add.rectangle(0, 0, 22, 22, 0xffe3a3, 0.18).setAngle(45);
+        const glow = this.add.ellipse(0, 5, 46, 20, 0xffe3a3, 0.18);
         glow.setVisible(false);
-        const diamond = this.add.rectangle(0, 0, 16, 16, 0xd8b56f, 1).setAngle(45);
-        diamond.setStrokeStyle(1, 0xa46f2c, 0.7);
-        const badge = this.add.text(0, -20, displayItemName(item), {
-          fontFamily: 'Segoe UI',
+        const iconPlate = this.add.rectangle(0, 0, 34, 34, 0x17130f, 0.98);
+        iconPlate.setStrokeStyle(1, 0xa46f2c, 0.74);
+        const iconFallback = this.add.text(0, 0, String(displayItemName(item) || 'IT').slice(0, 2).toUpperCase(), {
+          fontFamily: 'Cinzel, Segoe UI',
           fontSize: '12px',
+          color: '#f6e5bc'
+        }).setOrigin(0.5);
+        const badge = this.add.text(0, -30, displayItemName(item), {
+          fontFamily: 'Segoe UI',
+          fontSize: '11px',
           color: '#fff5d8',
           backgroundColor: 'rgba(8,17,27,0.62)',
           padding: { x: 4, y: 2 }
         }).setOrigin(0.5);
-        const body = this.add.container(0, 0, [glow, diamond, badge]);
-        body.setSize(24, 24);
-        const hitArea = this.add.zone(0, 0, 26, 26);
-        hitArea.setInteractive(new Phaser.Geom.Rectangle(-13, -13, 26, 26), Phaser.Geom.Rectangle.Contains);
+        const body = this.add.container(0, 0, [glow, iconPlate, iconFallback, badge]);
+        body.setSize(42, 42);
+        const hitArea = this.add.zone(0, 0, 42, 42);
+        hitArea.setInteractive(new Phaser.Geom.Rectangle(-21, -21, 42, 42), Phaser.Geom.Rectangle.Contains);
         hitArea.setData('interactionKind', 'groundItem');
         hitArea.setData('interactionId', itemId);
         this.entityLayer.add(body);
         this.entityLayer.add(hitArea);
-        marker = { body, hitArea, badge, diamond, glow };
+        marker = { body, hitArea, badge, iconPlate, iconFallback, iconImage: null, glow, iconUrl: null, iconTextureKey: null };
         this.groundItemMarkers.set(itemId, marker);
       }
+      const iconUrl = String(item.iconUrl || '').trim();
+      const textureKey = iconUrl ? this.ensureGroundItemIconTexture(iconUrl) : '';
+      if (textureKey && this.textures.exists(textureKey)) {
+        if (!marker.iconImage) {
+          marker.iconImage = this.add.image(0, 0, textureKey);
+          marker.iconImage.setDisplaySize(28, 28);
+          marker.body.addAt(marker.iconImage, 2);
+        } else if (marker.iconTextureKey !== textureKey) {
+          marker.iconImage.setTexture(textureKey);
+        }
+        marker.iconImage.setVisible(true);
+        marker.iconImage.setScale(0.94);
+        marker.iconFallback.setVisible(false);
+        marker.iconTextureKey = textureKey;
+      } else {
+        marker.iconImage?.setVisible(false);
+        marker.iconFallback.setVisible(true);
+        marker.iconFallback.setText(String(displayItemName(item) || item.type || 'IT').slice(0, 2).toUpperCase());
+        marker.iconTextureKey = textureKey || null;
+      }
+      marker.iconUrl = iconUrl || null;
       const projected = this.worldToScreen(Number(item.x || 0), Number(item.y || 0));
       marker.body.setPosition(projected.x, projected.y);
       marker.body.setDepth(projected.y);
@@ -1450,9 +1627,10 @@ export class WorldScene extends Phaser.Scene {
     this.renderQueuedCombatBursts(state.combatBursts);
     this.renderQueuedSkillEffects(state.skillEffects);
     bootDiagnostics.recordSceneSync(Math.max(0, Math.round((performance.now() - startedAt) * 100) / 100), {
-      players: Object.keys(players).length,
-      pets: pets.length,
-      mobs: mobs.length,
+        players: Object.keys(players).length,
+        pets: pets.length,
+        summons: summons.length,
+        mobs: mobs.length,
       npcs: npcs.length,
       groundItems: groundItems.length
     });
@@ -1482,6 +1660,7 @@ export class WorldScene extends Phaser.Scene {
       lastMapError: this.lastMapError,
       playerMarkers: this.playerMarkers.size,
       petMarkers: this.petMarkers.size,
+      summonMarkers: this.summonMarkers.size,
       mobMarkers: this.mobMarkers.size,
       npcMarkers: this.npcMarkers.size,
       groundItemMarkers: this.groundItemMarkers.size,
@@ -1945,6 +2124,142 @@ export class WorldScene extends Phaser.Scene {
     return { tileWidth, tileHeight };
   }
 
+  private renderSkillAimPreview() {
+    this.skillAimOverlay.clear();
+    const aim = get(skillAimStore);
+    if (!aim.active || !aim.castMode) return;
+    const state = this.services.store.getState();
+    const player = state.playerId ? state.resolvedWorld?.players?.[String(state.playerId)] || null : null;
+    if (!player) return;
+
+    const origin = {
+      x: Number(player.x || 0),
+      y: Number(player.y || 0)
+    };
+    const pointer = this.input.activePointer;
+    const pointerWorld = this.screenToWorld(pointer.worldX, pointer.worldY) || origin;
+    const targetPoint = aim.castMode === 'self_aoe'
+      ? origin
+      : this.clampWorldPointToRange(origin, pointerWorld, Math.max(0, Number(aim.range || 0)));
+    const palette = this.getEffectPalette(String(aim.skillId || aim.label || 'skill'));
+    const strokeColor = palette.primary;
+    const fillColor = palette.secondary;
+
+    if (aim.castMode === 'ground' || aim.castMode === 'self_aoe') {
+      const radius = Math.max(36, Number(aim.aoeRadius || 96));
+      this.drawProjectedPolygon(this.buildCirclePolygon(targetPoint, radius, 28), fillColor, 0.15, strokeColor);
+      this.drawAimReticle(targetPoint, strokeColor, fillColor);
+      return;
+    }
+
+    if (aim.castMode === 'cone') {
+      const length = Math.max(60, Number(aim.aoeRadius || aim.range || 160));
+      const angleDeg = Math.max(30, Number(aim.coneAngleDeg || 72));
+      this.drawProjectedPolygon(this.buildConePolygon(origin, targetPoint, length, angleDeg, 22), fillColor, 0.14, strokeColor);
+      this.drawAimReticle(targetPoint, strokeColor, fillColor);
+      return;
+    }
+
+    if (aim.castMode === 'line') {
+      const end = this.resolvePreviewLineEnd(origin, targetPoint, Math.max(60, Number(aim.lineLength || aim.range || 180)));
+      const width = Math.max(24, Number(aim.lineWidth || 56));
+      this.drawProjectedPolygon(this.buildLinePolygon(origin, end, width), fillColor, 0.13, strokeColor);
+      this.drawAimReticle(end, strokeColor, fillColor);
+    }
+  }
+
+  private clampWorldPointToRange(origin: { x: number; y: number }, target: { x: number; y: number }, maxRange: number) {
+    if (!Number.isFinite(maxRange) || maxRange <= 0) return { x: Number(target.x || 0), y: Number(target.y || 0) };
+    const dx = Number(target.x || 0) - Number(origin.x || 0);
+    const dy = Number(target.y || 0) - Number(origin.y || 0);
+    const distance = Math.hypot(dx, dy) || 1;
+    if (distance <= maxRange) return { x: Number(target.x || 0), y: Number(target.y || 0) };
+    const scale = maxRange / distance;
+    return {
+      x: origin.x + dx * scale,
+      y: origin.y + dy * scale
+    };
+  }
+
+  private resolvePreviewLineEnd(origin: { x: number; y: number }, target: { x: number; y: number }, length: number) {
+    const dx = Number(target.x || 0) - Number(origin.x || 0);
+    const dy = Number(target.y || 0) - Number(origin.y || 0);
+    const magnitude = Math.hypot(dx, dy) || 1;
+    const scale = Math.min(1, length / magnitude);
+    return {
+      x: origin.x + dx * scale,
+      y: origin.y + dy * scale
+    };
+  }
+
+  private buildCirclePolygon(center: { x: number; y: number }, radius: number, segments = 24) {
+    const points: Array<{ x: number; y: number }> = [];
+    for (let index = 0; index < segments; index += 1) {
+      const angle = (Math.PI * 2 * index) / segments;
+      points.push({
+        x: center.x + Math.cos(angle) * radius,
+        y: center.y + Math.sin(angle) * radius
+      });
+    }
+    return points;
+  }
+
+  private buildConePolygon(origin: { x: number; y: number }, target: { x: number; y: number }, length: number, angleDeg: number, segments = 18) {
+    const points: Array<{ x: number; y: number }> = [{ x: origin.x, y: origin.y }];
+    const dx = Number(target.x || 0) - Number(origin.x || 0);
+    const dy = Number(target.y || 0) - Number(origin.y || 0);
+    const facing = Math.atan2(dy || 0, dx || 1);
+    const halfAngle = (Math.max(10, angleDeg) * Math.PI) / 360;
+    for (let index = 0; index <= segments; index += 1) {
+      const lerp = index / Math.max(1, segments);
+      const angle = facing - halfAngle + (halfAngle * 2 * lerp);
+      points.push({
+        x: origin.x + Math.cos(angle) * length,
+        y: origin.y + Math.sin(angle) * length
+      });
+    }
+    return points;
+  }
+
+  private buildLinePolygon(start: { x: number; y: number }, end: { x: number; y: number }, width: number) {
+    const dx = Number(end.x || 0) - Number(start.x || 0);
+    const dy = Number(end.y || 0) - Number(start.y || 0);
+    const magnitude = Math.hypot(dx, dy) || 1;
+    const nx = -dy / magnitude;
+    const ny = dx / magnitude;
+    const halfWidth = width / 2;
+    return [
+      { x: start.x + nx * halfWidth, y: start.y + ny * halfWidth },
+      { x: end.x + nx * halfWidth, y: end.y + ny * halfWidth },
+      { x: end.x - nx * halfWidth, y: end.y - ny * halfWidth },
+      { x: start.x - nx * halfWidth, y: start.y - ny * halfWidth }
+    ];
+  }
+
+  private drawProjectedPolygon(points: Array<{ x: number; y: number }>, fillColor: number, fillAlpha: number, strokeColor: number) {
+    if (points.length < 2) return;
+    this.skillAimOverlay.fillStyle(fillColor, fillAlpha);
+    this.skillAimOverlay.lineStyle(2, strokeColor, 0.92);
+    const first = this.worldToScreen(points[0].x, points[0].y);
+    this.skillAimOverlay.beginPath();
+    this.skillAimOverlay.moveTo(first.x, first.y);
+    for (let index = 1; index < points.length; index += 1) {
+      const projected = this.worldToScreen(points[index].x, points[index].y);
+      this.skillAimOverlay.lineTo(projected.x, projected.y);
+    }
+    this.skillAimOverlay.closePath();
+    this.skillAimOverlay.fillPath();
+    this.skillAimOverlay.strokePath();
+  }
+
+  private drawAimReticle(point: { x: number; y: number }, strokeColor: number, fillColor: number) {
+    const projected = this.worldToScreen(Number(point.x || 0), Number(point.y || 0));
+    this.skillAimOverlay.lineStyle(2, strokeColor, 0.96);
+    this.skillAimOverlay.strokeCircle(projected.x, projected.y, 8);
+    this.skillAimOverlay.fillStyle(fillColor, 0.26);
+    this.skillAimOverlay.fillCircle(projected.x, projected.y, 4);
+  }
+
   private createPetMarker(pet: any) {
     const shadow = this.add.ellipse(0, 12, 28, 10, 0x05080d, 0.26);
     const figure = this.createPetFigure(pet);
@@ -1981,6 +2296,47 @@ export class WorldScene extends Phaser.Scene {
     } as PetMarker;
   }
 
+  private createSummonMarker(summon: any) {
+    const baseScale = this.getSummonBaseScale(summon);
+    const shadow = this.add.ellipse(0, 12, 30 * baseScale, 10 * baseScale, 0x05080d, 0.24);
+    const figure = this.createSummonFigure(summon);
+    figure.setScale(baseScale);
+    const hpWidth = Math.round(44 + baseScale * 12);
+    const hpBg = this.add.rectangle(0, -28, hpWidth, 5, 0x1a2230, 0.88);
+    const hpBar = this.add.rectangle(-hpWidth / 2, -28, hpWidth, 5, 0x9a86ff, 1).setOrigin(0, 0.5);
+    const badge = this.add.text(0, -40, this.getSummonLabel(summon), {
+      fontFamily: 'Segoe UI',
+      fontSize: `${Math.round(11 + Math.max(0, (baseScale - 1) * 1.5))}px`,
+      color: '#efe9ff',
+      backgroundColor: 'rgba(8,17,27,0.54)',
+      padding: { x: 5, y: 2 }
+    }).setOrigin(0.5);
+    const ownerText = this.add.text(0, -52, String(summon.ownerName || 'Necromante'), {
+      fontFamily: 'Segoe UI',
+      fontSize: '10px',
+      color: '#d9cffd',
+      backgroundColor: 'rgba(8,17,27,0.34)',
+      padding: { x: 4, y: 2 }
+    }).setOrigin(0.5);
+    const body = this.add.container(0, 0, [shadow, figure, hpBg, hpBar, badge, ownerText]);
+    body.setSize(Math.round(58 * baseScale), Math.round(64 * baseScale));
+    this.entityLayer.add(body);
+    return {
+      body,
+      badge,
+      hpBar,
+      hpBg,
+      figure,
+      shadow,
+      ownerText,
+      moveStyle: String(summon.moveStyle || 'ground'),
+      summonRole: String(summon.summonRole || 'offensive'),
+      baseScale,
+      bobTween: figure.getData('bobTween') || undefined,
+      wingTweens: figure.getData('wingTweens') || undefined
+    } as SummonMarker;
+  }
+
   private getMobBaseScale(mob: any) {
     const explicitScale = Number(mob?.renderScale ?? mob?.scaleMultiplier ?? 0);
     if (Number.isFinite(explicitScale) && explicitScale > 0) return explicitScale;
@@ -1995,6 +2351,17 @@ export class WorldScene extends Phaser.Scene {
     const explicitScale = Number(npc?.renderScale ?? npc?.scaleMultiplier ?? 0);
     if (Number.isFinite(explicitScale) && explicitScale > 0) return explicitScale;
     return 1.68;
+  }
+
+  private getSummonBaseScale(summon: any) {
+    const explicitScale = Number(summon?.renderScale ?? summon?.scaleMultiplier ?? 0);
+    if (Number.isFinite(explicitScale) && explicitScale > 0) return explicitScale;
+    const sourceKind = String(summon?.sourceMobKind || '').toLowerCase();
+    if (sourceKind === 'boss') return 1.42;
+    if (sourceKind === 'subboss') return 1.28;
+    if (sourceKind === 'elite') return 1.18;
+    if (String(summon?.moveStyle || '').toLowerCase() === 'flying') return 1.12;
+    return 1.06;
   }
 
   private createMobFigure(mob: any) {
@@ -2075,6 +2442,17 @@ export class WorldScene extends Phaser.Scene {
     if (templateId.includes('golem')) return this.createLavaGolemPetFigure();
     if (templateId.includes('skeleton')) return this.createSkeletonArcherPetFigure();
     return this.createDogPetFigure(pet);
+  }
+
+  private createSummonFigure(summon: any) {
+    const family = String(summon?.family || '').toLowerCase();
+    const templateId = String(summon?.templateId || '').toLowerCase();
+    const moveStyle = String(summon?.moveStyle || '').toLowerCase();
+    if (family.includes('lava') || templateId.includes('lava')) return this.createNecroLavaSummonFigure();
+    if (family.includes('undead') || templateId.includes('bone') || templateId.includes('skeleton')) return this.createNecroSkeletonSummonFigure();
+    if (family.includes('forest') || templateId.includes('forest')) return this.createNecroForestSummonFigure();
+    if (moveStyle === 'flying' || family.includes('shadow')) return this.createNecroShadeSummonFigure();
+    return this.createNecroShadeSummonFigure();
   }
 
   private createDogPetFigure(pet: any) {
@@ -2163,12 +2541,81 @@ export class WorldScene extends Phaser.Scene {
     return this.add.container(0, 0, [bow, string, torso, head, eyeLeft, eyeRight, armLeft, armRight, legLeft, legRight]);
   }
 
+  private createNecroForestSummonFigure() {
+    const body = this.add.ellipse(0, 0, 24, 18, 0x45684d, 1);
+    const rib = this.add.ellipse(0, 2, 14, 8, 0xbad9bf, 0.92);
+    const head = this.add.circle(10, -6, 7, 0xc8d4b8, 1);
+    const eye = this.add.circle(12, -7, 1.6, 0x7efca5, 1);
+    const hornA = this.add.triangle(8, -15, 0, 6, -5, -3, 4, -3, 0x6da57f, 1).setAngle(-14);
+    const hornB = this.add.triangle(15, -15, 0, 6, -4, -3, 5, -3, 0x6da57f, 1).setAngle(18);
+    const legA = this.add.rectangle(-7, 11, 3, 10, 0x7fa88a, 1);
+    const legB = this.add.rectangle(2, 11, 3, 10, 0x7fa88a, 1);
+    const tail = this.add.rectangle(-16, -4, 10, 3, 0x7efca5, 0.8).setAngle(-26);
+    return this.add.container(0, 0, [tail, body, rib, head, hornA, hornB, eye, legA, legB]);
+  }
+
+  private createNecroLavaSummonFigure() {
+    const shell = this.add.ellipse(0, -1, 24, 20, 0x5c2620, 1);
+    const core = this.add.ellipse(0, 0, 16, 12, 0xe97349, 0.98);
+    const eyeLeft = this.add.circle(-4, -4, 1.6, 0xffe6bb, 1);
+    const eyeRight = this.add.circle(4, -4, 1.6, 0xffe6bb, 1);
+    const armLeft = this.add.rectangle(-15, 0, 6, 18, 0x432019, 1).setAngle(-16);
+    const armRight = this.add.rectangle(15, 0, 6, 18, 0x432019, 1).setAngle(16);
+    const legLeft = this.add.rectangle(-6, 14, 7, 11, 0x351510, 1);
+    const legRight = this.add.rectangle(6, 14, 7, 11, 0x351510, 1);
+    const rune = this.add.rectangle(0, -11, 10, 3, 0xffb56a, 0.92).setAngle(-8);
+    return this.add.container(0, 0, [armLeft, armRight, legLeft, legRight, shell, core, rune, eyeLeft, eyeRight]);
+  }
+
+  private createNecroSkeletonSummonFigure() {
+    const torso = this.add.rectangle(0, -3, 12, 18, 0xded7c3, 1);
+    const head = this.add.circle(0, -16, 7, 0xece4d0, 1);
+    const eyeLeft = this.add.circle(-2.4, -17, 1.2, 0x8c7cff, 1);
+    const eyeRight = this.add.circle(2.4, -17, 1.2, 0x8c7cff, 1);
+    const armLeft = this.add.rectangle(-8, -5, 3, 16, 0xded7c3, 1).setAngle(16);
+    const armRight = this.add.rectangle(8, -5, 3, 16, 0xded7c3, 1).setAngle(-20);
+    const legLeft = this.add.rectangle(-4, 12, 3, 14, 0xded7c3, 1).setAngle(6);
+    const legRight = this.add.rectangle(4, 12, 3, 14, 0xded7c3, 1).setAngle(-6);
+    const bow = this.add.arc(13, -1, 8, 270, 90, false, 0x7a5a44, 1).setStrokeStyle(2, 0x7a5a44, 1);
+    const string = this.add.line(13, -1, -3, -7, -3, 7, 0xebdcff, 0.84);
+    return this.add.container(0, 0, [bow, string, torso, head, eyeLeft, eyeRight, armLeft, armRight, legLeft, legRight]);
+  }
+
+  private createNecroShadeSummonFigure() {
+    const haze = this.add.ellipse(0, 0, 26, 18, 0x6f53dd, 0.38);
+    const core = this.add.circle(0, -3, 9, 0xb296ff, 0.94);
+    const skull = this.add.circle(0, -6, 6, 0xe5deff, 0.96);
+    const eyeLeft = this.add.circle(-2, -7, 1.1, 0x4d35b3, 1);
+    const eyeRight = this.add.circle(2, -7, 1.1, 0x4d35b3, 1);
+    const tailA = this.add.triangle(-4, 13, 0, 0, -5, -12, 5, -12, 0x8f73ff, 0.78);
+    const tailB = this.add.triangle(4, 15, 0, 0, -4, -10, 4, -10, 0xb295ff, 0.58);
+    const figure = this.add.container(0, 0, [haze, tailA, tailB, core, skull, eyeLeft, eyeRight]);
+    const bobTween = this.tweens.add({
+      targets: figure,
+      y: { from: 0, to: -5 },
+      duration: 860,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.InOut'
+    });
+    figure.setData('bobTween', bobTween);
+    return figure;
+  }
+
   private getNpcPalette(role: string) {
     const normalized = String(role || '').toLowerCase();
     if (normalized === 'quest_giver') return { primary: 0x71604a, secondary: 0x9f8758, cloak: 0x5d4d33, accent: 0xf3cd79, skin: 0xf2d4bc };
     if (normalized === 'shopkeeper') return { primary: 0x436754, secondary: 0x5f9076, cloak: 0x32483b, accent: 0xd2c18a, skin: 0xf0d1b4 };
     if (normalized === 'chest_keeper') return { primary: 0x4f5b78, secondary: 0x6d7da1, cloak: 0x39435b, accent: 0xa7d7ff, skin: 0xe8c5a4 };
     return { primary: 0x66585b, secondary: 0x847278, cloak: 0x4d4043, accent: 0xd0b483, skin: 0xeecfb3 };
+  }
+
+  private getSummonLabel(summon: any) {
+    const family = String(summon?.family || '').toLowerCase();
+    if (family.includes('lava')) return 'Golem morto';
+    if (family.includes('undead')) return 'Arqueiro osseo';
+    if (family.includes('forest')) return 'Fera ossea';
+    return 'Sombra';
   }
 
   private getPortalLabel(portal: any) {
@@ -2183,6 +2630,7 @@ export class WorldScene extends Phaser.Scene {
     if (normalized === 'archer') return 0xffcf7b;
     if (normalized === 'druid' || normalized === 'shifter') return 0x8ee07c;
     if (normalized === 'assassin' || normalized === 'bandit') return 0xcfc4ff;
+    if (normalized === 'necromancer' || normalized === 'necromante') return 0xb79cff;
     return 0x9fcbff;
   }
 
@@ -2302,9 +2750,14 @@ export class WorldScene extends Phaser.Scene {
       const worldX = Number(effect.x ?? 0);
       const worldY = Number(effect.y ?? 0);
       const projected = this.worldToScreen(worldX, worldY);
-      const palette = this.getEffectPalette(String(effect.effectKey || ''));
+      const effectKey = String(effect.effectKey || '');
+      const palette = this.getEffectPalette(effectKey);
       const color = palette.primary;
       const anchorY = projected.y - 10;
+      if (String(effectKey || '').toLowerCase().includes('bone_ward')) {
+        this.renderBoneWardEffect(projected.x, anchorY, palette, effectKey);
+        continue;
+      }
       const core = this.add.circle(projected.x, anchorY, 10, palette.secondary, 0.2);
       core.setDepth(9998);
       const ring = this.add.circle(projected.x, anchorY, 18, color, 0.12);
@@ -2376,6 +2829,80 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
+  private renderBoneWardEffect(x: number, y: number, palette: { primary: number; secondary: number; label: string }, effectKey: string) {
+    const halo = this.add.circle(x, y, 14, palette.secondary, 0.08);
+    halo.setStrokeStyle(2, palette.primary, 0.85);
+    halo.setDepth(9998);
+
+    const outerRing = this.add.ellipse(x, y, 60, 34, palette.primary, 0.06);
+    outerRing.setStrokeStyle(2, palette.secondary, 0.55);
+    outerRing.setDepth(9998);
+
+    const ribs: Phaser.GameObjects.Container[] = [];
+    for (let index = 0; index < 6; index += 1) {
+      const angle = (-Math.PI / 2) + ((Math.PI * 2) / 6) * index;
+      const distance = 24;
+      const bone = this.add.container(x + Math.cos(angle) * distance, y + Math.sin(angle) * distance * 0.66);
+      bone.setRotation(angle + Math.PI / 2);
+      bone.setDepth(10000);
+
+      const shaft = this.add.rectangle(0, 0, 4, 20, 0xe6dccd, 0.96);
+      const capTop = this.add.circle(0, -9, 3, 0xf5ecdd, 1);
+      const capBottom = this.add.circle(0, 9, 3, 0xf5ecdd, 1);
+      const glow = this.add.rectangle(0, 0, 8, 24, palette.primary, 0.14);
+      bone.add([glow, shaft, capTop, capBottom]);
+      ribs.push(bone);
+    }
+
+    const label = this.add.text(x, y - 42, this.getEffectLabel(effectKey), {
+      fontFamily: 'Segoe UI',
+      fontSize: '11px',
+      color: palette.label,
+      backgroundColor: 'rgba(8,17,27,0.6)',
+      padding: { x: 5, y: 2 }
+    }).setOrigin(0.5);
+    label.setDepth(10000);
+
+    this.tweens.add({
+      targets: halo,
+      scale: 2.35,
+      alpha: 0,
+      duration: 420,
+      ease: 'Quad.easeOut',
+      onComplete: () => halo.destroy()
+    });
+    this.tweens.add({
+      targets: outerRing,
+      scaleX: 1.9,
+      scaleY: 1.5,
+      alpha: 0,
+      duration: 560,
+      ease: 'Cubic.easeOut',
+      onComplete: () => outerRing.destroy()
+    });
+    ribs.forEach((bone, index) => {
+      const angle = (-Math.PI / 2) + ((Math.PI * 2) / Math.max(1, ribs.length)) * index;
+      this.tweens.add({
+        targets: bone,
+        x: x + Math.cos(angle) * 36,
+        y: y + Math.sin(angle) * 25,
+        alpha: 0,
+        scaleX: 0.78,
+        scaleY: 1.2,
+        duration: 380,
+        ease: 'Cubic.easeOut',
+        onComplete: () => bone.destroy()
+      });
+    });
+    this.tweens.add({
+      targets: label,
+      y: y - 58,
+      alpha: 0,
+      duration: 520,
+      onComplete: () => label.destroy()
+    });
+  }
+
   private getEffectPalette(effectKey: string) {
     const key = String(effectKey || '').toLowerCase();
     if (key.includes('heal') || key.includes('bloom') || key.includes('sanctuary') || key.includes('spirit')) {
@@ -2386,6 +2913,9 @@ export class WorldScene extends Phaser.Scene {
     }
     if (key.includes('smoke') || key.includes('veil') || key.includes('stealth')) {
       return { primary: 0x8f96b8, secondary: 0xe1e6ff, label: '#eef2ff' };
+    }
+    if (key.includes('nec') || key.includes('bone') || key.includes('grave') || key.includes('soul') || key.includes('blight') || key.includes('shadow')) {
+      return { primary: 0xa288ff, secondary: 0xe8deff, label: '#f2edff' };
     }
     if (key.includes('archer') || key.includes('arrow') || key.includes('wind') || key.includes('shot')) {
       return { primary: 0x67c4ff, secondary: 0xe1f3ff, label: '#eff8ff' };
@@ -2404,6 +2934,10 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private getEffectLabel(effectKey: string) {
+    const key = String(effectKey || '').toLowerCase();
+    if (key.includes('bone_ward')) return 'BARREIRA OSSEA';
+    if (key.includes('raise_dead')) return 'LEVANTAR MORTOS';
+    if (key.includes('command_dead')) return 'COMANDAR MORTOS';
     const safe = String(effectKey || 'skill').replaceAll('_', ' ').trim();
     if (safe.length <= 14) return safe.toUpperCase();
     return `${safe.slice(0, 12).toUpperCase()}..`;

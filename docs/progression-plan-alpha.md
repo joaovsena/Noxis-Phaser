@@ -24,6 +24,7 @@ This plan is based on the content that already exists in the codebase:
 Related design spec:
 
 - see [class-combat-rework-alpha.md](./class-combat-rework-alpha.md) for the proposed attribute and skill overhaul that should support the alpha progression loop and future PvP testing
+- see [necromancer-class-plan-alpha.md](./necromancer-class-plan-alpha.md) for the planned fifth-class expansion after the baseline alpha loop is stable
 
 ## Current Audit Snapshot
 

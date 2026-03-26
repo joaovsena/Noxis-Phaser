@@ -18,7 +18,7 @@ type GrantXpFn = (player: PlayerRuntime, amount: number, context?: {
 }) => void;
 type GrantMobCurrencyFn = (player: PlayerRuntime, mob: any) => void;
 type MapInstanceIdFn = (mapKey: string, mapId: string) => string;
-type DropPosFn = (originX: number, originY: number, dropIndex: number, dropTotal: number, mapKey: string) => {
+type DropPosFn = (originX: number, originY: number, dropIndex: number, dropTotal: number, mapKey: string, mapInstanceId: string) => {
     x: number;
     y: number;
 };

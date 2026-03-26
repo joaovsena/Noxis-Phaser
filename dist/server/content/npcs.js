@@ -70,6 +70,50 @@ exports.QUEST_NPCS = [
         x: 2920,
         y: 3480,
         greeting: 'Os mercados andam movimentados hoje.'
+    }),
+    npc({
+        id: 'npc_vigia_kael',
+        name: 'Vigia Kael',
+        category: 'quest',
+        role: 'quest_giver',
+        mapKey: 'lava',
+        mapId: 'Z1',
+        x: 1500,
+        y: 4160,
+        greeting: 'O calor daqui testa ate os mais disciplinados. Se vai atravessar as brasas, faca isso com ordem.'
+    }),
+    npc({
+        id: 'npc_pesquisadora_iris',
+        name: 'Pesquisadora Iris',
+        category: 'quest',
+        role: 'quest_giver',
+        mapKey: 'lava',
+        mapId: 'Z1',
+        x: 1860,
+        y: 3940,
+        greeting: 'As fendas de magma escondem reagentes valiosos. Traga amostras e eu transformarei isso em vantagem.'
+    }),
+    npc({
+        id: 'npc_exorcista_sera',
+        name: 'Exorcista Sera',
+        category: 'quest',
+        role: 'quest_giver',
+        mapKey: 'undead',
+        mapId: 'Z1',
+        x: 1520,
+        y: 4440,
+        greeting: 'Cada passo neste brejo e uma oracao. Se pretende avancar, va purificando o caminho.'
+    }),
+    npc({
+        id: 'npc_coveiro_doran',
+        name: 'Coveiro Doran',
+        category: 'quest',
+        role: 'quest_giver',
+        mapKey: 'undead',
+        mapId: 'Z1',
+        x: 1880,
+        y: 4240,
+        greeting: 'Conheco este lodo melhor que ninguem. Junte restos uteis e eu lhe conto onde os mortos se agitam mais.'
     })
 ];
 exports.SHOP_NPCS = [
@@ -80,8 +124,9 @@ exports.SHOP_NPCS = [
         role: 'shopkeeper',
         mapKey: 'city',
         mapId: 'Z1',
-        x: 2280,
-        y: 4120,
+        x: 2100,
+        y: 4340,
+        interactRange: 220,
         greeting: 'Aco temperado e precos justos. O que vai levar?'
     }),
     npc({

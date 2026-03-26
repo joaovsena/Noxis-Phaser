@@ -2,7 +2,7 @@ import { Buffer } from 'buffer';
 
 export type ItemRarityId = 'branco' | 'verde' | 'azul' | 'roxo' | 'laranja';
 export type ItemQualityId = 'pobre' | 'normal' | 'bom' | 'otimo' | 'excelente';
-export type ClassId = 'knight' | 'archer' | 'druid' | 'assassin';
+export type ClassId = 'knight' | 'archer' | 'druid' | 'assassin' | 'necromancer';
 export type EquipmentSlot = 'weapon' | 'helmet' | 'chest' | 'pants' | 'gloves' | 'boots' | 'ring' | 'necklace';
 
 type WalletLike = {
@@ -159,6 +159,24 @@ const CLASS_THEME: Record<ClassId, {
       necklace: { accuracy: 5, evasion: 4, maxHp: 14 }
     },
     percentStats: ['physicalAttack', 'attackSpeed', 'evasion']
+  },
+  necromancer: {
+    title: 'Necromante',
+    accent: '#8b79da',
+    weaponTitle: 'Cajado Funebre',
+    weaponShape: 'staff',
+    relevantStats: ['magicAttack', 'magicDefense', 'maxHp', 'attackSpeed'],
+    weaponFlat: { magicAttack: 10, magicDefense: 3, attackSpeed: 4 },
+    armorFlat: {
+      helmet: { magicDefense: 5, maxHp: 14 },
+      chest: { magicDefense: 8, maxHp: 28 },
+      pants: { magicDefense: 6, maxHp: 22 },
+      gloves: { magicAttack: 4, attackSpeed: 4 },
+      boots: { magicDefense: 3, moveSpeed: 8 },
+      ring: { magicAttack: 4, magicDefense: 2 },
+      necklace: { magicAttack: 3, maxHp: 22, magicDefense: 3 }
+    },
+    percentStats: ['magicAttack', 'magicDefense', 'maxHp']
   }
 };
 
@@ -507,7 +525,14 @@ const STARTER_ALIAS_IDS: Array<{ alias: string; target: string }> = [
   { alias: 'equip_assassin_gloves', target: 'equip_assassin_gloves_t1_verde_normal' },
   { alias: 'equip_assassin_boots', target: 'equip_assassin_boots_t1_branco_bom' },
   { alias: 'equip_assassin_ring', target: 'equip_assassin_ring_t1_verde_bom' },
-  { alias: 'equip_assassin_necklace', target: 'equip_assassin_necklace_t1_verde_normal' }
+  { alias: 'equip_assassin_necklace', target: 'equip_assassin_necklace_t1_verde_normal' },
+  { alias: 'equip_necromancer_helmet', target: 'equip_necromancer_helmet_t1_branco_normal' },
+  { alias: 'equip_necromancer_chest', target: 'equip_necromancer_chest_t1_verde_normal' },
+  { alias: 'equip_necromancer_pants', target: 'equip_necromancer_pants_t1_branco_normal' },
+  { alias: 'equip_necromancer_gloves', target: 'equip_necromancer_gloves_t1_verde_normal' },
+  { alias: 'equip_necromancer_boots', target: 'equip_necromancer_boots_t1_branco_normal' },
+  { alias: 'equip_necromancer_ring', target: 'equip_necromancer_ring_t1_verde_bom' },
+  { alias: 'equip_necromancer_necklace', target: 'equip_necromancer_necklace_t1_verde_normal' }
 ];
 
 export const WEAPON_TEMPLATE: BuiltinItemTemplate = GENERATED_WEAPON_TEMPLATES.find((entry) => entry.id === 'weapon_knight_t1_branco_normal') || GENERATED_WEAPON_TEMPLATES[0];
@@ -596,7 +621,13 @@ export function pickProgressionLootTemplate(mapKey: string, mobKind: string): Bu
   const tier = pickTierForMap(mapKey, mobKind);
   const rarity = pickRarityForMobKind(mobKind);
   const quality = pickQualityForMobKind(mobKind);
-  const classId = pickWeighted<ClassId>([{ value: 'knight', weight: 1 }, { value: 'archer', weight: 1 }, { value: 'druid', weight: 1 }, { value: 'assassin', weight: 1 }]) || 'knight';
+  const classId = pickWeighted<ClassId>([
+    { value: 'knight', weight: 1 },
+    { value: 'archer', weight: 1 },
+    { value: 'druid', weight: 1 },
+    { value: 'assassin', weight: 1 },
+    { value: 'necromancer', weight: 1 }
+  ]) || 'knight';
   const slot = pickWeighted<EquipmentSlot>([
     { value: 'weapon', weight: 22 },
     { value: 'helmet', weight: 10 },
@@ -626,10 +657,19 @@ export const NPC_SHOPS: Record<string, Array<{ offerId: string; templateId: stri
     { offerId: 'borin_weapon_knight_2', templateId: resolveClassWeaponTemplateId('knight', 2, 'verde', 'bom') },
     { offerId: 'borin_weapon_assassin_1', templateId: resolveClassWeaponTemplateId('assassin', 1, 'branco', 'normal') },
     { offerId: 'borin_weapon_assassin_2', templateId: resolveClassWeaponTemplateId('assassin', 2, 'verde', 'bom') },
+    { offerId: 'borin_weapon_necromancer_1', templateId: resolveClassWeaponTemplateId('necromancer', 1, 'branco', 'normal') },
+    { offerId: 'borin_weapon_necromancer_2', templateId: resolveClassWeaponTemplateId('necromancer', 2, 'verde', 'bom') },
+    { offerId: 'borin_weapon_archer_2', templateId: resolveClassWeaponTemplateId('archer', 2, 'verde', 'bom') },
+    { offerId: 'borin_weapon_druid_2', templateId: resolveClassWeaponTemplateId('druid', 2, 'verde', 'bom') },
     { offerId: 'borin_helmet_knight', templateId: resolveClassEquipmentTemplateId('knight', 'helmet', 1, 'branco', 'normal') },
     { offerId: 'borin_chest_knight', templateId: resolveClassEquipmentTemplateId('knight', 'chest', 1, 'verde', 'normal') },
     { offerId: 'borin_gloves_assassin', templateId: resolveClassEquipmentTemplateId('assassin', 'gloves', 1, 'verde', 'normal') },
-    { offerId: 'borin_boots_assassin', templateId: resolveClassEquipmentTemplateId('assassin', 'boots', 1, 'branco', 'bom') }
+    { offerId: 'borin_boots_assassin', templateId: resolveClassEquipmentTemplateId('assassin', 'boots', 1, 'branco', 'bom') },
+    { offerId: 'borin_helmet_necromancer', templateId: resolveClassEquipmentTemplateId('necromancer', 'helmet', 1, 'branco', 'normal') },
+    { offerId: 'borin_gloves_necromancer', templateId: resolveClassEquipmentTemplateId('necromancer', 'gloves', 1, 'verde', 'normal') },
+    { offerId: 'borin_chest_knight_2', templateId: resolveClassEquipmentTemplateId('knight', 'chest', 2, 'verde', 'bom') },
+    { offerId: 'borin_gloves_assassin_2', templateId: resolveClassEquipmentTemplateId('assassin', 'gloves', 2, 'verde', 'bom') },
+    { offerId: 'borin_helmet_necromancer_2', templateId: resolveClassEquipmentTemplateId('necromancer', 'helmet', 2, 'verde', 'bom') }
   ],
   npc_armeira_maeve: [
     { offerId: 'maeve_archer_chest', templateId: resolveClassEquipmentTemplateId('archer', 'chest', 1, 'verde', 'normal') },
@@ -637,23 +677,35 @@ export const NPC_SHOPS: Record<string, Array<{ offerId: string; templateId: stri
     { offerId: 'maeve_druid_chest', templateId: resolveClassEquipmentTemplateId('druid', 'chest', 1, 'verde', 'normal') },
     { offerId: 'maeve_druid_gloves', templateId: resolveClassEquipmentTemplateId('druid', 'gloves', 1, 'verde', 'normal') },
     { offerId: 'maeve_knight_pants', templateId: resolveClassEquipmentTemplateId('knight', 'pants', 1, 'branco', 'normal') },
-    { offerId: 'maeve_assassin_pants', templateId: resolveClassEquipmentTemplateId('assassin', 'pants', 1, 'branco', 'normal') }
+    { offerId: 'maeve_assassin_pants', templateId: resolveClassEquipmentTemplateId('assassin', 'pants', 1, 'branco', 'normal') },
+    { offerId: 'maeve_necromancer_chest', templateId: resolveClassEquipmentTemplateId('necromancer', 'chest', 1, 'verde', 'normal') },
+    { offerId: 'maeve_necromancer_boots', templateId: resolveClassEquipmentTemplateId('necromancer', 'boots', 1, 'branco', 'normal') },
+    { offerId: 'maeve_archer_chest_2', templateId: resolveClassEquipmentTemplateId('archer', 'chest', 2, 'verde', 'bom') },
+    { offerId: 'maeve_druid_chest_2', templateId: resolveClassEquipmentTemplateId('druid', 'chest', 2, 'verde', 'bom') },
+    { offerId: 'maeve_necromancer_boots_2', templateId: resolveClassEquipmentTemplateId('necromancer', 'boots', 2, 'verde', 'bom') }
   ],
   npc_joalheiro_orin: [
     { offerId: 'orin_knight_ring', templateId: resolveClassEquipmentTemplateId('knight', 'ring', 1, 'verde', 'bom') },
     { offerId: 'orin_archer_ring', templateId: resolveClassEquipmentTemplateId('archer', 'ring', 1, 'verde', 'bom') },
     { offerId: 'orin_druid_ring', templateId: resolveClassEquipmentTemplateId('druid', 'ring', 1, 'verde', 'bom') },
     { offerId: 'orin_assassin_ring', templateId: resolveClassEquipmentTemplateId('assassin', 'ring', 1, 'verde', 'bom') },
+    { offerId: 'orin_necromancer_ring', templateId: resolveClassEquipmentTemplateId('necromancer', 'ring', 1, 'verde', 'bom') },
     { offerId: 'orin_knight_necklace', templateId: resolveClassEquipmentTemplateId('knight', 'necklace', 1, 'verde', 'normal') },
     { offerId: 'orin_archer_necklace', templateId: resolveClassEquipmentTemplateId('archer', 'necklace', 1, 'verde', 'normal') },
     { offerId: 'orin_druid_necklace', templateId: resolveClassEquipmentTemplateId('druid', 'necklace', 1, 'verde', 'normal') },
-    { offerId: 'orin_assassin_necklace', templateId: resolveClassEquipmentTemplateId('assassin', 'necklace', 1, 'verde', 'normal') }
+    { offerId: 'orin_assassin_necklace', templateId: resolveClassEquipmentTemplateId('assassin', 'necklace', 1, 'verde', 'normal') },
+    { offerId: 'orin_necromancer_necklace', templateId: resolveClassEquipmentTemplateId('necromancer', 'necklace', 1, 'verde', 'normal') },
+    { offerId: 'orin_archer_ring_2', templateId: resolveClassEquipmentTemplateId('archer', 'ring', 2, 'azul', 'bom') },
+    { offerId: 'orin_druid_ring_2', templateId: resolveClassEquipmentTemplateId('druid', 'ring', 2, 'azul', 'bom') },
+    { offerId: 'orin_necromancer_necklace_2', templateId: resolveClassEquipmentTemplateId('necromancer', 'necklace', 2, 'azul', 'bom') }
   ],
   npc_mercadora_tessa: [
     { offerId: 'tessa_potion_minor', templateId: 'potion_hp', quantity: 1 },
     { offerId: 'tessa_potion_major', templateId: 'potion_hp_major', quantity: 1 },
     { offerId: 'tessa_material_hide', templateId: 'material_forest_hide', quantity: 2 },
     { offerId: 'tessa_material_sap', templateId: 'material_forest_sap', quantity: 1 },
+    { offerId: 'tessa_material_lava_ember', templateId: 'material_lava_ember', quantity: 1 },
+    { offerId: 'tessa_material_undead_bone', templateId: 'material_undead_bone', quantity: 1 },
     { offerId: 'tessa_hourglass', templateId: 'skill_reset_hourglass', quantity: 1 }
   ],
   npc_guard_alden: [

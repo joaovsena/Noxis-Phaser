@@ -2,7 +2,8 @@ const CLASS_LABELS: Record<string, string> = {
   knight: 'Cavaleiro',
   archer: 'Arqueiro',
   druid: 'Druida',
-  assassin: 'Assassino'
+  assassin: 'Assassino',
+  necromancer: 'Necromante'
 };
 
 const RARITY_LABELS: Record<string, string> = {

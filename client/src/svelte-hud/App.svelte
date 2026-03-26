@@ -35,6 +35,7 @@
     adminStore,
     appStore,
     attributesStore,
+    cancelSkillAim,
     clearCurrentTarget,
     closeAllPanels,
     closeNpcDialog,
@@ -55,6 +56,7 @@
     sendUiMessage,
     selectNearestTarget,
     setPvpMode,
+    skillAimStore,
     toggleAfk,
     togglePanel,
     worldStore
@@ -97,6 +99,7 @@
   $: showQuestTracker = $questTrackerStore.length > 0;
   $: showActiveEvents = $activeEventsStore.length > 0;
   $: hasActiveTarget = Boolean($selectedMobStore || $selectedPlayerStore);
+  $: hasActiveSkillAim = Boolean($skillAimStore.active);
   $: playerModeLabel = $playerMetaStore.pvpMode === 'peace' ? 'Paz' : $playerMetaStore.pvpMode === 'group' ? 'Grupo' : 'Mal';
   $: playerClassToken = String($playerStats.className || 'knight').toLowerCase();
   $: playerPortraitMark = playerClassToken.slice(0, 1).toUpperCase() || 'A';
@@ -114,6 +117,13 @@
   $: playerSecondaryLabel = playerUsesXpFallback
     ? `XP ${playerSecondaryValue} / ${playerSecondaryDisplayMax}`
     : `MP ${playerSecondaryValue} / ${playerSecondaryDisplayMax}`;
+  $: isNecromancer = playerClassToken === 'necromancer';
+  $: graveCharges = Math.max(0, Number($attributesStore.player?.graveCharges || 0));
+  $: activeSummonCount = Math.max(0, Number($attributesStore.player?.activeSummonCount || 0));
+  $: graveFamilyLabel = String($attributesStore.player?.graveFamily || '')
+    .split(':')
+    .filter(Boolean)
+    .pop() || 'vazio';
 
   function pulseHotkey(key: string) {
     const safeKey = String(key || '').toLowerCase();
@@ -134,6 +144,10 @@
       event.preventDefault();
       event.stopPropagation();
       if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
+      if (hasActiveSkillAim) {
+        cancelSkillAim();
+        return;
+      }
       clearCurrentTarget();
       closeAllPanels();
       hideTooltip();
@@ -150,6 +164,12 @@
     if (event.key === '.') {
       event.preventDefault();
       toggleAfk();
+      return;
+    }
+    if (event.code === 'Space') {
+      event.preventDefault();
+      if (hasActiveSkillAim) return;
+      window.dispatchEvent(new CustomEvent('noxis:pickup-nearest-ground-item'));
       return;
     }
     if (['q', 'w', 'e', 'r', 'a', 's', 'd', 'f', '1', '2', '3', '4', '5', '6', '7', '8'].includes(key)) {
@@ -188,9 +208,7 @@
     let offsetX = 0;
     let offsetY = 0;
     let dragging = false;
-
-    const header = node.querySelector<HTMLElement>('[data-window-drag-handle="true"]');
-    if (!header) return { destroy() {} };
+    const interactiveSelector = 'button, input, textarea, select, a, label, [role="button"], [data-no-drag="true"], [draggable="true"], [contenteditable="true"]';
 
     const bringToFront = () => {
       node.style.zIndex = String(nextPanelZ);
@@ -199,12 +217,12 @@
 
     const onPointerDown = (event: PointerEvent) => {
       if (event.button !== 0) return;
-      if ((event.target as HTMLElement | null)?.closest('button, input, textarea, select, a')) return;
+      bringToFront();
+      if ((event.target as HTMLElement | null)?.closest(interactiveSelector)) return;
       const rect = node.getBoundingClientRect();
       event.preventDefault();
       dragging = true;
       pointerId = event.pointerId;
-      bringToFront();
       node.style.left = `${rect.left}px`;
       node.style.top = `${rect.top}px`;
       node.style.right = 'auto';
@@ -212,14 +230,14 @@
       node.style.transform = 'none';
       offsetX = event.clientX - rect.left;
       offsetY = event.clientY - rect.top;
-      header.setPointerCapture?.(event.pointerId);
+      node.setPointerCapture?.(event.pointerId);
     };
 
     const onPointerMove = (event: PointerEvent) => {
       if (!dragging || pointerId !== event.pointerId) return;
       event.preventDefault();
-      node.style.left = `${Math.max(8, Math.min(window.innerWidth - node.offsetWidth - 8, event.clientX - offsetX))}px`;
-      node.style.top = `${Math.max(8, Math.min(window.innerHeight - node.offsetHeight - 8, event.clientY - offsetY))}px`;
+      node.style.left = `${Math.round(event.clientX - offsetX)}px`;
+      node.style.top = `${Math.round(event.clientY - offsetY)}px`;
     };
 
     const stopDrag = () => {
@@ -227,21 +245,18 @@
       pointerId = null;
     };
 
-    header.addEventListener('pointerdown', onPointerDown);
-    header.addEventListener('pointermove', onPointerMove);
-    header.addEventListener('pointerup', stopDrag);
-    header.addEventListener('pointercancel', stopDrag);
-    header.addEventListener('lostpointercapture', stopDrag);
-    node.addEventListener('pointerdown', bringToFront);
-
+    node.addEventListener('pointerdown', onPointerDown);
+    node.addEventListener('pointermove', onPointerMove);
+    node.addEventListener('pointerup', stopDrag);
+    node.addEventListener('pointercancel', stopDrag);
+    node.addEventListener('lostpointercapture', stopDrag);
     return {
       destroy() {
-        header.removeEventListener('pointerdown', onPointerDown);
-        header.removeEventListener('pointermove', onPointerMove);
-        header.removeEventListener('pointerup', stopDrag);
-        header.removeEventListener('pointercancel', stopDrag);
-        header.removeEventListener('lostpointercapture', stopDrag);
-        node.removeEventListener('pointerdown', bringToFront);
+        node.removeEventListener('pointerdown', onPointerDown);
+        node.removeEventListener('pointermove', onPointerMove);
+        node.removeEventListener('pointerup', stopDrag);
+        node.removeEventListener('pointercancel', stopDrag);
+        node.removeEventListener('lostpointercapture', stopDrag);
       }
     };
   }
@@ -358,6 +373,13 @@
             {/if}
             {#if $activePetStore.activeWorldPet}
               <span class="hud-pill">Pet {$activePetStore.activeWorldPet.name}</span>
+            {/if}
+            {#if isNecromancer}
+              <span class="hud-pill arcane">Grave {graveCharges}/10</span>
+              <span class="hud-pill arcane">Invoc. {activeSummonCount}</span>
+              {#if graveCharges > 0}
+                <span class="hud-pill arcane soft">{graveFamilyLabel}</span>
+              {/if}
             {/if}
           </div>
         </div>
@@ -651,6 +673,12 @@
     --player-accent: #e786be;
     --player-accent-soft: #fde4f3;
     --player-portrait-bg: linear-gradient(180deg, #73466c, #1c111b 88%);
+  }
+
+  .player-unit.class-necromancer {
+    --player-accent: #aa8fff;
+    --player-accent-soft: #efe6ff;
+    --player-portrait-bg: linear-gradient(180deg, #5d4692, #171127 88%);
   }
 
   .player-frame-main {

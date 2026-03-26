@@ -246,5 +246,16 @@ export const CLASS_TEMPLATES = {
         attackSpeed: 140,
         attackRange: 68,
         damageType: 'physical'
+    },
+    necromancer: {
+        str: 3,
+        int: 14,
+        dex: 6,
+        vit: 9,
+        initialHp: 128,
+        moveSpeed: 98,
+        attackSpeed: 102,
+        attackRange: 265,
+        damageType: 'magic'
     }
 };

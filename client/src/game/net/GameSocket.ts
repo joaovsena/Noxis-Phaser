@@ -461,7 +461,10 @@ export class GameSocket {
             xpToNext: payload.xpToNext ?? players[String(playerId)].xpToNext,
             hp: payload.hp ?? players[String(playerId)].hp,
             maxHp: payload.maxHp ?? players[String(playerId)].maxHp,
-            wallet: payload.wallet || players[String(playerId)].wallet
+            wallet: payload.wallet || players[String(playerId)].wallet,
+            graveCharges: payload.graveCharges ?? players[String(playerId)].graveCharges,
+            graveFamily: payload.graveFamily ?? players[String(playerId)].graveFamily,
+            activeSummonCount: payload.activeSummonCount ?? players[String(playerId)].activeSummonCount
           };
           this.store.update({
             worldState: {

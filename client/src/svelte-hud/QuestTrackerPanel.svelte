@@ -28,6 +28,7 @@
                 </div>
               {/each}
             </div>
+            <div class="hud-meta tracker-guide">{quest.nextStep}</div>
           {:else}
             <div class="hud-meta">Sem objetivos detalhados.</div>
           {/if}
@@ -99,5 +100,9 @@
   strong {
     color: var(--hud-gold);
     font-size: 0.72rem;
+  }
+
+  .tracker-guide {
+    margin-top: 2px;
   }
 </style>

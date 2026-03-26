@@ -12,6 +12,10 @@ Replace the current skill set with a cleaner class kit that:
 
 This document is a combat design spec, not an implementation log.
 
+Post-alpha class expansion note:
+
+- see [necromancer-class-plan-alpha.md](./necromancer-class-plan-alpha.md) for the proposed fifth class expansion built on top of this combat baseline
+
 ## Core Combat Pillars
 
 1. Every class must have a clear job at first glance.
@@ -263,4 +267,3 @@ What should change:
 - scaling
 - role identity
 - cooldown philosophy
-

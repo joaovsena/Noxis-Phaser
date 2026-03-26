@@ -5,7 +5,7 @@ import {
     MOB_LEASH_RANGE,
     PLAYER_HALF_SIZE
 } from '../config';
-import { PlayerRuntime } from '../models/types';
+import { PlayerRuntime, SummonRuntime } from '../models/types';
 import { clamp, distance } from '../utils/math';
 
 type MapInstanceIdFn = (mapKey: string, mapId: string) => string;
@@ -28,6 +28,8 @@ type GetPvpPermissionFn = (player: PlayerRuntime, target: PlayerRuntime) => { ok
 type IsBlockedAtFn = (mapKey: string, x: number, y: number) => boolean;
 type HasLineOfSightFn = (mapKey: string, fromX: number, fromY: number, toX: number, toY: number) => boolean;
 type ComputeDamageAfterMitigationFn = (rawDamage: number, defense: number, targetLevel: number) => number;
+type GetSummonsByMapFn = (mapKey: string, mapId: string) => SummonRuntime[];
+type ApplyDamageToSummonFn = (summonId: string, damage: number) => { summon: SummonRuntime; died: boolean } | null;
 
 const MOB_AI_CELL_SIZE = 512;
 const MOB_DECISION_MS = 500;
@@ -58,7 +60,9 @@ export class CombatRuntimeService {
         private readonly getPvpAttackPermission: GetPvpPermissionFn,
         private readonly isBlockedAt: IsBlockedAtFn,
         private readonly hasLineOfSightFn: HasLineOfSightFn,
-        private readonly computeDamageAfterMitigation: ComputeDamageAfterMitigationFn
+        private readonly computeDamageAfterMitigation: ComputeDamageAfterMitigationFn,
+        private readonly getSummonsByMap: GetSummonsByMapFn,
+        private readonly applyDamageToSummon: ApplyDamageToSummonFn
     ) {}
 
     private hasLineOfSight(mapKey: string, fromX: number, fromY: number, toX: number, toY: number) {
@@ -173,9 +177,10 @@ export class CombatRuntimeService {
     processMobAggroAndCombat(deltaSeconds: number, now: number) {
         const mobs = this.mobService.getMobs();
         const playerIndex = this.buildPlayerSpatialIndex();
-        if (this.mobsPeacefulMode()) {
+            if (this.mobsPeacefulMode()) {
             for (const mob of mobs) {
                 mob.targetPlayerId = null;
+                mob.targetSummonId = null;
                 mob.lastAttackAt = 0;
                 mob.state = 'idle';
                 mob.ignoreDamage = false;
@@ -199,6 +204,7 @@ export class CombatRuntimeService {
                 mob.state = 'leash_return';
                 mob.ignoreDamage = true;
                 mob.targetPlayerId = null;
+                mob.targetSummonId = null;
                 mob.hateTable = {};
                 const regen = Number(mob.maxHp || 1) * MOB_LEASH_REGEN_PER_SEC * deltaSeconds;
                 mob.hp = Math.min(Number(mob.maxHp || 1), Number(mob.hp || 0) + regen);
@@ -215,20 +221,29 @@ export class CombatRuntimeService {
 
             mob.ignoreDamage = false;
             let target = mob.targetPlayerId ? this.players.get(Number(mob.targetPlayerId)) : null;
+            let targetSummon = mob.targetSummonId
+                ? this.getSummonsByMap(mapKey, mapId).find((entry) => String(entry.id || '') === String(mob.targetSummonId || '')) || null
+                : null;
             if (!target || target.dead || target.hp <= 0 || target.mapKey !== mapKey || target.mapId !== mapId) {
                 target = null;
+                mob.targetPlayerId = null;
                 const hateTargetId = this.mobService.getTopHateTarget(mob);
                 if (hateTargetId) {
                     const hated = this.players.get(hateTargetId);
                     if (hated && !hated.dead && hated.hp > 0 && hated.mapKey === mapKey && hated.mapId === mapId) {
                         target = hated;
                         mob.targetPlayerId = hated.id;
+                        mob.targetSummonId = null;
                     }
                 }
             }
+            if (!targetSummon || Number(targetSummon.hp || 0) <= 0) {
+                targetSummon = null;
+                mob.targetSummonId = null;
+            }
 
             const canThink = now >= Number(mob.nextThinkAt || 0);
-            if (!target && canThink) {
+            if (!target && !targetSummon && canThink) {
                 const candidates = this.getPlayersNearCell(playerIndex, mapKey, mapId, mob.x, mob.y);
                 let nearest: PlayerRuntime | null = null;
                 let nearestDist = Number.POSITIVE_INFINITY;
@@ -241,9 +256,28 @@ export class CombatRuntimeService {
                         nearest = p;
                     }
                 }
-                if (nearest) {
+                const summonCandidates = this.getSummonsByMap(mapKey, mapId);
+                let nearestSummon: SummonRuntime | null = null;
+                let nearestSummonDist = Number.POSITIVE_INFINITY;
+                for (const summon of summonCandidates) {
+                    const d = distance(mob, summon);
+                    if (d > Number(template.aggroRange || MOB_AGGRO_RANGE)) continue;
+                    if (!this.hasLineOfSight(mapKey, mob.x, mob.y, summon.x, summon.y)) continue;
+                    if (d < nearestSummonDist) {
+                        nearestSummonDist = d;
+                        nearestSummon = summon;
+                    }
+                }
+                if (nearest && (!nearestSummon || nearestDist <= nearestSummonDist)) {
                     target = nearest;
                     mob.targetPlayerId = nearest.id;
+                    mob.targetSummonId = null;
+                    mob.state = 'aggro';
+                    mob.nextRepathAt = now + MOB_DECISION_MS;
+                } else if (nearestSummon) {
+                    targetSummon = nearestSummon;
+                    mob.targetPlayerId = null;
+                    mob.targetSummonId = nearestSummon.id;
                     mob.state = 'aggro';
                     mob.nextRepathAt = now + MOB_DECISION_MS;
                 } else {
@@ -259,7 +293,7 @@ export class CombatRuntimeService {
                 }
             }
 
-            if (!target) {
+            if (!target && !targetSummon) {
                 if (mob.state === 'wander' && Number.isFinite(Number(mob.wanderTargetX)) && Number.isFinite(Number(mob.wanderTargetY))) {
                     const arrived = this.moveMobToward(mob, Number(mob.wanderTargetX), Number(mob.wanderTargetY), Number(template.moveSpeed) * 0.55, deltaSeconds, mapKey);
                     if (arrived) {
@@ -272,18 +306,21 @@ export class CombatRuntimeService {
                 continue;
             }
 
-            const centerDistance = distance(mob, target);
+            const targetX = target ? Number(target.x || 0) : Number(targetSummon?.x || 0);
+            const targetY = target ? Number(target.y || 0) : Number(targetSummon?.y || 0);
+            const centerDistance = Math.hypot(Number(mob.x || 0) - targetX, Number(mob.y || 0) - targetY);
             if (centerDistance > leashRange) {
                 mob.state = 'leash_return';
                 continue;
             }
 
-            const edgeDistance = Math.max(0, centerDistance - (mob.size / 2 + PLAYER_HALF_SIZE));
+            const targetHalfSize = target ? PLAYER_HALF_SIZE : 18;
+            const edgeDistance = Math.max(0, centerDistance - (mob.size / 2 + targetHalfSize));
             const attackRange = Number(template.attackRange || MOB_ATTACK_RANGE);
             if (edgeDistance > attackRange) {
                 mob.state = 'aggro';
                 if (now >= Number(mob.nextRepathAt || 0)) mob.nextRepathAt = now + Number(template.repathMs || MOB_DECISION_MS);
-                this.moveMobToward(mob, target.x, target.y, Number(template.moveSpeed), deltaSeconds, mapKey);
+                this.moveMobToward(mob, targetX, targetY, Number(template.moveSpeed), deltaSeconds, mapKey);
                 continue;
             }
 
@@ -298,51 +335,62 @@ export class CombatRuntimeService {
             mob.nextAttackAt = now + Number(template.attackCadenceMs || MOB_ATTACK_INTERVAL_MS);
 
             const baseDamage = mob.kind === 'boss' ? 34 : mob.kind === 'subboss' ? 21 : mob.kind === 'elite' ? 14 : 8;
-            const targetFx = this.getActiveSkillEffectAggregate(target, now);
-            const hitChance = this.computeHitChance(Number(template.accuracy || 60), Number(target.stats?.evasion || 0) + Number(targetFx.evasionAdd || 0));
-            if (Math.random() > hitChance) continue;
-            const defense = Number(target.stats?.physicalDefense || 0) * Math.max(0.1, Number(targetFx.defenseMul || 1));
-            const luckyBypass = Math.random() < Number(template.luckyStrikeChance || 0);
-            const effectiveDefense = luckyBypass ? defense * 0.5 : defense;
-            let damage = this.computeDamageAfterMitigation(baseDamage, effectiveDefense, Number(target.level || 1));
-            damage = Math.max(1, Math.floor(damage * (1 - Math.max(0, Math.min(0.95, Number(targetFx.damageReduction || 0))))));
-            target.hp = Math.max(0, target.hp - damage);
-            target.lastCombatAt = now;
-            if (target.hp <= 0) {
-                target.dead = true;
-                target.deathX = target.x;
-                target.deathY = target.y;
-                target.autoAttackActive = false;
-                target.attackTargetId = null;
-                target.pvpAutoAttackActive = false;
-                target.attackTargetPlayerId = null;
-                this.sendRaw(target.ws, { type: 'player.dead' });
-            }
-            const reflect = Math.max(0, Math.min(0.5, Number(targetFx.reflect || 0)));
-            if (reflect > 0 && Number(mob.hp || 0) > 0) {
-                const reflected = Math.max(1, Math.floor(damage * reflect));
-                mob.hp = Math.max(0, Number(mob.hp || 0) - reflected);
-                if (mob.hp <= 0) this.applyDamageToMobAndHandleDeath(target, mob, reflected, now);
-            }
-            this.persistPlayer(target);
-            this.syncAllPartyStates();
+            if (target) {
+                const targetFx = this.getActiveSkillEffectAggregate(target, now);
+                const hitChance = this.computeHitChance(Number(template.accuracy || 60), Number(target.stats?.evasion || 0) + Number(targetFx.evasionAdd || 0));
+                if (Math.random() > hitChance) continue;
+                const defense = Number(target.stats?.physicalDefense || 0) * Math.max(0.1, Number(targetFx.defenseMul || 1));
+                const luckyBypass = Math.random() < Number(template.luckyStrikeChance || 0);
+                const effectiveDefense = luckyBypass ? defense * 0.5 : defense;
+                let damage = this.computeDamageAfterMitigation(baseDamage, effectiveDefense, Number(target.level || 1));
+                damage = Math.max(1, Math.floor(damage * (1 - Math.max(0, Math.min(0.95, Number(targetFx.damageReduction || 0))))));
+                target.hp = Math.max(0, target.hp - damage);
+                target.lastCombatAt = now;
+                if (target.hp <= 0) {
+                    target.dead = true;
+                    target.deathX = target.x;
+                    target.deathY = target.y;
+                    target.autoAttackActive = false;
+                    target.attackTargetId = null;
+                    target.pvpAutoAttackActive = false;
+                    target.attackTargetPlayerId = null;
+                    this.sendRaw(target.ws, { type: 'player.dead' });
+                }
+                const reflect = Math.max(0, Math.min(0.5, Number(targetFx.reflect || 0)));
+                if (reflect > 0 && Number(mob.hp || 0) > 0) {
+                    const reflected = Math.max(1, Math.floor(damage * reflect));
+                    mob.hp = Math.max(0, Number(mob.hp || 0) - reflected);
+                    if (mob.hp <= 0) this.applyDamageToMobAndHandleDeath(target, mob, reflected, now);
+                }
+                this.persistPlayer(target);
+                this.syncAllPartyStates();
 
-            for (const receiver of this.players.values()) {
-                if (receiver.mapKey !== mapKey || receiver.mapId !== mapId) continue;
-                this.sendRaw(receiver.ws, {
-                    type: 'combat.mobHitPlayer',
-                    mobId: mob.id,
-                    mobX: mob.x,
-                    mobY: mob.y,
-                    targetPlayerId: target.id,
-                    targetX: target.x,
-                    targetY: target.y,
-                    damage,
-                    luckyStrike: luckyBypass,
-                    targetHp: target.hp,
-                    targetMaxHp: target.maxHp
-                });
+                for (const receiver of this.players.values()) {
+                    if (receiver.mapKey !== mapKey || receiver.mapId !== mapId) continue;
+                    this.sendRaw(receiver.ws, {
+                        type: 'combat.mobHitPlayer',
+                        mobId: mob.id,
+                        mobX: mob.x,
+                        mobY: mob.y,
+                        targetPlayerId: target.id,
+                        targetX: target.x,
+                        targetY: target.y,
+                        damage,
+                        luckyStrike: luckyBypass,
+                        targetHp: target.hp,
+                        targetMaxHp: target.maxHp
+                    });
+                }
+                continue;
             }
+
+            if (!targetSummon) continue;
+            const hitChance = this.computeHitChance(Number(template.accuracy || 60), 16);
+            if (Math.random() > hitChance) continue;
+            const luckyBypass = Math.random() < Number(template.luckyStrikeChance || 0);
+            const summonDefense = luckyBypass ? 2 : 4 + Math.floor(Number(targetSummon.level || 1) * 0.45);
+            const damage = Math.max(1, this.computeDamageAfterMitigation(baseDamage, summonDefense, Number(targetSummon.level || 1)));
+            this.applyDamageToSummon(String(targetSummon.id || ''), damage);
         }
     }
 

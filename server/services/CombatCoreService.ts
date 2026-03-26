@@ -15,7 +15,7 @@ type SyncPartyFn = () => void;
 type GrantXpFn = (player: PlayerRuntime, amount: number, context?: { mapKey?: string; mapId?: string; }) => void;
 type GrantMobCurrencyFn = (player: PlayerRuntime, mob: any) => void;
 type MapInstanceIdFn = (mapKey: string, mapId: string) => string;
-type DropPosFn = (originX: number, originY: number, dropIndex: number, dropTotal: number, mapKey: string) => { x: number; y: number };
+type DropPosFn = (originX: number, originY: number, dropIndex: number, dropTotal: number, mapKey: string, mapInstanceId: string) => { x: number; y: number };
 type PickWeaponTemplateFn = (mapKey: string, mobKind: string) => any;
 type DropWeaponFn = (x: number, y: number, mapId: string, template?: any, ownerId?: number | null, ownerPartyId?: string | null, reservedMs?: number) => void;
 type DropPotionFn = (x: number, y: number, mapId: string, ownerId?: number | null, ownerPartyId?: string | null, reservedMs?: number) => void;
@@ -101,7 +101,7 @@ export class CombatCoreService {
             }
         }
         dropDefs.forEach((dropType, index) => {
-            const dropPos = this.computeLootDropPosition(mob.x, mob.y, index, dropDefs.length, player.mapKey);
+            const dropPos = this.computeLootDropPosition(mob.x, mob.y, index, dropDefs.length, player.mapKey, mapInstanceId);
             const ownerId = Number(player.id);
             const ownerPartyId = String(player.partyId || '') || null;
             const reserveMs = (mob?.kind === 'elite' || mob?.kind === 'subboss' || mob?.kind === 'boss') ? 60_000 : 0;

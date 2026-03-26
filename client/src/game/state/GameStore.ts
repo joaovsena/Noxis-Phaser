@@ -24,6 +24,7 @@ export type WorldState = {
   type: 'world_state';
   players: Record<string, any>;
   pets?: any[];
+  summons?: any[];
   mobs: any[];
   mapKey?: string;
   mapId?: string;

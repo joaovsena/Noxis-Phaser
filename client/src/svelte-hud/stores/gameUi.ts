@@ -189,9 +189,27 @@ type SkillTreeNode = {
   requiredLevel: number;
   summary: string;
   target: 'mob' | 'self';
+  castMode: 'direct' | 'ground' | 'self_aoe' | 'cone' | 'line' | 'summon';
   cooldownMs: number;
   range?: number;
+  aoeRadius?: number;
+  coneAngleDeg?: number;
+  lineLength?: number;
+  lineWidth?: number;
+  autoAttackEligible?: boolean;
   role: 'Ataque' | 'Buff' | 'Cura' | 'Controle' | 'Area' | 'Execucao';
+};
+
+type SkillAimState = {
+  active: boolean;
+  skillId: string | null;
+  label: string;
+  castMode: SkillTreeNode['castMode'] | null;
+  range: number;
+  aoeRadius: number;
+  coneAngleDeg: number;
+  lineLength: number;
+  lineWidth: number;
 };
 
 const HOTBAR_KEYS = ['q', 'w', 'e', 'r', 'a', 's', 'd', 'f', '1', '2', '3', '4', '5', '6', '7', '8'];
@@ -475,6 +493,17 @@ export const hudScaleStore = writable(1);
 export const hudBrowserCompensationStore = writable(1);
 export const hotbarBindingsStore = writable<Record<string, any>>({});
 export const selectedAutoAttackStore = writable('class_primary');
+export const skillAimStore = writable<SkillAimState>({
+  active: false,
+  skillId: null,
+  label: '',
+  castMode: null,
+  range: 0,
+  aoeRadius: 0,
+  coneAngleDeg: 0,
+  lineLength: 0,
+  lineWidth: 0
+});
 
 export const inventorySlots = derived(inventoryStore, ($inventoryStore) => {
   const slots = Array.from({ length: 36 }, (_, slotIndex) => ({
@@ -609,7 +638,12 @@ export const skillsStore = derived(attributesStore, ($attributesStore) => {
     playerLevel,
     skillPoints,
     entries,
-    autoAttack: [{ id: 'class_primary', label: 'Atk Basico', learned: true }, ...entries.filter((entry) => entry.learned && entry.target === 'mob').map((entry) => ({ id: entry.id, label: entry.label, learned: true }))]
+    autoAttack: [
+      { id: 'class_primary', label: 'Atk Basico', learned: true },
+      ...entries
+        .filter((entry) => entry.learned && Boolean(entry.autoAttackEligible))
+        .map((entry) => ({ id: entry.id, label: entry.label, learned: true }))
+    ]
   };
 });
 
@@ -688,19 +722,38 @@ export const targetBuffsStore = derived(selectedPlayerStore, ($selectedPlayerSto
 );
 
 export const questTrackerStore = derived(questStore, ($questStore) =>
-  ($questStore.quests || []).slice(0, 4).map((quest: any) => ({
-    id: String(quest?.id || ''),
-    title: String(quest?.title || quest?.id || 'Quest'),
-    status: String(quest?.status || 'ativa'),
-    objectives: Array.isArray(quest?.objectives)
-      ? quest.objectives.map((objective: any) => ({
-          id: String(objective?.id || ''),
-          text: String(objective?.text || objective?.id || 'Objetivo'),
-          current: Number(objective?.current || 0),
-          required: Math.max(1, Number(objective?.required || 1))
-        }))
-      : []
-  }))
+  ($questStore.quests || [])
+    .slice()
+    .sort((left: any, right: any) => {
+      const leftReady = String(left?.status || '') === 'ready' ? 0 : 1;
+      const rightReady = String(right?.status || '') === 'ready' ? 0 : 1;
+      if (leftReady !== rightReady) return leftReady - rightReady;
+      const leftMain = String(left?.category || '') === 'main' ? 0 : 1;
+      const rightMain = String(right?.category || '') === 'main' ? 0 : 1;
+      if (leftMain !== rightMain) return leftMain - rightMain;
+      return 0;
+    })
+    .slice(0, 4)
+    .map((quest: any) => {
+      const objectives = Array.isArray(quest?.objectives)
+        ? quest.objectives.map((objective: any) => ({
+            id: String(objective?.id || ''),
+            text: String(objective?.text || objective?.id || 'Objetivo'),
+            current: Number(objective?.current || 0),
+            required: Math.max(1, Number(objective?.required || 1))
+          }))
+        : [];
+      const nextObjective = objectives.find((objective: any) => Number(objective.current || 0) < Number(objective.required || 1)) || objectives[0] || null;
+      return {
+        id: String(quest?.id || ''),
+        title: String(quest?.title || quest?.id || 'Quest'),
+        status: String(quest?.status || 'ativa'),
+        objectives,
+        nextStep: String(quest?.status || '') === 'ready'
+          ? 'Volte e entregue esta missao.'
+          : String(nextObjective?.text || 'Continue a trilha atual.')
+      };
+    })
 );
 
 export const activeEventsStore = derived(worldStore, ($worldStore) =>
@@ -745,35 +798,35 @@ function buildSkillTree(): SkillTreeNode[] {
   const defs = {
     knight: {
       a: [
-        { label: 'Investida de Escudo', id: 'war_bastion_escudo_fe', summary: 'Avanca no alvo com um impacto curto e seguro para abrir a linha de frente.', target: 'mob', cooldownMs: 7000, range: 130, role: 'Ataque' },
+        { label: 'Investida de Escudo', id: 'war_bastion_escudo_fe', summary: 'Avanca no alvo com um impacto curto e seguro para abrir a linha de frente.', target: 'mob', castMode: 'direct', cooldownMs: 7000, range: 130, autoAttackEligible: true, role: 'Ataque' },
         { label: 'Juramento de Ferro', id: 'war_bastion_muralha', summary: 'Ergue a postura defensiva do cavaleiro e reduz a pressao recebida.', target: 'self', cooldownMs: 13000, role: 'Buff' },
-        { label: 'Travar Terreno', id: 'war_bastion_renovacao', summary: 'Golpe em area que prende a luta perto do cavaleiro e segura pacotes no PvE.', target: 'mob', cooldownMs: 10000, range: 112, role: 'Area' },
+        { label: 'Travar Terreno', id: 'war_bastion_renovacao', summary: 'Golpe em area ao redor do cavaleiro para segurar pacotes no PvE.', target: 'self', castMode: 'self_aoe', cooldownMs: 10000, aoeRadius: 140, role: 'Area' },
         { label: 'Guarda Reunida', id: 'war_bastion_inabalavel', summary: 'Postura de guarda reforcada para segurar o caos e refletir parte do impacto.', target: 'self', cooldownMs: 16000, role: 'Buff' },
         { label: 'Ultimo Bastiao', id: 'war_bastion_impacto_sismico', summary: 'Janela defensiva maxima para chefes, foco inimigo e pontos de estrangulamento.', target: 'self', cooldownMs: 22000, role: 'Buff' }
       ],
       b: [
-        { label: 'Arco Dilacerante', id: 'war_carrasco_frenesi', summary: 'Varredura frontal para limpar grupos pequenos e abrir espaco no contato.', target: 'mob', cooldownMs: 9000, range: 110, role: 'Area' },
-        { label: 'Quebra-Ossos', id: 'war_carrasco_lacerar', summary: 'Golpe pesado de curta distancia para punir alvos prioritarios.', target: 'mob', cooldownMs: 7800, range: 100, role: 'Ataque' },
+        { label: 'Arco Dilacerante', id: 'war_carrasco_frenesi', summary: 'Varredura frontal em cone para limpar grupos pequenos e abrir espaco no contato.', target: 'mob', castMode: 'cone', cooldownMs: 9000, range: 128, aoeRadius: 120, coneAngleDeg: 78, role: 'Area' },
+        { label: 'Quebra-Ossos', id: 'war_carrasco_lacerar', summary: 'Golpe pesado de curta distancia para punir alvos prioritarios.', target: 'mob', castMode: 'direct', cooldownMs: 7800, range: 100, autoAttackEligible: true, role: 'Ataque' },
         { label: 'Rugido de Sangue', id: 'war_carrasco_ira', summary: 'Explosao ofensiva com roubo de vida para janelas agressivas de grupo.', target: 'self', cooldownMs: 14000, role: 'Buff' },
-        { label: 'Corrente de Aco', id: 'war_carrasco_golpe_sacrificio', summary: 'Sequencia pesada de dano bruto, cobrando uma pequena parcela da propria vida.', target: 'mob', cooldownMs: 9800, range: 115, role: 'Ataque' },
-        { label: 'Ceifador', id: 'war_carrasco_aniquilacao', summary: 'Finalizador que ganha valor quando o alvo ja esta pressionado.', target: 'mob', cooldownMs: 13500, range: 120, role: 'Execucao' }
+        { label: 'Corrente de Aco', id: 'war_carrasco_golpe_sacrificio', summary: 'Sequencia pesada de dano bruto, cobrando uma pequena parcela da propria vida.', target: 'mob', castMode: 'direct', cooldownMs: 9800, range: 115, autoAttackEligible: true, role: 'Ataque' },
+        { label: 'Ceifador', id: 'war_carrasco_aniquilacao', summary: 'Finalizador que ganha valor quando o alvo ja esta pressionado.', target: 'mob', castMode: 'direct', cooldownMs: 13500, range: 120, autoAttackEligible: true, role: 'Execucao' }
       ],
       labels: ['Vanguarda', 'Reaver']
     },
     archer: {
       a: [
-        { label: 'Disparo Lento', id: 'arc_patrulheiro_tiro_ofuscante', summary: 'Tiro de abertura para controlar o ritmo da aproximacao inimiga.', target: 'mob', cooldownMs: 6500, range: 420, role: 'Ataque' },
-        { label: 'Abrolhos', id: 'arc_patrulheiro_foco_distante', summary: 'Projeta uma zona curta de impacto para aliviar perseguidores e packs.', target: 'mob', cooldownMs: 9000, range: 360, role: 'Controle' },
+        { label: 'Disparo Lento', id: 'arc_patrulheiro_tiro_ofuscante', summary: 'Tiro de abertura para controlar o ritmo da aproximacao inimiga.', target: 'mob', castMode: 'direct', cooldownMs: 6500, range: 420, autoAttackEligible: true, role: 'Ataque' },
+        { label: 'Abrolhos', id: 'arc_patrulheiro_foco_distante', summary: 'Projeta uma zona curta de impacto para aliviar perseguidores e packs.', target: 'mob', castMode: 'ground', cooldownMs: 9000, range: 360, aoeRadius: 120, role: 'Controle' },
         { label: 'Passo do Vento', id: 'arc_patrulheiro_abrolhos', summary: 'Buff de mobilidade e cadencia para kiting mais limpo.', target: 'self', cooldownMs: 12000, role: 'Buff' },
-        { label: 'Chuva de Flechas', id: 'arc_patrulheiro_salva_flechas', summary: 'Area principal do arqueiro para lutas de grupo e limpeza de packs.', target: 'mob', cooldownMs: 11000, range: 430, role: 'Area' },
+        { label: 'Chuva de Flechas', id: 'arc_patrulheiro_salva_flechas', summary: 'Area principal do arqueiro para lutas de grupo e limpeza de packs.', target: 'mob', castMode: 'ground', cooldownMs: 11000, range: 430, aoeRadius: 185, role: 'Area' },
         { label: 'Marca do Batedor', id: 'arc_patrulheiro_passo_vento', summary: 'Marca o momento ofensivo e melhora o dano da proxima janela de pressao.', target: 'self', cooldownMs: 14500, role: 'Buff' }
       ],
       b: [
         { label: 'Postura de Tiro', id: 'arc_franco_flecha_debilitante', summary: 'Prepara alguns disparos mais letais com foco em consistencia e critico.', target: 'self', cooldownMs: 12000, role: 'Buff' },
-        { label: 'Virote Corrosivo', id: 'arc_franco_ponteira_envenenada', summary: 'Disparo que continua corroendo o alvo apos o impacto inicial.', target: 'mob', cooldownMs: 7800, range: 430, role: 'Ataque' },
+        { label: 'Virote Corrosivo', id: 'arc_franco_ponteira_envenenada', summary: 'Disparo que continua corroendo o alvo apos o impacto inicial.', target: 'mob', castMode: 'direct', cooldownMs: 7800, range: 430, autoAttackEligible: true, role: 'Ataque' },
         { label: 'Olho de Aguia', id: 'arc_franco_olho_aguia', summary: 'Amplia alcance efetivo e reforca o momento de burst do atirador.', target: 'self', cooldownMs: 14000, role: 'Buff' },
-        { label: 'Flecha Perfurante', id: 'arc_franco_disparo_perfurante', summary: 'Tiro de alto impacto para perfurar prioridades em PvE e PvP.', target: 'mob', cooldownMs: 9200, range: 470, role: 'Ataque' },
-        { label: 'Tiro de Misericordia', id: 'arc_franco_tiro_misericordia', summary: 'Finalizador de longa distancia para alvos ja enfraquecidos.', target: 'mob', cooldownMs: 13000, range: 470, role: 'Execucao' }
+        { label: 'Flecha Perfurante', id: 'arc_franco_disparo_perfurante', summary: 'Tiro em linha para perfurar prioridades em PvE e PvP.', target: 'mob', castMode: 'line', cooldownMs: 9200, range: 470, lineLength: 340, lineWidth: 62, role: 'Ataque' },
+        { label: 'Tiro de Misericordia', id: 'arc_franco_tiro_misericordia', summary: 'Finalizador de longa distancia para alvos ja enfraquecidos.', target: 'mob', castMode: 'direct', cooldownMs: 13000, range: 470, autoAttackEligible: true, role: 'Execucao' }
       ],
       labels: ['Ranger', 'Sharpshooter']
     },
@@ -781,35 +834,52 @@ function buildSkillTree(): SkillTreeNode[] {
       a: [
         { label: 'Florescer', id: 'dru_preservador_florescer', summary: 'Cura principal para estabilizar a linha em janelas curtas.', target: 'self', cooldownMs: 8500, role: 'Cura' },
         { label: 'Casca Viva', id: 'dru_preservador_casca_ferro', summary: 'Reforca a casca natural e segura burst fisico e magico.', target: 'self', cooldownMs: 12000, role: 'Buff' },
-        { label: 'Raizes Prendentes', id: 'dru_preservador_emaranhado', summary: 'Area de controle para atrasar pacotes e punir alvos agrupados.', target: 'mob', cooldownMs: 9600, range: 360, role: 'Controle' },
+        { label: 'Raizes Prendentes', id: 'dru_preservador_emaranhado', summary: 'Area de controle para atrasar pacotes e punir alvos agrupados.', target: 'mob', castMode: 'ground', cooldownMs: 9600, range: 360, aoeRadius: 145, role: 'Controle' },
         { label: 'Corrente Vital', id: 'dru_preservador_prece_natureza', summary: 'Pulso maior de cura e ritmo para sustentar a equipe por mais tempo.', target: 'self', cooldownMs: 13500, role: 'Cura' },
         { label: 'Bosque Sagrado', id: 'dru_preservador_avatar_espiritual', summary: 'Forma protetora para segurar pushes e estabilizar lutas longas.', target: 'self', cooldownMs: 18500, role: 'Buff' }
       ],
       b: [
-        { label: 'Acoite de Espinhos', id: 'dru_primal_espinhos', summary: 'Castigo magico confiavel para manter pressao a media distancia.', target: 'mob', cooldownMs: 7600, range: 350, role: 'Ataque' },
-        { label: 'Nuvem de Enxame', id: 'dru_primal_enxame', summary: 'Nuvem corrosiva que continua pressionando apos o primeiro contato.', target: 'mob', cooldownMs: 9000, range: 370, role: 'Ataque' },
-        { label: 'Semente Podre', id: 'dru_primal_patada_sombria', summary: 'Carga de dano magico pesado para abrir janelas de burst.', target: 'mob', cooldownMs: 10000, range: 345, role: 'Ataque' },
-        { label: 'Brejo Sombrio', id: 'dru_primal_nevoa_obscura', summary: 'Area ampla de negacao para PvE em grupo e disputas de espaco.', target: 'mob', cooldownMs: 11800, range: 365, role: 'Area' },
-        { label: 'Flor do Eclipse', id: 'dru_primal_invocacao_primal', summary: 'Explosao magica forte para fechar rotacoes ofensivas.', target: 'mob', cooldownMs: 16500, range: 385, role: 'Execucao' }
+        { label: 'Acoite de Espinhos', id: 'dru_primal_espinhos', summary: 'Castigo magico confiavel para manter pressao a media distancia.', target: 'mob', castMode: 'direct', cooldownMs: 7600, range: 350, autoAttackEligible: true, role: 'Ataque' },
+        { label: 'Nuvem de Enxame', id: 'dru_primal_enxame', summary: 'Nuvem corrosiva que continua pressionando apos o primeiro contato.', target: 'mob', castMode: 'direct', cooldownMs: 9000, range: 370, autoAttackEligible: true, role: 'Ataque' },
+        { label: 'Semente Podre', id: 'dru_primal_patada_sombria', summary: 'Carga de dano magico pesado para abrir janelas de burst.', target: 'mob', castMode: 'direct', cooldownMs: 10000, range: 345, autoAttackEligible: true, role: 'Ataque' },
+        { label: 'Brejo Sombrio', id: 'dru_primal_nevoa_obscura', summary: 'Area ampla de negacao para PvE em grupo e disputas de espaco.', target: 'mob', castMode: 'ground', cooldownMs: 11800, range: 365, aoeRadius: 170, role: 'Area' },
+        { label: 'Flor do Eclipse', id: 'dru_primal_invocacao_primal', summary: 'Explosao magica forte para fechar rotacoes ofensivas.', target: 'mob', castMode: 'direct', cooldownMs: 16500, range: 385, autoAttackEligible: true, role: 'Execucao' }
       ],
       labels: ['Lifebinder', 'Blightcaller']
     },
     assassin: {
       a: [
-        { label: 'Estocada', id: 'ass_agil_reflexos', summary: 'Abertura rapida para grudar no alvo e manter a pressao curta.', target: 'mob', cooldownMs: 6200, range: 118, role: 'Ataque' },
+        { label: 'Estocada', id: 'ass_agil_reflexos', summary: 'Abertura rapida para grudar no alvo e manter a pressao curta.', target: 'mob', castMode: 'direct', cooldownMs: 6200, range: 118, autoAttackEligible: true, role: 'Ataque' },
         { label: 'Ripostar', id: 'ass_agil_contra_ataque', summary: 'Janela defensiva curta que valoriza duelos e trocas inteligentes.', target: 'self', cooldownMs: 9800, role: 'Buff' },
-        { label: 'Passo Sombrio', id: 'ass_agil_passo_fantasma', summary: 'Reposicionamento ofensivo para continuar colado no alvo.', target: 'mob', cooldownMs: 8000, range: 230, role: 'Ataque' },
-        { label: 'Corte de Tendao', id: 'ass_agil_golpe_nervos', summary: 'Corte preciso para manter a presa sob risco constante.', target: 'mob', cooldownMs: 8600, range: 125, role: 'Ataque' },
-        { label: 'Danca de Laminas', id: 'ass_agil_miragem', summary: 'Area curta e veloz para caos controlado em brigas de grupo.', target: 'mob', cooldownMs: 12500, range: 135, role: 'Area' }
+        { label: 'Passo Sombrio', id: 'ass_agil_passo_fantasma', summary: 'Reposicionamento ofensivo para continuar colado no alvo.', target: 'mob', castMode: 'direct', cooldownMs: 8000, range: 230, autoAttackEligible: true, role: 'Ataque' },
+        { label: 'Corte de Tendao', id: 'ass_agil_golpe_nervos', summary: 'Corte preciso para manter a presa sob risco constante.', target: 'mob', castMode: 'direct', cooldownMs: 8600, range: 125, autoAttackEligible: true, role: 'Ataque' },
+        { label: 'Danca de Laminas', id: 'ass_agil_miragem', summary: 'Area curta e veloz ao redor do proprio corpo para caos controlado em brigas de grupo.', target: 'self', castMode: 'self_aoe', cooldownMs: 12500, aoeRadius: 125, role: 'Area' }
       ],
       b: [
         { label: 'Marca do Cacador', id: 'ass_letal_expor_fraqueza', summary: 'Prepara o momento de burst e reforca o dano contra um alvo chave.', target: 'self', cooldownMs: 12000, role: 'Buff' },
         { label: 'Veu', id: 'ass_letal_ocultar', summary: 'Furtividade curta para montar aberturas e reposicionamento agressivo.', target: 'self', cooldownMs: 18000, role: 'Buff' },
-        { label: 'Emboscada', id: 'ass_letal_emboscada', summary: 'Golpe de abertura devastador que brilha quando sai do Veu.', target: 'mob', cooldownMs: 9800, range: 150, role: 'Ataque' },
-        { label: 'Cortina de Fumaca', id: 'ass_letal_bomba_fumaca', summary: 'Area tensa para desorganizar backline e abrir janela de escape.', target: 'mob', cooldownMs: 12800, range: 250, role: 'Area' },
-        { label: 'Queda da Noite', id: 'ass_letal_sentenca', summary: 'Finalizador atrasado para confirmar abates comprometidos.', target: 'mob', cooldownMs: 14800, range: 320, role: 'Execucao' }
+        { label: 'Emboscada', id: 'ass_letal_emboscada', summary: 'Golpe de abertura devastador que brilha quando sai do Veu.', target: 'mob', castMode: 'direct', cooldownMs: 9800, range: 150, autoAttackEligible: true, role: 'Ataque' },
+        { label: 'Cortina de Fumaca', id: 'ass_letal_bomba_fumaca', summary: 'Area tensa para desorganizar backline e abrir janela de escape.', target: 'mob', castMode: 'ground', cooldownMs: 12800, range: 250, aoeRadius: 150, role: 'Area' },
+        { label: 'Queda da Noite', id: 'ass_letal_sentenca', summary: 'Finalizador atrasado para confirmar abates comprometidos.', target: 'mob', castMode: 'direct', cooldownMs: 14800, range: 320, autoAttackEligible: true, role: 'Execucao' }
       ],
       labels: ['Duelist', 'Shade']
+    },
+    necromancer: {
+      a: [
+        { label: 'Levantar Mortos', id: 'nec_grave_raise_dead', summary: 'Consome as cargas necroticas armazenadas para invocar aliados mortos-vivos.', target: 'self', castMode: 'summon', cooldownMs: 10500, role: 'Area' },
+        { label: 'Colheita Sombria', id: 'nec_grave_harvest', summary: 'Lanca um golpe magico que recompensa execucoes com carga extra.', target: 'mob', castMode: 'direct', cooldownMs: 7600, range: 370, autoAttackEligible: true, role: 'Ataque' },
+        { label: 'Comandar Mortos', id: 'nec_grave_command_dead', summary: 'Ordena que todos os mortos avancem sobre o alvo atual.', target: 'mob', castMode: 'direct', cooldownMs: 9800, range: 390, role: 'Controle' },
+        { label: 'Barreira Ossa', id: 'nec_grave_bone_ward', summary: 'Ergue uma camada ossea defensiva que cresce com os summons ativos.', target: 'self', cooldownMs: 14200, role: 'Buff' },
+        { label: 'Chamado da Legiao', id: 'nec_grave_legion_call', summary: 'Reforca a reserva necrotica e renova a presenca dos mortos no campo.', target: 'self', cooldownMs: 22000, role: 'Buff' }
+      ],
+      b: [
+        { label: 'Lanca Ossa', id: 'nec_bone_spear', summary: 'Perfura uma linha de inimigos com magia ossea concentrada.', target: 'mob', castMode: 'line', cooldownMs: 8400, range: 420, lineLength: 320, lineWidth: 54, role: 'Ataque' },
+        { label: 'Explosao Cadaverica', id: 'nec_bone_corpse_burst', summary: 'Detona uma area necrotica escolhida no terreno.', target: 'mob', castMode: 'ground', cooldownMs: 11000, range: 370, aoeRadius: 150, role: 'Area' },
+        { label: 'Campo de Praga', id: 'nec_bone_blight_field', summary: 'Corrompe o chao em uma zona ampla de dano magico.', target: 'mob', castMode: 'ground', cooldownMs: 12600, range: 380, aoeRadius: 180, role: 'Area' },
+        { label: 'Drenar Alma', id: 'nec_bone_soul_leech', summary: 'Rouba a vitalidade do alvo e devolve parte em cura ao conjurador.', target: 'mob', castMode: 'direct', cooldownMs: 9800, range: 360, autoAttackEligible: true, role: 'Cura' },
+        { label: 'Exercito das Sombras', id: 'nec_bone_army_of_shadows', summary: 'Fortalece os mortos atuais ou invoca sombras quando o campo esta vazio.', target: 'self', cooldownMs: 24500, role: 'Buff' }
+      ],
+      labels: ['Gravecaller', 'Bonecaller']
     }
   } as const;
   const out: SkillTreeNode[] = [];
@@ -823,7 +893,13 @@ function buildSkillTree(): SkillTreeNode[] {
         buildLabel: def.labels[0],
         prereq: idx > 0 ? def.a[idx - 1].id : null,
         maxPoints: 5,
-        requiredLevel: tiers[idx] || 1
+        requiredLevel: tiers[idx] || 1,
+        castMode: entry.castMode || 'direct',
+        aoeRadius: entry.aoeRadius,
+        coneAngleDeg: entry.coneAngleDeg,
+        lineLength: entry.lineLength,
+        lineWidth: entry.lineWidth,
+        autoAttackEligible: entry.autoAttackEligible ?? (entry.target === 'mob' && (entry.castMode || 'direct') === 'direct')
       });
     });
     def.b.forEach((entry, idx) => {
@@ -835,7 +911,13 @@ function buildSkillTree(): SkillTreeNode[] {
         buildLabel: def.labels[1],
         prereq: idx > 0 ? def.b[idx - 1].id : null,
         maxPoints: 5,
-        requiredLevel: tiers[idx] || 1
+        requiredLevel: tiers[idx] || 1,
+        castMode: entry.castMode || 'direct',
+        aoeRadius: entry.aoeRadius,
+        coneAngleDeg: entry.coneAngleDeg,
+        lineLength: entry.lineLength,
+        lineWidth: entry.lineWidth,
+        autoAttackEligible: entry.autoAttackEligible ?? (entry.target === 'mob' && (entry.castMode || 'direct') === 'direct')
       });
     });
   }
@@ -999,6 +1081,62 @@ function getSkillTreeEntry(skillId: string) {
   return SKILL_TREE.find((entry) => entry.id === skillId) || null;
 }
 
+function skillRequiresAim(skill: SkillTreeNode | null) {
+  if (!skill) return false;
+  return skill.castMode === 'ground' || skill.castMode === 'self_aoe' || skill.castMode === 'cone' || skill.castMode === 'line';
+}
+
+export function beginSkillAim(skillId: string) {
+  const skill = getSkillTreeEntry(skillId);
+  if (!skill || !skillRequiresAim(skill)) return false;
+  skillAimStore.set({
+    active: true,
+    skillId: skill.id,
+    label: skill.label,
+    castMode: skill.castMode,
+    range: Math.max(0, Number(skill.range || 0)),
+    aoeRadius: Math.max(0, Number(skill.aoeRadius || 0)),
+    coneAngleDeg: Math.max(0, Number(skill.coneAngleDeg || 0)),
+    lineLength: Math.max(0, Number(skill.lineLength || 0)),
+    lineWidth: Math.max(0, Number(skill.lineWidth || 0))
+  });
+  return true;
+}
+
+export function cancelSkillAim() {
+  skillAimStore.set({
+    active: false,
+    skillId: null,
+    label: '',
+    castMode: null,
+    range: 0,
+    aoeRadius: 0,
+    coneAngleDeg: 0,
+    lineLength: 0,
+    lineWidth: 0
+  });
+}
+
+export function confirmSkillAim(targetX?: number | null, targetY?: number | null) {
+  const aim = get(skillAimStore);
+  if (!aim.active || !aim.skillId || !aim.castMode) return false;
+  const state = runtimeStore?.getState();
+  const selectedMobId = String(state?.selectedMobId || '');
+  const player = state?.playerId ? state?.resolvedWorld?.players?.[String(state.playerId)] || null : null;
+  const payload: Record<string, unknown> = { type: 'skill.cast', skillId: aim.skillId };
+  if (selectedMobId) payload.targetMobId = selectedMobId;
+  if (aim.castMode === 'self_aoe') {
+    payload.targetX = Number(player?.x || 0);
+    payload.targetY = Number(player?.y || 0);
+  } else {
+    payload.targetX = Number(targetX || 0);
+    payload.targetY = Number(targetY || 0);
+  }
+  sendUiMessage(payload);
+  cancelSkillAim();
+  return true;
+}
+
 export function sendUiMessage(payload: Record<string, unknown>) {
   runtimeSocket?.send(payload);
 }
@@ -1123,29 +1261,54 @@ export function clearCurrentTarget() {
 
 export function selectNearestTarget() {
   const state = runtimeStore?.getState();
-  const player = state?.resolvedWorld?.players?.[String(state?.playerId || '')] || state?.worldState?.players?.[String(state?.playerId || '')] || null;
+  const playerId = String(state?.playerId || '');
+  const player = state?.resolvedWorld?.players?.[playerId] || state?.worldState?.players?.[playerId] || null;
   const mobs = Array.isArray(state?.resolvedWorld?.mobs) ? state.resolvedWorld.mobs : [];
-  if (!player || !mobs.length) return false;
+  const players = state?.resolvedWorld?.players && typeof state.resolvedWorld.players === 'object'
+    ? Object.values(state.resolvedWorld.players)
+    : [];
+  if (!player) return false;
 
   const playerX = Number(player.x || 0);
   const playerY = Number(player.y || 0);
   const nearestMob = mobs
     .filter((entry: any) => entry && Number(entry.hp || 0) > 0)
     .map((entry: any) => ({
-      mob: entry,
+      type: 'mob' as const,
+      target: entry,
       distance: Math.hypot(Number(entry.x || 0) - playerX, Number(entry.y || 0) - playerY)
     }))
-    .sort((left, right) => left.distance - right.distance)[0];
+    .sort((left, right) => left.distance - right.distance)[0] || null;
 
-  if (!nearestMob?.mob?.id) return false;
-  const mobId = String(nearestMob.mob.id);
-  selectionStore.set({ selectedMobId: mobId, selectedPlayerId: null });
-  runtimeStore?.update({ selectedMobId: mobId, selectedPlayerId: null });
-  if (Boolean(get(mapSettingsStore).autoAttackEnabled)) {
-    sendUiMessage({ type: 'target_mob', mobId });
+  const nearestPlayer = players
+    .filter((entry: any) => {
+      if (!entry) return false;
+      const entryId = String(entry.id || '');
+      if (!entryId || entryId === playerId) return false;
+      return Number(entry.hp || 0) > 0;
+    })
+    .map((entry: any) => ({
+      type: 'player' as const,
+      target: entry,
+      distance: Math.hypot(Number(entry.x || 0) - playerX, Number(entry.y || 0) - playerY)
+    }))
+    .sort((left, right) => left.distance - right.distance)[0] || null;
+
+  const nextTarget = [nearestMob, nearestPlayer]
+    .filter(Boolean)
+    .sort((left: any, right: any) => Number(left?.distance || 0) - Number(right?.distance || 0))[0];
+
+  if (!nextTarget?.target?.id) return false;
+  if (nextTarget.type === 'player') {
+    const selectedPlayerId = Number(nextTarget.target.id || 0) || null;
+    selectionStore.set({ selectedMobId: null, selectedPlayerId });
+    runtimeStore?.update({ selectedMobId: null, selectedPlayerId });
   } else {
-    sendUiMessage({ type: 'combat.clearTarget' });
+    const mobId = String(nextTarget.target.id);
+    selectionStore.set({ selectedMobId: mobId, selectedPlayerId: null });
+    runtimeStore?.update({ selectedMobId: mobId, selectedPlayerId: null });
   }
+  sendUiMessage({ type: 'combat.clearTarget' });
   return true;
 }
 
@@ -1260,6 +1423,10 @@ export function learnSkill(skillId: string) {
 export function castSkill(skillId: string) {
   const skill = getSkillTreeEntry(skillId);
   if (!skill) return;
+  if (skillRequiresAim(skill)) {
+    beginSkillAim(skill.id);
+    return;
+  }
   if (skill.target === 'self') {
     sendUiMessage({ type: 'skill.cast', skillId });
     return;
@@ -1508,7 +1675,7 @@ export function toggleMapSettings(force?: boolean) {
 export function setSelectedAutoAttack(skillId: string) {
   const requestedSkillId = String(skillId || 'class_primary') || 'class_primary';
   const skill = requestedSkillId === 'class_primary' ? null : getSkillTreeEntry(requestedSkillId);
-  const safeSkillId = !skill || skill.target === 'mob' ? requestedSkillId : 'class_primary';
+  const safeSkillId = !skill || Boolean(skill.autoAttackEligible) ? requestedSkillId : 'class_primary';
   selectedAutoAttackStore.set(safeSkillId);
   persistSelectedAutoAttack(safeSkillId);
 }
@@ -1574,7 +1741,7 @@ export function activateHotbarBinding(key: string) {
     const selectedMobId = String(runtimeStore?.getState().selectedMobId || '');
     const selectedPlayerId = Number(runtimeStore?.getState().selectedPlayerId || 0);
     if (autoAttack.id !== 'class_primary' && selectedMobId) {
-      sendUiMessage({ type: 'skill.cast', skillId: autoAttack.id, targetMobId: selectedMobId });
+      castSkill(autoAttack.id);
       return;
     }
     if (selectedMobId) {
@@ -1589,6 +1756,10 @@ export function activateHotbarBinding(key: string) {
   if (binding.actionId === 'skill_cast' && binding.skillId) {
     const skill = getSkillTreeEntry(String(binding.skillId || ''));
     if (!skill) return;
+    if (skillRequiresAim(skill)) {
+      beginSkillAim(skill.id);
+      return;
+    }
     if (skill.target === 'self') {
       sendUiMessage({ type: 'skill.cast', skillId: binding.skillId });
       return;

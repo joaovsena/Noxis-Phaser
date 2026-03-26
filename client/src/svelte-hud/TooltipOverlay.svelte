@@ -17,11 +17,13 @@
 
   const TOOLTIP_WIDTH = 332;
   const TOOLTIP_HEIGHT = 420;
+  const SKILL_TOOLTIP_HEIGHT = 360;
 
   let viewportWidth = 1920;
   let viewportHeight = 1080;
 
   $: payload = $tooltipStore.payload;
+  $: skill = payload?.kind === 'skill' ? payload : null;
   $: item = payload?.item || null;
   $: equipped = payload?.equipped || null;
   $: rarity = resolveItemRarity(item);
@@ -57,8 +59,23 @@
       ].filter((entry) => entry.amount > 0)
       : [{ key: 'copper', amount: 0, css: 'coin-copper' }])
     : [];
-  $: left = `${Math.min(Math.max(12, viewportWidth - TOOLTIP_WIDTH), Math.max(12, $tooltipStore.x + 18))}px`;
-  $: top = `${Math.min(Math.max(12, viewportHeight - TOOLTIP_HEIGHT), Math.max(12, $tooltipStore.y + 18))}px`;
+  $: skillRows = skill
+    ? [
+        skill.impactText ? { label: 'Impacto', value: String(skill.impactText) } : null,
+        { label: 'Tipo', value: String(skill.castModeLabel || 'Alvo unico') },
+        { label: 'Recarga', value: String(skill.cooldownLabel || formatDuration(Number(skill.cooldownMs || 0))) },
+        { label: 'Conjuracao', value: String(skill.castTimeLabel || formatDuration(Number(skill.castTimeMs || 0))) },
+        Number(skill.range || 0) > 0 ? { label: 'Alcance', value: `${Math.round(Number(skill.range || 0))} px` } : null,
+        Number(skill.aoeRadius || 0) > 0 ? { label: 'Raio', value: `${Math.round(Number(skill.aoeRadius || 0))} px` } : null,
+        Number(skill.coneAngleDeg || 0) > 0 ? { label: 'Cone', value: `${Math.round(Number(skill.coneAngleDeg || 0))} graus` } : null,
+        Number(skill.lineLength || 0) > 0 ? { label: 'Linha', value: `${Math.round(Number(skill.lineLength || 0))} px` } : null,
+        Number(skill.lineWidth || 0) > 0 ? { label: 'Largura', value: `${Math.round(Number(skill.lineWidth || 0))} px` } : null
+      ].filter(Boolean)
+    : [];
+  $: tooltipWidth = skill ? 348 : TOOLTIP_WIDTH;
+  $: tooltipHeight = skill ? SKILL_TOOLTIP_HEIGHT : TOOLTIP_HEIGHT;
+  $: left = `${Math.min(Math.max(12, viewportWidth - tooltipWidth), Math.max(12, $tooltipStore.x + 18))}px`;
+  $: top = `${Math.min(Math.max(12, viewportHeight - tooltipHeight), Math.max(12, $tooltipStore.y + 18))}px`;
 
   onMount(() => {
     const syncViewport = () => {
@@ -77,9 +94,49 @@
     }
     return `${safe > 0 ? '+' : ''}${safe}`;
   }
+
+  function formatDuration(ms: number) {
+    const safe = Math.max(0, Number(ms || 0));
+    if (!safe) return 'Instantaneo';
+    if (safe >= 10000) return `${Math.round(safe / 1000)}s`;
+    return `${(safe / 1000).toFixed(1)}s`;
+  }
 </script>
 
-{#if $tooltipStore.visible && item}
+{#if $tooltipStore.visible && skill}
+  <aside class="tooltip-shell skill-tooltip" style={`left:${left};top:${top};`}>
+    <div class="tooltip-head">
+      <div class="head-copy">
+        <div class="title skill-title-row">
+          {#if skill.iconUrl}
+            <img class="skill-icon" src={skill.iconUrl} alt={skill.label} />
+          {/if}
+          <span>{skill.label}</span>
+        </div>
+        <div class="meta-grid">
+          <span class="meta-pill">{skill.role}</span>
+          <span class="meta-pill">Nv {Math.max(1, Number(skill.level || 1))}/{Math.max(1, Number(skill.maxPoints || 1))}</span>
+          {#if skill.autoAttackEligible}
+            <span class="meta-pill">Auto-atk</span>
+          {/if}
+        </div>
+      </div>
+    </div>
+
+    <div class="info-grid">
+      {#each skillRows as row}
+        <div class="info-row">
+          <span class="info-label">{row.label}</span>
+          <strong class="info-value neutral">{row.value}</strong>
+        </div>
+      {/each}
+    </div>
+
+    <div class="divider"></div>
+    <div class="section-title">Descricao</div>
+    <div class="muted skill-summary">{String(skill.summary || 'Sem descricao.')}</div>
+  </aside>
+{:else if $tooltipStore.visible && item}
   <aside class={`tooltip-shell rarity-${rarity}`} style={`left:${left};top:${top};`}>
     <div class="tooltip-head">
       <div class="head-copy">
@@ -177,6 +234,10 @@
     font-size: 0.78rem;
   }
 
+  .skill-tooltip {
+    width: min(340px, calc(100vw - 24px));
+  }
+
   .tooltip-head,
   .head-copy,
   .info-grid,
@@ -215,6 +276,20 @@
     line-height: 1.18;
     color: #f4e5c2;
     text-shadow: 0 0 10px rgba(0, 0, 0, 0.4);
+  }
+
+  .skill-title-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .skill-icon {
+    width: 32px;
+    height: 32px;
+    flex: 0 0 32px;
+    object-fit: contain;
+    filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.34));
   }
 
   .rarity-pill,
@@ -317,6 +392,10 @@
   .current.neutral,
   .muted {
     color: rgba(233, 223, 200, 0.72);
+  }
+
+  .skill-summary {
+    line-height: 1.45;
   }
 
   .price-row {

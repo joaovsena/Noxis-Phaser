@@ -186,6 +186,122 @@ const QUESTS = [
                 { templateId: 'potion_hp', quantity: 3 }
             ]
         }
+    },
+    {
+        id: 'q_lava_watch_01',
+        category: 'main',
+        title: 'Vigia das Brasas',
+        description: 'Kael precisa de uma primeira varredura segura nas bordas de lava antes de liberar a travessia completa.',
+        giverNpcId: 'npc_vigia_kael',
+        turnInNpcId: 'npc_vigia_kael',
+        requiresCompletedIds: ['q_forest_dungeon_01'],
+        objectives: [
+            { id: 'kill_lava_front', type: 'kill', targetKinds: ['normal'], mapKey: 'lava', required: 6, text: 'Derrote 6 monstros comuns nas bordas de lava' }
+        ],
+        rewards: {
+            xp: 280,
+            currency: { silver: 10, copper: 40 },
+            items: [{ classWeapon: true, tier: 2, rarity: 'verde', quality: 'bom', quantity: 1 }]
+        }
+    },
+    {
+        id: 'q_lava_ember_01',
+        category: 'main',
+        title: 'Brasas Coletadas',
+        description: 'Iris precisa de amostras do campo de magma para reforcar equipamentos e preparar a avancada.',
+        giverNpcId: 'npc_pesquisadora_iris',
+        turnInNpcId: 'npc_pesquisadora_iris',
+        requiresCompletedIds: ['q_lava_watch_01'],
+        objectives: [
+            { id: 'collect_lava_ember', type: 'collect', templateId: 'material_lava_ember', required: 4, text: 'Colete 4 Brasas de Lava' },
+            { id: 'collect_lava_ore', type: 'collect', templateId: 'material_lava_ore', required: 2, text: 'Colete 2 Minerios de Obsidiana' }
+        ],
+        rewards: {
+            xp: 320,
+            currency: { silver: 14 },
+            items: [
+                { classEquipmentSlot: 'ring', tier: 2, rarity: 'verde', quality: 'otimo', quantity: 1 },
+                { templateId: 'potion_hp_major', quantity: 2 }
+            ]
+        }
+    },
+    {
+        id: 'q_lava_crater_01',
+        category: 'main',
+        title: 'Cratera da Vigia',
+        description: 'Kael quer o caminho ate a cratera principal estabilizado. Elimine as maiores ameacas e retorne com o relatorio.',
+        giverNpcId: 'npc_vigia_kael',
+        turnInNpcId: 'npc_pesquisadora_iris',
+        requiresCompletedIds: ['q_lava_ember_01'],
+        objectives: [
+            { id: 'kill_lava_elites', type: 'kill', targetKinds: ['elite', 'subboss'], mapKey: 'lava', required: 3, text: 'Derrote 3 elites ou subchefes na lava' }
+        ],
+        rewards: {
+            xp: 380,
+            currency: { gold: 1, silver: 4 },
+            items: [
+                { classEquipmentSlot: 'chest', tier: 2, rarity: 'azul', quality: 'bom', quantity: 1 },
+                { templateId: 'material_lava_ore', quantity: 3 }
+            ]
+        }
+    },
+    {
+        id: 'q_undead_watch_01',
+        category: 'main',
+        title: 'Lamparinas no Brejo',
+        description: 'Sera precisa reduzir a presenca dos mortos-vivos na entrada do brejo antes do cair da noite.',
+        giverNpcId: 'npc_exorcista_sera',
+        turnInNpcId: 'npc_exorcista_sera',
+        requiresCompletedIds: ['q_lava_crater_01'],
+        objectives: [
+            { id: 'kill_undead_front', type: 'kill', targetKinds: ['normal'], mapKey: 'undead', required: 7, text: 'Derrote 7 mortos-vivos comuns no brejo' }
+        ],
+        rewards: {
+            xp: 430,
+            currency: { gold: 1, silver: 18 },
+            items: [{ classWeapon: true, tier: 3, rarity: 'azul', quality: 'bom', quantity: 1 }]
+        }
+    },
+    {
+        id: 'q_undead_relics_01',
+        category: 'side',
+        title: 'Restos que Falam',
+        description: 'Doran pede restos uteis do cemitério e quer que voce o informe sobre a atividade perto do mausoleu.',
+        giverNpcId: 'npc_coveiro_doran',
+        turnInNpcId: 'npc_coveiro_doran',
+        requiresCompletedIds: ['q_undead_watch_01'],
+        objectives: [
+            { id: 'collect_bone', type: 'collect', templateId: 'material_undead_bone', required: 4, text: 'Colete 4 Ossos Malditos' },
+            { id: 'collect_ectoplasm', type: 'collect', templateId: 'material_undead_ectoplasm', required: 2, text: 'Colete 2 Ectoplasmas' }
+        ],
+        rewards: {
+            xp: 340,
+            currency: { silver: 28 },
+            items: [
+                { classEquipmentSlot: 'necklace', tier: 3, rarity: 'azul', quality: 'otimo', quantity: 1 },
+                { templateId: 'potion_hp_major', quantity: 3 }
+            ]
+        }
+    },
+    {
+        id: 'q_undead_mausoleum_01',
+        category: 'main',
+        title: 'Portao do Mausoleu',
+        description: 'Sera precisa de uma abertura segura para o mausoleu. Derrube as liderancas da nevoa e limpe o acesso.',
+        giverNpcId: 'npc_exorcista_sera',
+        turnInNpcId: 'npc_exorcista_sera',
+        requiresCompletedIds: ['q_undead_relics_01'],
+        objectives: [
+            { id: 'kill_undead_elites', type: 'kill', targetKinds: ['elite', 'subboss'], mapKey: 'undead', required: 3, text: 'Derrote 3 elites ou subchefes no territorio morto-vivo' }
+        ],
+        rewards: {
+            xp: 520,
+            currency: { gold: 2, silver: 40 },
+            items: [
+                { classEquipmentSlot: 'chest', tier: 3, rarity: 'roxo', quality: 'bom', quantity: 1 },
+                { templateId: 'skill_reset_hourglass', quantity: 1 }
+            ]
+        }
     }
 ];
 const QUEST_BY_ID = Object.fromEntries(QUESTS.map((q) => [q.id, q]));
@@ -266,6 +382,13 @@ class QuestService {
             .filter((q) => q.giverNpcId === npc.id)
             .filter((q) => this.isQuestAvailableForPlayer(q, questState))
             .map((q) => q.id);
+        const activeQuestIds = QUESTS
+            .filter((q) => q.giverNpcId === npc.id || q.turnInNpcId === npc.id)
+            .filter((q) => {
+            const entry = questState.accepted[q.id];
+            return Boolean(entry && entry.status === 'active');
+        })
+            .map((q) => q.id);
         const turnInQuestIds = QUESTS
             .filter((q) => q.turnInNpcId === npc.id)
             .filter((q) => questState.accepted[q.id]?.status === 'ready')
@@ -275,10 +398,11 @@ class QuestService {
             npc: { id: npc.id, name: npc.name, greeting: npc.greeting },
             dungeonEntry: this.getDungeonEntryForNpc(npc.id, player),
             availableQuestIds,
+            activeQuestIds,
             turnInQuestIds,
             shopOffers: this.getShopOffers(npc.id),
             quests: QUESTS
-                .filter((q) => availableQuestIds.includes(q.id) || turnInQuestIds.includes(q.id))
+                .filter((q) => availableQuestIds.includes(q.id) || activeQuestIds.includes(q.id) || turnInQuestIds.includes(q.id))
                 .map((q) => ({
                 id: q.id,
                 category: q.category,
@@ -572,11 +696,18 @@ class QuestService {
             }
             return explicit;
         }
+        const classId = String(player?.class || 'knight').toLowerCase();
+        const tier = Math.max(1, Number(reward?.tier || 1));
+        const rarity = String(reward?.rarity || 'branco');
+        const quality = String(reward?.quality || 'normal');
+        if (reward?.classWeapon) {
+            const candidate = (0, config_1.resolveClassWeaponTemplateId)(classId, tier, rarity, quality);
+            return config_1.BUILTIN_ITEM_TEMPLATE_BY_ID[candidate] ? candidate : '';
+        }
         const slot = String(reward?.classEquipmentSlot || '').trim();
         if (!slot)
             return '';
-        const classId = String(player?.class || 'knight').toLowerCase();
-        const candidate = (0, config_1.resolveClassEquipmentTemplateId)(classId, slot, slot === 'chest' ? 1 : 1, slot === 'chest' ? 'verde' : 'branco', slot === 'ring' || slot === 'necklace' ? 'bom' : 'normal');
+        const candidate = (0, config_1.resolveClassEquipmentTemplateId)(classId, slot, tier, rarity, quality);
         return config_1.BUILTIN_ITEM_TEMPLATE_BY_ID[candidate] ? candidate : '';
     }
     getQuestState(player) {

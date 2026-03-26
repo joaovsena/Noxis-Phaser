@@ -61,6 +61,8 @@ export interface PlayerRuntime {
         skillId: string;
         targetMobId?: string | null;
         targetPlayerId?: number | null;
+        targetX?: number | null;
+        targetY?: number | null;
         issuedAt: number;
         nextAttemptAt?: number;
     } | null;
@@ -75,6 +77,12 @@ export interface PlayerRuntime {
     petOwnerships?: PetOwnershipRecord[];
     activePetOwnershipId?: string | null;
     petBehavior?: PetBehavior;
+    graveCharges?: number;
+    graveFamily?: string | null;
+    graveTemplateId?: string | null;
+    graveMapKey?: string | null;
+    activeSummonIds?: string[];
+    graveHarvestBonusUntil?: number;
 }
 
 export type PetRole = 'offensive' | 'support' | 'defensive';
@@ -118,6 +126,32 @@ export interface PetRuntime {
     lastActionAt: number;
     lastSupportAt: number;
     visualSeed: number;
+}
+
+export interface SummonRuntime {
+    id: string;
+    ownerPlayerId: number;
+    ownerName: string;
+    mapKey: string;
+    mapId: string;
+    x: number;
+    y: number;
+    hp: number;
+    maxHp: number;
+    level: number;
+    family: string;
+    templateId: string;
+    sourceMobKind: string;
+    moveStyle: 'ground' | 'flying' | 'heavy' | 'ranged';
+    summonRole: 'offensive' | 'support' | 'defensive';
+    visualSeed: number;
+    summonedAt: number;
+    expiresAt: number;
+    targetMobId?: string | null;
+    homeX?: number;
+    homeY?: number;
+    nextThinkAt?: number;
+    nextAttackAt?: number;
 }
 
 export interface Mob {
@@ -559,6 +593,8 @@ export interface SkillCastMessage {
     skillId: string;
     targetMobId?: string | null;
     targetPlayerId?: number | null;
+    targetX?: number | null;
+    targetY?: number | null;
 }
 
 export interface SkillLearnMessage {

@@ -9,12 +9,15 @@
     commitHotbarBindings,
     dragStore,
     endDrag,
+    hideTooltip,
     hotbarBindingsStore,
     hotbarSlots,
     panelStore,
     playerStats,
     sendUiMessage,
     setHotbarBinding,
+    showTooltip,
+    skillsStore,
     togglePanel,
     worldStore
   } from './stores/gameUi';
@@ -49,6 +52,86 @@
   $: xpRatio = Math.max(0, Math.min(1, xpCurrent / xpMax));
   $: topRow = $hotbarSlots.slice(0, 8);
   $: bottomRow = $hotbarSlots.slice(8, 16);
+
+  function formatSeconds(ms: number) {
+    const safe = Math.max(0, Number(ms || 0));
+    if (!safe) return 'Instantaneo';
+    return `${safe >= 10000 ? Math.round(safe / 1000) : (safe / 1000).toFixed(1)}s`;
+  }
+
+  function castModeLabel(mode: string | null | undefined) {
+    switch (String(mode || 'direct')) {
+      case 'ground':
+        return 'Area no chao';
+      case 'self_aoe':
+        return 'Area ao redor';
+      case 'cone':
+        return 'Cone frontal';
+      case 'line':
+        return 'Linha';
+      case 'summon':
+        return 'Invocacao';
+      default:
+        return 'Alvo unico';
+    }
+  }
+
+  function impactLabel(entry: any, isBasicAttack: boolean) {
+    if (isBasicAttack) return 'Dano basico continuo';
+    const role = String(entry?.role || '');
+    const mode = String(entry?.castMode || 'direct');
+    if (role === 'Cura') return 'Cura e sustain';
+    if (role === 'Buff') return 'Fortalecimento utilitario';
+    if (role === 'Controle') return mode === 'ground' ? 'Controle de area' : 'Controle de alvo';
+    if (role === 'Execucao') return 'Dano alto contra alvo ferido';
+    if (role === 'Area') {
+      if (mode === 'self_aoe') return 'Dano em area ao redor';
+      if (mode === 'ground') return 'Dano em area no ponto alvo';
+      if (mode === 'cone') return 'Dano em cone frontal';
+      if (mode === 'line') return 'Dano em linha';
+      return 'Dano em area';
+    }
+    return mode === 'direct' ? 'Dano direto no alvo' : 'Dano ofensivo';
+  }
+
+  function inspectHotbarSkill(slot: any, x: number, y: number) {
+    const skillId = String(slot?.skillId || '');
+    if (!skillId) {
+      hideTooltip();
+      return;
+    }
+    const entry = $skillsStore.entries.find((candidate) => candidate.id === skillId) || null;
+    const isBasicAttack = String(slot?.binding?.actionId || '') === 'basic_attack' || skillId === 'class_primary';
+    const payload = {
+      kind: 'skill',
+      id: skillId,
+      label: String(entry?.label || slot?.label || (isBasicAttack ? 'Ataque Basico' : 'Habilidade')),
+      iconUrl: String(entry?.iconUrl || slot?.iconUrl || ''),
+      summary: String(
+        entry?.summary
+          || (isBasicAttack
+            ? 'Ataque principal da classe usado para manter pressao basica quando nao ha outra habilidade melhor.'
+            : 'Sem descricao.')
+      ),
+      role: String(entry?.role || (isBasicAttack ? 'Ataque' : 'Habilidade')),
+      impactText: impactLabel(entry, isBasicAttack),
+      level: Math.max(0, Number(entry?.level || (isBasicAttack ? 1 : 0))),
+      maxPoints: Math.max(1, Number(entry?.maxPoints || 1)),
+      cooldownMs: Math.max(0, Number(slot?.cooldownMs || entry?.cooldownMs || 0)),
+      castTimeMs: 0,
+      castMode: String(entry?.castMode || 'direct'),
+      castModeLabel: castModeLabel(entry?.castMode || 'direct'),
+      range: Math.max(0, Number(entry?.range || (isBasicAttack ? 100 : 0))),
+      aoeRadius: Math.max(0, Number(entry?.aoeRadius || 0)),
+      coneAngleDeg: Math.max(0, Number(entry?.coneAngleDeg || 0)),
+      lineLength: Math.max(0, Number(entry?.lineLength || 0)),
+      lineWidth: Math.max(0, Number(entry?.lineWidth || 0)),
+      autoAttackEligible: Boolean(entry?.autoAttackEligible || isBasicAttack),
+      cooldownLabel: formatSeconds(Number(slot?.cooldownMs || entry?.cooldownMs || 0)),
+      castTimeLabel: 'Instantaneo'
+    };
+    showTooltip(payload, x, y);
+  }
 
   function queueLayoutVarsUpdate() {
     if (typeof window === 'undefined') return;
@@ -89,6 +172,17 @@
       next[targetKey] = from;
       commitHotbarBindings(next);
     }
+    endDrag();
+  }
+
+  function handleHotbarDragEnd(slotKey: string, event: CustomEvent<{ x: number; y: number }>) {
+    if (!bottomBarEl) return;
+    const rect = bottomBarEl.getBoundingClientRect();
+    const x = Number(event.detail?.x || 0);
+    const y = Number(event.detail?.y || 0);
+    if (!x && !y) return;
+    const withinBar = x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+    if (!withinBar) clearHotbarBinding(slotKey);
     endDrag();
   }
 
@@ -164,7 +258,10 @@
                 cooldownRemainingMs={Math.max(0, slot.cooldownEndsAt - hotbarNow)}
                 cooldownTotalMs={slot.cooldownMs}
                 on:dragstart={() => slot.binding && beginDrag({ source: 'hotbar', key: slot.key })}
+                on:dragend={(event) => handleHotbarDragEnd(slot.key, event)}
                 on:contextaction={() => slot.binding && clearHotbarBinding(slot.key)}
+                on:inspect={(event) => inspectHotbarSkill(slot, event.detail.x, event.detail.y)}
+                on:inspectend={hideTooltip}
               />
             </div>
           {/each}
@@ -183,7 +280,10 @@
                 cooldownRemainingMs={Math.max(0, slot.cooldownEndsAt - hotbarNow)}
                 cooldownTotalMs={slot.cooldownMs}
                 on:dragstart={() => slot.binding && beginDrag({ source: 'hotbar', key: slot.key })}
+                on:dragend={(event) => handleHotbarDragEnd(slot.key, event)}
                 on:contextaction={() => slot.binding && clearHotbarBinding(slot.key)}
+                on:inspect={(event) => inspectHotbarSkill(slot, event.detail.x, event.detail.y)}
+                on:inspectend={hideTooltip}
               />
             </div>
           {/each}

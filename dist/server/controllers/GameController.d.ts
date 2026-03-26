@@ -32,6 +32,7 @@ export declare class GameController {
     private storageService;
     private guildService;
     private petService;
+    private necromancerService;
     players: Map<number, PlayerRuntime>;
     usernameToPlayerId: Map<string, number>;
     groundItems: GroundItem[];
@@ -163,6 +164,25 @@ export declare class GameController {
             behavior: string;
             visualSeed: number;
         } | null)[];
+        summons: ({
+            id: string;
+            ownerPlayerId: number;
+            ownerName: string;
+            mapKey: string;
+            mapId: string;
+            x: number;
+            y: number;
+            hp: number;
+            maxHp: number;
+            level: number;
+            family: string;
+            templateId: string;
+            sourceMobKind: string;
+            moveStyle: string;
+            summonRole: string;
+            visualSeed: number;
+            expiresAt: number;
+        } | null)[];
         mobs: ({
             id: string;
             x: number;
@@ -259,6 +279,7 @@ export declare class GameController {
     private sanitizeNetworkItem;
     private sanitizeGroundItemForNetwork;
     private sanitizePetForNetwork;
+    private sanitizeSummonForNetwork;
     private sanitizeMobForNetwork;
     private serializeSkillCooldowns;
     private serializeActiveSkillEffects;

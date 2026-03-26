@@ -33,7 +33,11 @@
   $: dialog = $npcStore.dialog;
   $: npcId = String(dialog?.npc?.id || '');
   $: availableQuestIds = Array.isArray(dialog?.availableQuestIds) ? dialog.availableQuestIds.map(String) : [];
+  $: activeQuestIds = Array.isArray(dialog?.activeQuestIds) ? dialog.activeQuestIds.map(String) : [];
   $: turnInQuestIds = Array.isArray(dialog?.turnInQuestIds) ? dialog.turnInQuestIds.map(String) : [];
+  $: availableQuestIdSet = new Set(availableQuestIds);
+  $: activeQuestIdSet = new Set(activeQuestIds);
+  $: turnInQuestIdSet = new Set(turnInQuestIds);
   $: quests = Array.isArray(dialog?.quests) ? dialog.quests : [];
   $: selectedQuest = quests.find((quest: any) => String(quest?.id || '') === selectedQuestId) || quests[0] || null;
   $: shopOffers = Array.isArray(dialog?.shopOffers) ? dialog.shopOffers : [];
@@ -49,7 +53,7 @@
   $: partyMemberCount = Array.isArray(party?.members) ? party.members.length : 0;
   $: dungeonEntry = dialog?.dungeonEntry || null;
   $: canSell = shopOffers.length > 0;
-  $: sellableItems = inventoryItems.filter((item: any) => Number(item?.quantity || 1) > 0);
+  $: sellableItems = inventoryItems.filter((item: any) => Number(item?.quantity || 1) > 0 && item?.equipped !== true);
   $: playerClass = String($attributesStore.player?.class || 'knight').toLowerCase();
   $: playerWalletTokens = walletTokens(wallet);
   $: merchantIntro = activePanel === 'dialog' && shopOffers.length > 0 && !quests.length && !dungeonEntry;
@@ -130,6 +134,23 @@
   function chooseQuest(questId: string) {
     selectedQuestId = questId;
     activePanel = 'quest';
+  }
+
+  function questStateLabel(quest: any) {
+    const questId = String(quest?.id || '');
+    if (turnInQuestIdSet.has(questId)) return 'Entregar';
+    if (activeQuestIdSet.has(questId)) return 'Andamento';
+    if (availableQuestIdSet.has(questId)) return 'Disponivel';
+    return 'Quest';
+  }
+
+  function questGuideText(quest: any) {
+    const questId = String(quest?.id || '');
+    if (turnInQuestIdSet.has(questId)) return 'Retorne a este NPC para concluir a missao.';
+    const firstObjective = Array.isArray(quest?.objectives) ? quest.objectives[0] || null : null;
+    if (firstObjective?.text) return String(firstObjective.text);
+    if (availableQuestIdSet.has(questId)) return 'Aceite esta missao para iniciar a proxima etapa.';
+    return 'Sem orientacao adicional no momento.';
   }
 
   function openShop() {
@@ -386,7 +407,8 @@
         {#if quests.length}
           {#each quests as quest}
             <button class={`choice-button ${activePanel === 'quest' && selectedQuestId === String(quest?.id || '') ? 'active' : ''}`} type="button" on:click={() => chooseQuest(String(quest?.id || ''))}>
-              {quest.title || quest.id || 'Quest'}
+              <span>{quest.title || quest.id || 'Quest'}</span>
+              <strong>{questStateLabel(quest)}</strong>
             </button>
           {/each}
         {/if}
@@ -410,6 +432,7 @@
             <div class="detail-kicker">{selectedQuest.category === 'main' ? 'Trilha principal' : 'Missao secundaria'}</div>
             <h3>{selectedQuest.title || selectedQuest.id || 'Quest'}</h3>
             <p>{selectedQuest.description || 'Sem descricao adicional.'}</p>
+            <div class="detail-meta-line">{questGuideText(selectedQuest)}</div>
 
             {#if Array.isArray(selectedQuest.objectives) && selectedQuest.objectives.length}
               <div class="objective-list">
@@ -652,6 +675,21 @@
     font-family: var(--hud-font-display);
     font-size: 0.92rem;
     text-align: left;
+  }
+
+  .npc-choice-list .choice-button {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .npc-choice-list .choice-button strong {
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: rgba(233, 214, 169, 0.88);
+    flex-shrink: 0;
   }
 
   .choice-button:first-child {

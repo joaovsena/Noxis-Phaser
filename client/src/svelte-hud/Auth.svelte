@@ -226,6 +226,7 @@
             <option value="archer">Arqueiro</option>
             <option value="druid">Druida</option>
             <option value="assassin">Assassino</option>
+            <option value="necromancer">Necromante</option>
           </select>
 
           <label for="create-gender">Sexo</label>

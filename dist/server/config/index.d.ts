@@ -181,5 +181,16 @@ export declare const CLASS_TEMPLATES: {
         attackRange: number;
         damageType: string;
     };
+    necromancer: {
+        str: number;
+        int: number;
+        dex: number;
+        vit: number;
+        initialHp: number;
+        moveSpeed: number;
+        attackSpeed: number;
+        attackRange: number;
+        damageType: string;
+    };
 };
 //# sourceMappingURL=index.d.ts.map

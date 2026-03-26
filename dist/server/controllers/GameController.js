@@ -20,6 +20,7 @@ const TradeService_1 = require("../services/TradeService");
 const StorageService_1 = require("../services/StorageService");
 const GuildService_1 = require("../services/GuildService");
 const PetService_1 = require("../services/PetService");
+const NecromancerService_1 = require("../services/NecromancerService");
 const hash_1 = require("../utils/hash");
 const math_1 = require("../utils/math");
 const currency_1 = require("../utils/currency");
@@ -100,12 +101,13 @@ class GameController {
         this.storageService = new StorageService_1.StorageService(this.sendRaw.bind(this), this.persistPlayer.bind(this), this.sendInventoryState.bind(this), this.normalizeInventorySlots.bind(this), this.addItemToInventory.bind(this));
         this.guildService = new GuildService_1.GuildService(this.players, this.persistence, this.sendRaw.bind(this));
         this.petService = new PetService_1.PetService(this.players, this.persistence, this.sendRaw.bind(this), this.resolveTargetMobForPet.bind(this), this.applyDamageToMobAndHandleDeath.bind(this), this.sendStatsUpdated.bind(this));
+        this.necromancerService = new NecromancerService_1.NecromancerService(this.players, this.sendRaw.bind(this), this.resolveTargetMobForPet.bind(this), this.applyDamageToMobAndHandleDeath.bind(this), this.sendStatsUpdated.bind(this));
         this.questService = new QuestService_1.QuestService(this.sendRaw.bind(this), this.persistPlayer.bind(this), this.persistPlayerCritical.bind(this), this.grantXp.bind(this), this.grantRewardItem.bind(this), this.grantCurrency.bind(this), (player, npcId) => this.dungeonService?.getNpcUiStateForPlayer(player, npcId) || null);
         this.eventService = new EventService_1.EventService(this.mobService, this.broadcastMapInstance.bind(this), this.getMapWorld.bind(this), this.projectToWalkable.bind(this));
         this.dungeonService = new DungeonService_1.DungeonService(this.players, this.mobService, this.sendRaw.bind(this), this.sendStatsUpdated.bind(this), this.persistPlayer.bind(this), this.persistPlayerCritical.bind(this), this.grantCurrency.bind(this), this.getMapWorld.bind(this), this.projectToWalkable.bind(this), this.removeGroundItemsByMapInstance.bind(this), this.dropTemplateAt.bind(this));
         this.skillEffectsService = new SkillEffectsService_1.SkillEffectsService(this.players, this.sendRaw.bind(this));
-        this.skillService = new SkillService_1.SkillService(skillCatalog_1.SKILL_DEFS, this.sendRaw.bind(this), this.normalizeClassId.bind(this), this.getSkillLevel.bind(this), this.pruneExpiredSkillEffects.bind(this), this.applyTimedSkillEffect.bind(this), this.sendSkillEffect.bind(this), this.computeMobDamage.bind(this), this.applyDamageToMobAndHandleDeath.bind(this), this.broadcastMobHit.bind(this), this.applyOnHitSkillEffects.bind(this), this.hasActiveSkillEffect.bind(this), this.removeSkillEffectById.bind(this), this.getSkillPowerWithLevel.bind(this), this.sendStatsUpdated.bind(this), this.mapInstanceId.bind(this), this.mobService.getMobByIdInMap.bind(this.mobService), (mapId) => this.mobService.getMobsByMap(mapId), this.assignPathTo.bind(this), this.getSkillPrerequisite.bind(this), this.getSkillRequiredLevel.bind(this), this.normalizeSkillLevels.bind(this), this.getAvailableSkillPoints.bind(this), this.recomputePlayerStats.bind(this), this.persistPlayer.bind(this), (playerId) => this.players.get(playerId));
-        this.combatRuntimeService = new CombatRuntimeService_1.CombatRuntimeService(this.players, this.mobService, () => this.mobsPeacefulMode, this.mapInstanceId.bind(this), this.getMapWorld.bind(this), this.projectToWalkable.bind(this), this.recalculatePathToward.bind(this), this.getActiveSkillEffectAggregate.bind(this), this.computeHitChance.bind(this), this.getMobEvasion.bind(this), this.computeMobDamage.bind(this), this.applyDamageToMobAndHandleDeath.bind(this), this.applyOnHitSkillEffects.bind(this), this.sendStatsUpdated.bind(this), this.broadcastMobHit.bind(this), this.sendRaw.bind(this), this.persistPlayer.bind(this), this.syncAllPartyStates.bind(this), this.tryPlayerAttack.bind(this), this.getPvpAttackPermission.bind(this), this.isBlockedAt.bind(this), this.hasLineOfSight.bind(this), this.computeDamageAfterMitigation.bind(this));
+        this.skillService = new SkillService_1.SkillService(skillCatalog_1.SKILL_DEFS, this.sendRaw.bind(this), this.normalizeClassId.bind(this), this.getSkillLevel.bind(this), this.pruneExpiredSkillEffects.bind(this), this.applyTimedSkillEffect.bind(this), this.sendSkillEffect.bind(this), this.computeMobDamage.bind(this), this.applyDamageToMobAndHandleDeath.bind(this), this.broadcastMobHit.bind(this), this.applyOnHitSkillEffects.bind(this), this.hasActiveSkillEffect.bind(this), this.removeSkillEffectById.bind(this), this.getSkillPowerWithLevel.bind(this), this.sendStatsUpdated.bind(this), this.mapInstanceId.bind(this), this.mobService.getMobByIdInMap.bind(this.mobService), (mapId) => this.mobService.getMobsByMap(mapId), this.assignPathTo.bind(this), this.getSkillPrerequisite.bind(this), this.getSkillRequiredLevel.bind(this), this.normalizeSkillLevels.bind(this), this.getAvailableSkillPoints.bind(this), this.recomputePlayerStats.bind(this), this.persistPlayer.bind(this), (playerId) => this.players.get(playerId), this.necromancerService.raiseDead.bind(this.necromancerService), this.necromancerService.commandDead.bind(this.necromancerService), this.necromancerService.legionCall.bind(this.necromancerService), this.necromancerService.armyOfShadows.bind(this.necromancerService), this.necromancerService.getActiveSummonCount.bind(this.necromancerService));
+        this.combatRuntimeService = new CombatRuntimeService_1.CombatRuntimeService(this.players, this.mobService, () => this.mobsPeacefulMode, this.mapInstanceId.bind(this), this.getMapWorld.bind(this), this.projectToWalkable.bind(this), this.recalculatePathToward.bind(this), this.getActiveSkillEffectAggregate.bind(this), this.computeHitChance.bind(this), this.getMobEvasion.bind(this), this.computeMobDamage.bind(this), this.applyDamageToMobAndHandleDeath.bind(this), this.applyOnHitSkillEffects.bind(this), this.sendStatsUpdated.bind(this), this.broadcastMobHit.bind(this), this.sendRaw.bind(this), this.persistPlayer.bind(this), this.syncAllPartyStates.bind(this), this.tryPlayerAttack.bind(this), this.getPvpAttackPermission.bind(this), this.isBlockedAt.bind(this), this.hasLineOfSight.bind(this), this.computeDamageAfterMitigation.bind(this), this.necromancerService.getSummonsByMap.bind(this.necromancerService), this.necromancerService.applyDamageToSummon.bind(this.necromancerService));
         this.combatCoreService = new CombatCoreService_1.CombatCoreService(this.players, this.mobService, this.getPvpAttackPermission.bind(this), this.sendRaw.bind(this), this.getActiveSkillEffectAggregate.bind(this), this.computeHitChance.bind(this), this.shouldLuckyStrike.bind(this), this.computeDamageAfterMitigation.bind(this), this.applyOnHitSkillEffects.bind(this), this.sendStatsUpdated.bind(this), this.persistPlayer.bind(this), this.syncAllPartyStates.bind(this), this.grantXp.bind(this), this.grantMobCurrency.bind(this), this.mapInstanceId.bind(this), this.computeLootDropPosition.bind(this), this.pickRandomWeaponTemplate.bind(this), this.dropWeaponAt.bind(this), this.dropHpPotionAt.bind(this), this.dropSkillResetHourglassAt.bind(this), this.hasLineOfSight.bind(this));
     }
     async handleAuth(ws, msg) {
@@ -619,8 +621,15 @@ class GameController {
             afkNextThinkAt: 0,
             petOwnerships: [],
             activePetOwnershipId: null,
-            petBehavior: 'assist'
+            petBehavior: 'assist',
+            graveCharges: 0,
+            graveFamily: null,
+            graveTemplateId: null,
+            graveMapKey: null,
+            activeSummonIds: [],
+            graveHarvestBonusUntil: 0
         };
+        this.necromancerService.hydratePlayer(runtime);
         this.recomputePlayerStats(runtime);
         return runtime;
     }
@@ -1459,6 +1468,7 @@ class GameController {
         perfStats_1.perfStats.time('tick.pruneGuildInvites', () => { void this.pruneExpiredGuildInvites(now); });
         perfStats_1.perfStats.time('tick.mobs', () => this.processMobAggroAndCombat(deltaSeconds, now));
         perfStats_1.perfStats.time('tick.pets', () => this.petService.tick(deltaSeconds, now));
+        perfStats_1.perfStats.time('tick.summons', () => this.necromancerService.tick(deltaSeconds, now));
         let activePlayers = 0;
         for (const player of this.players.values()) {
             activePlayers += 1;
@@ -1498,6 +1508,10 @@ class GameController {
                 pets: this.petService
                     .getPetsByMap(mapKey, mapId)
                     .map((pet) => this.sanitizePetForNetwork(pet))
+                    .filter(Boolean),
+                summons: this.necromancerService
+                    .getSummonsByMap(mapKey, mapId)
+                    .map((summon) => this.sanitizeSummonForNetwork(summon))
                     .filter(Boolean),
                 mobs: this.mobService
                     .getMobsByMap(mapInstanceId)
@@ -1551,6 +1565,7 @@ class GameController {
         this.tradeService.clearStateForPlayer(player.id, `${player.name} desconectou e a troca foi encerrada.`);
         this.storageService.clearForPlayer(player.id);
         this.petService.clearForPlayer(player.id);
+        this.necromancerService.clearForPlayer(player.id);
         this.removePlayerFromParty(player);
         await this.persistPlayerNow(player, 'disconnect');
         await this.clearGuildInvitesForPlayer(player.id);
@@ -1601,6 +1616,18 @@ class GameController {
                 Number(pet.ownerPlayerId || 0)
             ].join(':'))
                 .join('|');
+            const summonsSignature = this.necromancerService.getSummonsByMap(mapKey, mapId)
+                .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+                .map((summon) => [
+                String(summon.id),
+                Math.round(Number(summon.x || 0)),
+                Math.round(Number(summon.y || 0)),
+                Number(summon.hp || 0),
+                Number(summon.maxHp || 0),
+                Number(summon.ownerPlayerId || 0),
+                String(summon.targetMobId || '')
+            ].join(':'))
+                .join('|');
             const mobsSignature = this.mobService.getMobsByMap(mapInstanceId)
                 .sort((a, b) => String(a.id).localeCompare(String(b.id)))
                 .map((mob) => [
@@ -1632,6 +1659,7 @@ class GameController {
                 mapId,
                 playersSignature,
                 petsSignature,
+                summonsSignature,
                 mobsSignature,
                 groundSignature,
                 activeEvents,
@@ -1685,7 +1713,10 @@ class GameController {
             skillPointsAvailable: this.getAvailableSkillPoints(player),
             allocatedStats: this.normalizeAllocatedStats(player.allocatedStats),
             unspentPoints: Number.isInteger(player.unspentPoints) ? player.unspentPoints : 0,
-            activeSkillEffects: this.serializeActiveSkillEffects(player)
+            activeSkillEffects: this.serializeActiveSkillEffects(player),
+            graveCharges: Math.max(0, Number(player.graveCharges || 0)),
+            graveFamily: player.graveFamily ? String(player.graveFamily) : null,
+            activeSummonCount: this.necromancerService.getActiveSummonCount(player)
         };
         this.publicPlayerCache.set(player.id, { signature, snapshot });
         return snapshot;
@@ -1790,6 +1821,29 @@ class GameController {
             visualSeed: Number(pet.visualSeed || 0)
         };
     }
+    sanitizeSummonForNetwork(summon) {
+        if (!summon || typeof summon !== 'object')
+            return null;
+        return {
+            id: String(summon.id || ''),
+            ownerPlayerId: Number(summon.ownerPlayerId || 0),
+            ownerName: String(summon.ownerName || 'Necromante'),
+            mapKey: String(summon.mapKey || ''),
+            mapId: String(summon.mapId || ''),
+            x: Number(summon.x || 0),
+            y: Number(summon.y || 0),
+            hp: Number(summon.hp || 0),
+            maxHp: Number(summon.maxHp || 1),
+            level: Math.max(1, Number(summon.level || 1)),
+            family: String(summon.family || 'summon'),
+            templateId: String(summon.templateId || 'summon'),
+            sourceMobKind: String(summon.sourceMobKind || 'normal'),
+            moveStyle: String(summon.moveStyle || 'ground'),
+            summonRole: String(summon.summonRole || 'offensive'),
+            visualSeed: Number(summon.visualSeed || 0),
+            expiresAt: Number(summon.expiresAt || 0)
+        };
+    }
     sanitizeMobForNetwork(mob) {
         if (!mob || typeof mob !== 'object')
             return null;
@@ -1884,6 +1938,9 @@ class GameController {
             JSON.stringify(player.stats || {}),
             JSON.stringify(this.normalizeSkillLevels(player.skillLevels || {})),
             JSON.stringify(this.normalizeAllocatedStats(player.allocatedStats)),
+            Number(player.graveCharges || 0),
+            String(player.graveFamily || ''),
+            Number(this.necromancerService.getActiveSummonCount(player) || 0),
             effectsSignature,
             movePathSignature
         ].join('#');
@@ -1987,8 +2044,11 @@ class GameController {
         const wasAlive = Boolean(mob && Number(mob.hp || 0) > 0);
         const ok = this.combatCoreService.applyDamageToMobAndHandleDeath(player, mob, damage, now);
         if (ok && wasAlive && mob && Number(mob.hp || 0) <= 0) {
+            const bonusCharges = Number(player.graveHarvestBonusUntil || 0) > now ? 1 : 0;
             this.questService.onMobKilled(player, mob);
             this.dungeonService.onMobKilled(player, mob);
+            this.necromancerService.onMobKilled(player, mob, now, bonusCharges);
+            player.graveHarvestBonusUntil = 0;
         }
         return ok;
     }
@@ -2338,28 +2398,59 @@ class GameController {
     }
     grantMobCurrency(player, mob) {
         const kind = String(mob?.kind || 'normal');
+        const mapKey = String(mob?.mapId || player.mapKey || '').split('::')[0] || String(player.mapKey || 'forest');
         const rewardByKind = {
-            normal: { copper: 25 },
-            elite: { silver: 1, copper: 40 },
-            subboss: { silver: 4, copper: 80 },
-            boss: { gold: 1, silver: 30 }
+            normal: 25,
+            elite: 140,
+            subboss: 480,
+            boss: 1300
         };
-        const reward = rewardByKind[kind] || { copper: 20 };
+        const mapMultiplier = mapKey === 'undead'
+            ? 2.2
+            : mapKey === 'lava'
+                ? 1.65
+                : mapKey.startsWith('dng_')
+                    ? 1.85
+                    : mapKey === 'city'
+                        ? 0.5
+                        : 1;
+        const rewardCopper = Math.max(1, Math.round((rewardByKind[kind] || 20) * mapMultiplier));
+        const reward = (0, currency_1.walletFromCopper)(rewardCopper);
         this.grantCurrency(player, reward, 'Recompensa de mob');
     }
-    computeLootDropPosition(originX, originY, dropIndex, dropTotal, mapKey) {
+    computeLootDropPosition(originX, originY, dropIndex, dropTotal, mapKey, mapInstanceId) {
         const mapWorld = this.mapService.getMapWorld(mapKey);
         const center = this.projectToWalkable(mapKey, (0, math_1.clamp)(Number(originX || 0), 0, mapWorld.width), (0, math_1.clamp)(Number(originY || 0), 0, mapWorld.height));
-        if (dropTotal <= 1 || dropIndex <= 0)
+        const nearbyItems = this.groundItems.filter((item) => String(item.mapId || '') === String(mapInstanceId || '')
+            && Math.hypot(Number(item.x || 0) - center.x, Number(item.y || 0) - center.y) <= 180);
+        const nearestDistance = (x, y) => nearbyItems.reduce((best, item) => {
+            const dist = Math.hypot(Number(item.x || 0) - x, Number(item.y || 0) - y);
+            return Math.min(best, dist);
+        }, Number.POSITIVE_INFINITY);
+        let best = center;
+        let bestSpacing = nearestDistance(center.x, center.y);
+        if ((dropTotal <= 1 || dropIndex <= 0) && bestSpacing >= 54)
             return center;
-        const ringIndex = Math.ceil(Math.sqrt(dropIndex));
-        const radius = Math.min(64, Math.max(32, ringIndex * 32));
-        const slotInRing = dropIndex - ((ringIndex - 1) * (ringIndex - 1));
-        const ringSlots = ringIndex * 4;
-        const angle = (Math.PI * 2 * (slotInRing - 1)) / Math.max(1, ringSlots);
-        const tx = center.x + Math.cos(angle) * radius;
-        const ty = center.y + Math.sin(angle) * radius;
-        return this.projectToWalkable(mapKey, tx, ty);
+        const attempts = Math.max(8, dropTotal * 3);
+        for (let attempt = 0; attempt < attempts; attempt += 1) {
+            const spiralIndex = Math.max(1, dropIndex + attempt);
+            const ringIndex = Math.max(1, Math.ceil(Math.sqrt(spiralIndex)));
+            const radius = Math.min(188, 44 + ringIndex * 34);
+            const ringSlots = Math.max(6, ringIndex * 6);
+            const slotInRing = (spiralIndex - 1) % ringSlots;
+            const angle = ((Math.PI * 2 * slotInRing) / ringSlots) + (attempt * 0.24);
+            const tx = center.x + Math.cos(angle) * radius;
+            const ty = center.y + Math.sin(angle) * radius;
+            const projected = this.projectToWalkable(mapKey, tx, ty);
+            const spacing = nearestDistance(projected.x, projected.y);
+            if (spacing > bestSpacing) {
+                best = projected;
+                bestSpacing = spacing;
+            }
+            if (spacing >= 58)
+                return projected;
+        }
+        return best;
     }
     pickRandomWeaponTemplate(mapKey, mobKind) {
         const safeMapKey = String(mapKey || 'forest');
@@ -2592,6 +2683,8 @@ class GameController {
             return 'druid';
         if (key === 'assassino')
             return 'assassin';
+        if (key === 'necromante')
+            return 'necromancer';
         if (config_1.CLASS_TEMPLATES[key])
             return key;
         return 'knight';
@@ -3005,7 +3098,10 @@ class GameController {
             xpToNext: (0, math_1.xpRequired)(player.level),
             hp: player.hp,
             maxHp: player.maxHp,
-            wallet: (0, currency_1.normalizeWallet)(player.wallet)
+            wallet: (0, currency_1.normalizeWallet)(player.wallet),
+            graveCharges: Math.max(0, Number(player.graveCharges || 0)),
+            graveFamily: player.graveFamily ? String(player.graveFamily) : null,
+            activeSummonCount: this.necromancerService.getActiveSummonCount(player)
         });
     }
     sendRaw(ws, payload) {

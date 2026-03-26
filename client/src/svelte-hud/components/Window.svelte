@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import { dragStore } from '../stores/gameUi';
 
   export let title = 'Janela';
   export let subtitle = '';
@@ -15,6 +16,12 @@
 
   const dispatch = createEventDispatcher<{ close: void }>();
   let collapsed = defaultCollapsed;
+
+  function collapseWhileDragging(event: DragEvent) {
+    if (!$dragStore || !minimizable) return;
+    event.preventDefault();
+    collapsed = true;
+  }
 </script>
 
 {#if visible}
@@ -32,6 +39,9 @@
             type="button"
             aria-label={collapsed ? `Expandir ${title}` : `Minimizar ${title}`}
             on:click={() => collapsed = !collapsed}
+            on:dragenter={collapseWhileDragging}
+            on:dragover={collapseWhileDragging}
+            on:drop={collapseWhileDragging}
           >
             {collapsed ? '+' : '-'}
           </button>

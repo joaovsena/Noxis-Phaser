@@ -18,6 +18,7 @@
     ctrlclick: any;
     contextaction: any;
     dragstart: any;
+    dragend: { x: number; y: number };
     inspect: { item: any; x: number; y: number };
     inspectend: void;
   }>();
@@ -58,6 +59,10 @@
     dispatch('dragstart', item);
   }
 
+  function handleDragEnd(event: DragEvent) {
+    dispatch('dragend', { x: event.clientX, y: event.clientY });
+  }
+
   function handleContextMenu(event: MouseEvent) {
     event.preventDefault();
     dispatch('contextaction', item);
@@ -87,6 +92,7 @@
   on:click={handleClick}
   on:contextmenu={handleContextMenu}
   on:dragstart={handleDragStart}
+  on:dragend={handleDragEnd}
   on:mousemove={handlePointerMove}
   on:mouseleave={() => dispatch('inspectend')}
   type="button"
@@ -171,6 +177,17 @@
 
   .slot-shell.bottom-bar .slot-chrome {
     border-radius: 4px;
+    inset: 1px;
+  }
+
+  .slot-shell.bottom-bar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .slot-shell.bottom-bar .fallback-mark {
+    font-size: 0.82rem;
   }
 
   .cooldown-mask {
@@ -198,9 +215,9 @@
   img {
     position: relative;
     z-index: 1;
-    width: calc(100% - 12px);
-    height: calc(100% - 12px);
-    object-fit: contain;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
     filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.38));
   }
 

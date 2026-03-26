@@ -89,7 +89,7 @@ class CombatCoreService {
             }
         }
         dropDefs.forEach((dropType, index) => {
-            const dropPos = this.computeLootDropPosition(mob.x, mob.y, index, dropDefs.length, player.mapKey);
+            const dropPos = this.computeLootDropPosition(mob.x, mob.y, index, dropDefs.length, player.mapKey, mapInstanceId);
             const ownerId = Number(player.id);
             const ownerPartyId = String(player.partyId || '') || null;
             const reserveMs = (mob?.kind === 'elite' || mob?.kind === 'subboss' || mob?.kind === 'boss') ? 60000 : 0;

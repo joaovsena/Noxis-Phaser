@@ -13,6 +13,7 @@
       case 'archer': return 'A';
       case 'druid': return 'D';
       case 'assassin': return 'S';
+      case 'necromancer': return 'N';
       default: return 'N';
     }
   }
@@ -86,6 +87,7 @@
   .class-archer { background: linear-gradient(180deg, #7a5415, #35210b); }
   .class-druid { background: linear-gradient(180deg, #345d2a, #172812); }
   .class-assassin { background: linear-gradient(180deg, #5a235d, #221025); }
+  .class-necromancer { background: linear-gradient(180deg, #5a4ab0, #241946); }
 
   .slot-body {
     display: grid;
