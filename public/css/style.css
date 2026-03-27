@@ -1099,6 +1099,17 @@ button:not(.btn):hover {
     line-height: 1.05;
 }
 
+.skill-slot-btn .slot-icon.slot-icon-skill.slot-icon-art {
+    bottom: auto;
+    display: block;
+    height: 22px;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: contain;
+    image-rendering: pixelated;
+    color: transparent;
+}
+
 .skill-slot-btn .slot-key {
     right: 4px;
     bottom: 2px;
@@ -1384,6 +1395,15 @@ body.hud-ultra-compact .menu-btn {
     font-size: 10px;
     font-weight: 800;
     margin-bottom: 2px;
+}
+
+.skills-node .skill-icon.has-art {
+    background-color: rgba(18, 18, 16, 0.72);
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: contain;
+    image-rendering: pixelated;
+    color: transparent;
 }
 
 .skills-node .skill-name {

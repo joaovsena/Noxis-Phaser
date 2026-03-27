@@ -2952,36 +2952,63 @@ export class Game {
             const rightX = 48;
             const yStart = 8;
             const yStep = 18;
-            classDef.buildA.skills.forEach((row, idx) => {
+            const buildASkills = classDef.buildA.skills.map((entry) => this.normalizeSkillTreeEntry(entry));
+            const buildBSkills = classDef.buildB.skills.map((entry) => this.normalizeSkillTreeEntry(entry));
+            buildASkills.forEach((row, idx) => {
                 out.push({
-                    id: row[0],
+                    id: row.id,
                     classId,
                     buildKey: 'buildA',
                     buildLabel: classDef.buildA.label,
-                    label: row[1],
+                    label: row.label,
+                    iconPath: row.iconPath,
                     x: leftX,
                     y: yStart + idx * yStep,
-                    prereq: idx > 0 ? classDef.buildA.skills[idx - 1][0] : null,
+                    prereq: idx > 0 ? buildASkills[idx - 1].id : null,
                     maxPoints: 5,
                     autoEligible: true
                 });
             });
-            classDef.buildB.skills.forEach((row, idx) => {
+            buildBSkills.forEach((row, idx) => {
                 out.push({
-                    id: row[0],
+                    id: row.id,
                     classId,
                     buildKey: 'buildB',
                     buildLabel: classDef.buildB.label,
-                    label: row[1],
+                    label: row.label,
+                    iconPath: row.iconPath,
                     x: rightX,
                     y: yStart + idx * yStep,
-                    prereq: idx > 0 ? classDef.buildB.skills[idx - 1][0] : null,
+                    prereq: idx > 0 ? buildBSkills[idx - 1].id : null,
                     maxPoints: 5,
                     autoEligible: true
                 });
             });
         }
         return out;
+    }
+
+    normalizeSkillTreeEntry(entry) {
+        if (Array.isArray(entry)) {
+            const [id, label, iconPath = null] = entry;
+            return {
+                id: String(id || ''),
+                label: String(label || id || 'Habilidade'),
+                iconPath: typeof iconPath === 'string' && iconPath.trim() ? iconPath.trim() : null
+            };
+        }
+        if (entry && typeof entry === 'object') {
+            return {
+                id: String(entry.id || ''),
+                label: String(entry.label || entry.name || entry.id || 'Habilidade'),
+                iconPath: typeof entry.iconPath === 'string' && entry.iconPath.trim() ? entry.iconPath.trim() : null
+            };
+        }
+        return {
+            id: String(entry || ''),
+            label: String(entry || 'Habilidade'),
+            iconPath: null
+        };
     }
 
     getCurrentSkillClassId() {
@@ -3115,7 +3142,10 @@ export class Game {
             ass_letal_bomba_fumaca: { name: 'Bomba de Fumaca', mana: '45', cd: '30s', desc: 'Joga uma bomba de fumaca para confundir oponentes.', effects: ['Reduz precisao inimiga em 20%.', 'Reduz precisao inimiga em 35%.', 'Reduz precisao inimiga em 50%.', 'Reduz precisao inimiga em 65%.', 'Reduz precisao inimiga em 80%.'] },
             ass_letal_sentenca: { name: 'Sentenca', mana: '120', cd: '50s', desc: 'Marca o alvo para a morte iminente.', effects: ['Dano adicional apos 3s: 15% do HP perdido.', 'Dano adicional apos 3s: 22.5% do HP perdido.', 'Dano adicional apos 3s: 30% do HP perdido.', 'Dano adicional apos 3s: 37.5% do HP perdido.', 'Dano adicional apos 3s: 45% do HP perdido.'] }
         };
-        return catalog[String(skillId || '')] || null;
+        const normalizedSkillId = String(skillId || '');
+        const meta = catalog[normalizedSkillId] || null;
+        if (!meta) return null;
+        return meta;
     }
 
     getSkillNodeIcon(node) {
@@ -3128,6 +3158,34 @@ export class Game {
             .toUpperCase()
             .slice(0, 2);
         return compact || 'SK';
+    }
+
+    getSkillIconPath(nodeOrSkillId) {
+        const node = typeof nodeOrSkillId === 'string'
+            ? this.getSkillNodeById(String(nodeOrSkillId))
+            : nodeOrSkillId;
+        const skillId = String(node?.id || nodeOrSkillId || '');
+        const meta = this.getSkillTooltipMeta(skillId);
+        const iconPath = typeof node?.iconPath === 'string' && node.iconPath.trim()
+            ? node.iconPath.trim()
+            : (typeof meta?.iconPath === 'string' && meta.iconPath.trim() ? meta.iconPath.trim() : '');
+        return iconPath || '';
+    }
+
+    decorateSkillIconElement(el, nodeOrSkillId, fallbackText = 'SK', artClass = '') {
+        if (!el) return false;
+        const iconPath = this.getSkillIconPath(nodeOrSkillId);
+        const hasArt = Boolean(iconPath);
+        el.classList.toggle('has-art', hasArt);
+        if (artClass) el.classList.toggle(artClass, hasArt);
+        if (hasArt) {
+            el.textContent = '';
+            el.style.backgroundImage = `url("${iconPath}")`;
+            return true;
+        }
+        el.style.backgroundImage = '';
+        el.textContent = fallbackText;
+        return false;
     }
 
     openSkillTooltip(node, level, clientX, clientY, reason = 'skill_hover') {
@@ -3319,7 +3377,7 @@ export class Game {
             btn.classList.add(node.buildKey === 'buildA' ? 'build-a' : 'build-b');
             const iconEl = document.createElement('span');
             iconEl.className = 'skill-icon';
-            iconEl.textContent = iconText;
+            this.decorateSkillIconElement(iconEl, node, iconText);
             const nameEl = document.createElement('span');
             nameEl.className = 'skill-name';
             nameEl.textContent = shortLabel;
@@ -3485,6 +3543,7 @@ export class Game {
             let title = keyLabel;
             let quantity = null;
             let iconCssClass = 'slot-icon';
+            let skillIconSource = null;
             btn.classList.remove('slot-kind-action', 'slot-kind-item', 'slot-kind-empty', 'slot-icon-attack', 'slot-icon-potion', 'slot-ghosted');
 
             if (binding?.type === 'action' && binding.actionId === 'basic_attack') {
@@ -3498,6 +3557,7 @@ export class Game {
                 icon = this.getHotbarSkillLabel(skillName);
                 title = skillName;
                 iconCssClass = 'slot-icon slot-icon-skill';
+                skillIconSource = node || String(binding.skillId || '');
                 btn.classList.add('slot-kind-action');
             } else if (binding?.type === 'item') {
                 let item = this.inventory.find((it) => String(it.id) === String(binding.itemId));
@@ -3535,10 +3595,22 @@ export class Game {
 
             btn.draggable = Boolean(binding);
             btn.title = title;
-            const qtyMarkup = Number.isFinite(Number(quantity)) && Number(quantity) > 0
-                ? `<span class="slot-qty">${Number(quantity)}</span>`
-                : '';
-            btn.innerHTML = `<span class="${iconCssClass}">${icon}</span><span class="slot-key">${keyLabel}</span>${qtyMarkup}`;
+            const iconEl = document.createElement('span');
+            iconEl.className = iconCssClass;
+            const appliedArt = skillIconSource
+                ? this.decorateSkillIconElement(iconEl, skillIconSource, icon, 'slot-icon-art')
+                : false;
+            if (!appliedArt) iconEl.textContent = icon;
+            const keyEl = document.createElement('span');
+            keyEl.className = 'slot-key';
+            keyEl.textContent = keyLabel;
+            btn.replaceChildren(iconEl, keyEl);
+            if (Number.isFinite(Number(quantity)) && Number(quantity) > 0) {
+                const qtyEl = document.createElement('span');
+                qtyEl.className = 'slot-qty';
+                qtyEl.textContent = String(Number(quantity));
+                btn.appendChild(qtyEl);
+            }
         });
     }
 

@@ -41,7 +41,22 @@ const CLASS_COLORS: Record<string, { primary: string; secondary: string }> = {
   necromancer: { primary: '#8d79e9', secondary: '#e5dcff' }
 };
 
+const EXPLICIT_SKILL_ICON_URLS: Record<string, string> = {
+  nec_grave_raise_dead: '/assets/ui/skills/necromancer/icons/nec_grave_raise_dead.png',
+  nec_grave_harvest: '/assets/ui/skills/necromancer/icons/nec_grave_harvest.png',
+  nec_grave_command_dead: '/assets/ui/skills/necromancer/icons/nec_grave_command_dead.png',
+  nec_grave_bone_ward: '/assets/ui/skills/necromancer/icons/nec_grave_bone_ward.png',
+  nec_grave_legion_call: '/assets/ui/skills/necromancer/icons/nec_grave_legion_call.png',
+  nec_bone_spear: '/assets/ui/skills/necromancer/icons/nec_bone_spear.png',
+  nec_bone_corpse_burst: '/assets/ui/skills/necromancer/icons/nec_bone_corpse_burst.png',
+  nec_bone_blight_field: '/assets/ui/skills/necromancer/icons/nec_bone_blight_field.png',
+  nec_bone_soul_leech: '/assets/ui/skills/necromancer/icons/nec_bone_soul_leech.png',
+  nec_bone_army_of_shadows: '/assets/ui/skills/necromancer/icons/nec_bone_army_of_shadows.png'
+};
+
 export function getSkillIconUrl(skillId: string, classId: string) {
+  const explicit = EXPLICIT_SKILL_ICON_URLS[String(skillId || '').toLowerCase()];
+  if (explicit) return explicit;
   const colors = CLASS_COLORS[String(classId || '').toLowerCase()] || CLASS_COLORS.knight;
   return svgDataUrl(`
     <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
