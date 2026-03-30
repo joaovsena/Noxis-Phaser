@@ -34,10 +34,10 @@ const MAP_LAYOUTS: Record<string, SpawnGroupDef[]> = {
         { id: 'forest-bridge-pack', kind: 'normal', formation: 'pack', count: 2, anchor: 'mobZones.bridge', spacing: 118, jitter: 20 },
         { id: 'forest-east-road-pack', kind: 'normal', formation: 'line', count: 2, anchor: { x: 5100, y: 3200 }, spacing: 136, jitter: 16, direction: 'diag-up' },
         { id: 'forest-ruins-approach-pack', kind: 'normal', formation: 'pack', count: 1, anchor: { x: 2760, y: 1640 }, spacing: 110, jitter: 18 },
-        { id: 'forest-lava-road-scouts', kind: 'normal', formation: 'solo', count: 1, anchor: { x: 5580, y: 3020 }, spacing: 86, jitter: 40 },
+        { id: 'forest-lava-road-scouts', kind: 'normal', formation: 'solo', count: 1, anchor: { x: 5501, y: 2936 }, spacing: 86, jitter: 0 },
 
         { id: 'forest-bridge-elite-pair', kind: 'elite', formation: 'line', count: 2, anchor: { x: 3640, y: 3300 }, spacing: 146, jitter: 18, direction: 'diag-down' },
-        { id: 'forest-rift-elite-pair', kind: 'elite', formation: 'pack', count: 2, anchor: 'eventCenter', spacing: 148, jitter: 16 },
+        { id: 'forest-rift-elite-pair', kind: 'elite', formation: 'line', count: 2, anchor: { x: 4443, y: 2666 }, spacing: 420, jitter: 0, direction: 'horizontal' },
         { id: 'forest-ruins-elite', kind: 'elite', formation: 'solo', count: 1, anchor: { x: 3040, y: 1400 }, jitter: 14 },
 
         { id: 'forest-ruins-subboss', kind: 'subboss', formation: 'solo', count: 1, anchor: 'mobZones.ruins', jitter: 12 }

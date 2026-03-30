@@ -114,14 +114,20 @@ class MobService {
             kind: String(overrides.kind || base.kind),
             mapId: String(overrides.mapId || mapId)
         };
-        if (!Number.isFinite(Number(merged.spawnX)))
-            merged.spawnX = merged.x;
-        if (!Number.isFinite(Number(merged.spawnY)))
-            merged.spawnY = merged.y;
-        if (!Number.isFinite(Number(merged.homeX)))
-            merged.homeX = merged.spawnX;
-        if (!Number.isFinite(Number(merged.homeY)))
-            merged.homeY = merged.spawnY;
+        const safeSpawn = this.findValidSpawnPoint(mapId, 80, Number.isFinite(Number(merged.spawnX)) && Number.isFinite(Number(merged.spawnY))
+            ? { x: Number(merged.spawnX), y: Number(merged.spawnY) }
+            : Number.isFinite(Number(merged.x)) && Number.isFinite(Number(merged.y))
+                ? { x: Number(merged.x), y: Number(merged.y) }
+                : undefined);
+        const safeHome = this.findValidSpawnPoint(mapId, 80, Number.isFinite(Number(merged.homeX)) && Number.isFinite(Number(merged.homeY))
+            ? { x: Number(merged.homeX), y: Number(merged.homeY) }
+            : safeSpawn);
+        merged.x = safeSpawn.x;
+        merged.y = safeSpawn.y;
+        merged.spawnX = safeSpawn.x;
+        merged.spawnY = safeSpawn.y;
+        merged.homeX = safeHome.x;
+        merged.homeY = safeHome.y;
         this.mobs.push(merged);
         this.indexMob(merged);
         return merged;

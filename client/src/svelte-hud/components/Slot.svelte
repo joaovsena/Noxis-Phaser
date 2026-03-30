@@ -119,6 +119,8 @@
     position: relative;
     display: grid;
     place-items: center;
+    padding: 0;
+    appearance: none;
     border: 1px solid rgba(201, 168, 106, 0.32);
     clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px);
     background:
@@ -170,20 +172,26 @@
   .slot-chrome {
     position: absolute;
     inset: 4px;
+    z-index: 1;
     clip-path: inherit;
     border: 1px solid rgba(201, 168, 106, 0.08);
     pointer-events: none;
   }
 
   .slot-shell.bottom-bar .slot-chrome {
-    border-radius: 4px;
-    inset: 1px;
+    border-radius: 5px;
+    inset: 0;
   }
 
   .slot-shell.bottom-bar img {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    display: block;
     width: 100%;
     height: 100%;
-    object-fit: cover;
+    object-fit: contain;
+    image-rendering: pixelated;
   }
 
   .slot-shell.bottom-bar .fallback-mark {

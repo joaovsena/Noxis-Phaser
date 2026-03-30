@@ -2,6 +2,7 @@
   import { createEventDispatcher } from 'svelte';
   import Window from './components/Window.svelte';
   import { beginDrag, learnSkill, skillsStore } from './stores/gameUi';
+  import { getSkillIconUrl } from './lib/proceduralSkillIcons';
 
   const dispatch = createEventDispatcher<{ close: void }>();
 
@@ -18,6 +19,12 @@
   }
   $: selectedSkill = visibleSkills.find((entry) => entry.id === selectedSkillId) || visibleSkills[0] || null;
   $: detailKey = selectedSkill ? `${selectedSkill.id}:${selectedSkill.level}:${$skillsStore.skillPoints}` : 'empty';
+  $: basicAttack = {
+    label: 'Ataque Basico',
+    iconUrl: getSkillIconUrl('class_primary', $skillsStore.classId),
+    summary: 'Atalho do ataque padrao da classe para manter pressao constante entre habilidades.',
+    cooldownMs: 2200
+  };
 
   function handleLearn(skillId?: string) {
     const targetSkill = (skillId ? visibleSkills.find((entry) => entry.id === skillId) : selectedSkill) || null;
@@ -64,6 +71,10 @@
     beginDrag({ source: 'skill', skillId: skill.id, skillName: skill.label });
   }
 
+  function dragBasicAttack() {
+    beginDrag({ source: 'basic', skillId: 'class_primary', skillName: basicAttack.label });
+  }
+
   function handleNodeKeydown(event: KeyboardEvent, skillId: string) {
     if (event.key !== 'Enter' && event.key !== ' ') return;
     event.preventDefault();
@@ -95,6 +106,37 @@
 
     <div class="skills-main">
       <section class="skills-tree-column">
+        <div class="basic-attack-card">
+          <div class="card-kicker">Ataque padrao</div>
+          <div class="basic-attack-body">
+            <span
+              class="skill-icon-shell drag-handle ready"
+              draggable={true}
+              role="presentation"
+              title="Arraste o ataque padrao para a barra de habilidades."
+              on:dragstart|stopPropagation={dragBasicAttack}
+            >
+              <img class="skill-icon" src={basicAttack.iconUrl} alt={basicAttack.label} />
+            </span>
+
+            <div class="tree-main">
+              <div class="tree-topline">
+                <span class="skill-name">{basicAttack.label}</span>
+                <span class="role-chip role-ataque">Ataque</span>
+              </div>
+              <div class="tree-summary">{basicAttack.summary}</div>
+              <div class="rank-track">
+                <span class="filled"></span>
+              </div>
+              <div class="tree-meta">
+                <span>Rank 1/1</span>
+                <span>Alvo unico</span>
+                <span>CD {(basicAttack.cooldownMs / 1000).toFixed(1)}s</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="tree-header">
           <div class="tree-title-block">
             <div class="card-kicker">Trilha ativa</div>
@@ -239,6 +281,7 @@
   }
 
   .skills-summary-card,
+  .basic-attack-card,
   .skill-detail-card {
     padding: 12px 14px;
     border: 1px solid rgba(201, 168, 106, 0.18);
@@ -309,6 +352,18 @@
     min-width: 0;
     display: grid;
     gap: 10px;
+  }
+
+  .basic-attack-card {
+    display: grid;
+    gap: 10px;
+  }
+
+  .basic-attack-body {
+    display: grid;
+    grid-template-columns: 52px minmax(0, 1fr);
+    gap: 12px;
+    align-items: start;
   }
 
   .tree-header {

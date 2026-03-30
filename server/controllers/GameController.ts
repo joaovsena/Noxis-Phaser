@@ -257,6 +257,7 @@ export class GameController {
             this.grantXp.bind(this),
             this.grantRewardItem.bind(this),
             this.grantCurrency.bind(this),
+            this.projectToWalkable.bind(this),
             (player, npcId) => this.dungeonService?.getNpcUiStateForPlayer(player, npcId) || null
         );
         this.eventService = new EventService(

@@ -3,7 +3,7 @@
   import { onDestroy, onMount } from 'svelte';
   import { drawMapPreview, loadMapPreview, previewPointToWorld, type MapPreviewData, worldPointToPreview } from '../game/maps/MapPreview';
   import Window from './components/Window.svelte';
-  import { selectedMobStore, worldStore } from './stores/gameUi';
+  import { selectedMobStore, sendUiMessage, worldStore } from './stores/gameUi';
 
   const dispatch = createEventDispatcher<{ close: void }>();
 
@@ -41,7 +41,12 @@
   }
 
   function dispatchMove(x: number, y: number) {
-    window.dispatchEvent(new CustomEvent('noxis:svelte-worldmap-move', { detail: { x, y } }));
+    sendUiMessage({
+      type: 'move',
+      reqId: Date.now(),
+      x: Number(x || 0),
+      y: Number(y || 0)
+    });
   }
 
   async function syncPreview() {
@@ -169,19 +174,26 @@
     rafId = requestAnimationFrame(() => draw());
   }
 
-  function handleCanvasClick(event: MouseEvent) {
+  function resolveCanvasTarget(clientX: number, clientY: number) {
     const canvas = canvasEl;
     const world = $worldStore.world;
-    if (!canvas || !world?.world) return;
+    if (!canvas || !world?.world) return null;
     const rect = canvas.getBoundingClientRect();
-    const localX = Math.max(0, Math.min(rect.width, event.clientX - rect.left));
-    const localY = Math.max(0, Math.min(rect.height, event.clientY - rect.top));
-    const target = previewData
+    const localX = Math.max(0, Math.min(rect.width, clientX - rect.left));
+    const localY = Math.max(0, Math.min(rect.height, clientY - rect.top));
+    return previewData
       ? previewPointToWorld(localX, localY, previewData, rect.width, rect.height)
       : {
           x: (localX / Math.max(1, rect.width)) * Math.max(1, Number(world.world.width || 1)),
           y: (localY / Math.max(1, rect.height)) * Math.max(1, Number(world.world.height || 1))
         };
+  }
+
+  function handleCanvasPointerDown(event: PointerEvent) {
+    if (event.button !== 0) return;
+    const target = resolveCanvasTarget(event.clientX, event.clientY);
+    if (!target) return;
+    event.preventDefault();
     dispatchMove(target.x, target.y);
   }
 
@@ -234,7 +246,7 @@
     <div class="map-grid">
       <section class="main-map-panel">
         <div class="map-canvas-shell">
-          <canvas bind:this={canvasEl} class="map-canvas" width="660" height="458" on:click={handleCanvasClick}></canvas>
+          <canvas bind:this={canvasEl} class="map-canvas" width="660" height="458" on:pointerdown={handleCanvasPointerDown}></canvas>
         </div>
       </section>
 

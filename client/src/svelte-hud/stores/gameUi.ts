@@ -213,6 +213,7 @@ type SkillAimState = {
 };
 
 const HOTBAR_KEYS = ['q', 'w', 'e', 'r', 'a', 's', 'd', 'f', '1', '2', '3', '4', '5', '6', '7', '8'];
+const OPTIMISTIC_SKILL_LEARN_TTL_MS = 5000;
 
 const DEFAULT_INVENTORY: InventoryUiState = {
   inventory: [],
@@ -493,6 +494,7 @@ export const hudScaleStore = writable(1);
 export const hudBrowserCompensationStore = writable(1);
 export const hotbarBindingsStore = writable<Record<string, any>>({});
 export const selectedAutoAttackStore = writable('class_primary');
+const optimisticSkillLevelsStore = writable<Record<string, { level: number; issuedAt: number }>>({});
 export const skillAimStore = writable<SkillAimState>({
   active: false,
   skillId: null,
@@ -504,6 +506,89 @@ export const skillAimStore = writable<SkillAimState>({
   lineLength: 0,
   lineWidth: 0
 });
+
+const optimisticSkillLearnTimers = new Map<string, number>();
+
+function clearOptimisticSkillLearnTimer(skillId: string) {
+  const existing = optimisticSkillLearnTimers.get(skillId);
+  if (typeof window !== 'undefined' && typeof existing === 'number') {
+    window.clearTimeout(existing);
+  }
+  optimisticSkillLearnTimers.delete(skillId);
+}
+
+function resolveOptimisticSkillLevels(
+  current: Record<string, { level: number; issuedAt: number }> | null | undefined,
+  serverSkillLevels: Record<string, number>
+) {
+  const now = Date.now();
+  const next: Record<string, { level: number; issuedAt: number }> = {};
+  for (const [skillId, entry] of Object.entries(current || {})) {
+    const level = Math.max(0, Math.floor(Number(entry?.level || 0)));
+    const issuedAt = Math.max(0, Number(entry?.issuedAt || 0));
+    const serverLevel = Math.max(0, Math.floor(Number(serverSkillLevels?.[skillId] || 0)));
+    const expired = !issuedAt || (now - issuedAt) > OPTIMISTIC_SKILL_LEARN_TTL_MS;
+    if (!level || serverLevel >= level || expired) continue;
+    next[skillId] = { level, issuedAt };
+  }
+  return next;
+}
+
+function hasSameOptimisticSkillLevels(
+  left: Record<string, { level: number; issuedAt: number }>,
+  right: Record<string, { level: number; issuedAt: number }>
+) {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+  return leftKeys.every((skillId) =>
+    Number(left[skillId]?.level || 0) === Number(right[skillId]?.level || 0)
+    && Number(left[skillId]?.issuedAt || 0) === Number(right[skillId]?.issuedAt || 0)
+  );
+}
+
+function syncOptimisticSkillLevels(serverSkillLevels: Record<string, number> = {}) {
+  optimisticSkillLevelsStore.update((current) => {
+    const next = resolveOptimisticSkillLevels(current, serverSkillLevels);
+    for (const skillId of Object.keys(current || {})) {
+      if (!next[skillId]) clearOptimisticSkillLearnTimer(skillId);
+    }
+    return hasSameOptimisticSkillLevels(current || {}, next) ? (current || {}) : next;
+  });
+}
+
+function scheduleOptimisticSkillLearnCleanup(skillId: string) {
+  if (typeof window === 'undefined') return;
+  clearOptimisticSkillLearnTimer(skillId);
+  const timerId = window.setTimeout(() => {
+    const serverSkillLevels = get(attributesStore).player?.skillLevels && typeof get(attributesStore).player?.skillLevels === 'object'
+      ? get(attributesStore).player?.skillLevels
+      : {};
+    syncOptimisticSkillLevels(serverSkillLevels);
+  }, OPTIMISTIC_SKILL_LEARN_TTL_MS + 120);
+  optimisticSkillLearnTimers.set(skillId, timerId);
+}
+
+function queueOptimisticSkillLearn(skillId: string, nextLevel: number) {
+  const safeSkillId = String(skillId || '').trim();
+  const safeLevel = Math.max(0, Math.floor(Number(nextLevel || 0)));
+  if (!safeSkillId || !safeLevel) return;
+  optimisticSkillLevelsStore.update((current) => ({
+    ...(current || {}),
+    [safeSkillId]: {
+      level: safeLevel,
+      issuedAt: Date.now()
+    }
+  }));
+  scheduleOptimisticSkillLearnCleanup(safeSkillId);
+}
+
+function resetOptimisticSkillLevels() {
+  for (const skillId of optimisticSkillLearnTimers.keys()) {
+    clearOptimisticSkillLearnTimer(skillId);
+  }
+  optimisticSkillLevelsStore.set({});
+}
 
 export const inventorySlots = derived(inventoryStore, ($inventoryStore) => {
   const slots = Array.from({ length: 36 }, (_, slotIndex) => ({
@@ -598,21 +683,32 @@ export const partyFramesStore = derived([partyStore, appStore], ([$partyStore, $
     : [];
 });
 
-export const skillsStore = derived(attributesStore, ($attributesStore) => {
+export const skillsStore = derived([attributesStore, optimisticSkillLevelsStore], ([$attributesStore, $optimisticSkillLevelsStore]) => {
   const player = $attributesStore.player || {};
-  const skillLevels = player?.skillLevels && typeof player.skillLevels === 'object' ? player.skillLevels : {};
+  const serverSkillLevels = player?.skillLevels && typeof player.skillLevels === 'object' ? player.skillLevels : {};
+  const optimisticSkillLevels = resolveOptimisticSkillLevels($optimisticSkillLevelsStore, serverSkillLevels);
   const classId = String(player?.class || 'knight');
   const playerLevel = Math.max(1, Number(player?.level || 1));
-  const skillPoints = Number(player?.skillPointsAvailable || 0);
+  const pendingSpent = Object.entries(optimisticSkillLevels).reduce((sum, [skillId, entry]) =>
+    sum + Math.max(0, Number(entry?.level || 0) - Math.max(0, Number(serverSkillLevels?.[skillId] || 0)))
+  , 0);
+  const skillPoints = Math.max(0, Number(player?.skillPointsAvailable || 0) - pendingSpent);
+  const effectiveSkillLevel = (skillId: string) => Math.max(
+    0,
+    Math.max(
+      Number(serverSkillLevels?.[skillId] || 0),
+      Number(optimisticSkillLevels?.[skillId]?.level || 0)
+    )
+  );
   const entries = SKILL_TREE
     .filter((entry) => entry.classId === classId)
     .map((entry) => ({
       ...entry,
-      level: Math.max(0, Math.min(entry.maxPoints, Number(skillLevels[entry.id] || 0))),
-      learned: Number(skillLevels[entry.id] || 0) > 0
+      level: Math.max(0, Math.min(entry.maxPoints, effectiveSkillLevel(entry.id))),
+      learned: effectiveSkillLevel(entry.id) > 0
     }))
     .map((entry) => {
-      const prereqLevel = entry.prereq ? Math.max(0, Number(skillLevels[entry.prereq] || 0)) : 1;
+      const prereqLevel = entry.prereq ? Math.max(0, effectiveSkillLevel(entry.prereq)) : 1;
       const requiredLevelMet = playerLevel >= entry.requiredLevel;
       const prereqMet = !entry.prereq || prereqLevel >= 1;
       const maxed = entry.level >= entry.maxPoints;
@@ -1416,8 +1512,13 @@ export function equipInventoryItem(itemId: string) {
 }
 
 export function learnSkill(skillId: string) {
-  if (!skillId) return;
-  sendUiMessage({ type: 'skill.learn', skillId });
+  const safeSkillId = String(skillId || '').trim();
+  if (!safeSkillId) return;
+  const skill = get(skillsStore).entries.find((entry) => entry.id === safeSkillId) || null;
+  if (skill?.canLearn) {
+    queueOptimisticSkillLearn(safeSkillId, Math.min(Number(skill.maxPoints || 5), Number(skill.level || 0) + 1));
+  }
+  sendUiMessage({ type: 'skill.learn', skillId: safeSkillId });
 }
 
 export function castSkill(skillId: string) {
@@ -1795,6 +1896,7 @@ export function setMobPeacefulEnabled(enabled: boolean) {
 export function bindHudRuntime(gameStore: GameStore, socket: GameSocket) {
   runtimeSocket = socket;
   runtimeStore = gameStore;
+  resetOptimisticSkillLevels();
   loadingTraceStore.set([]);
   loadingPacketStore.set(DEFAULT_LOADING_PACKETS);
   pushLoadingTrace('Runtime HUD conectado ao GameStore.');
@@ -1876,6 +1978,7 @@ export function bindHudRuntime(gameStore: GameStore, socket: GameSocket) {
 
     if (player !== lastPlayerRef) {
       lastPlayerRef = player;
+      syncOptimisticSkillLevels(player?.skillLevels && typeof player.skillLevels === 'object' ? player.skillLevels : {});
       attributesStore.set({
         player,
         hpRatio: player ? Math.max(0, Math.min(1, Number(player.hp || 0) / Math.max(1, Number(player.maxHp || 1)))) : 0
@@ -2189,6 +2292,7 @@ export function bindHudRuntime(gameStore: GameStore, socket: GameSocket) {
     if (syncFrameId) cancelAnimationFrame(syncFrameId);
     gameStore.removeEventListener('change', onChange as EventListener);
     window.removeEventListener('resize', onResize);
+    resetOptimisticSkillLevels();
     runtimeSocket = null;
     runtimeStore = null;
   };

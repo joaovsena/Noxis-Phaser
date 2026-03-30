@@ -142,8 +142,8 @@ export const SHOP_NPCS: NpcDef[] = [
         role: 'shopkeeper',
         mapKey: 'city',
         mapId: 'Z1',
-        x: 2100,
-        y: 4340,
+        x: 1903,
+        y: 4149,
         interactRange: 220,
         greeting: 'Aco temperado e precos justos. O que vai levar?'
     }),
@@ -154,8 +154,8 @@ export const SHOP_NPCS: NpcDef[] = [
         role: 'shopkeeper',
         mapKey: 'city',
         mapId: 'Z1',
-        x: 2640,
-        y: 4180,
+        x: 2732,
+        y: 4089,
         greeting: 'Couro, malha e mantos ajustados para cada trilha. Escolha o que veste melhor.'
     }),
     npc({
@@ -165,8 +165,8 @@ export const SHOP_NPCS: NpcDef[] = [
         role: 'shopkeeper',
         mapKey: 'city',
         mapId: 'Z1',
-        x: 4540,
-        y: 3840,
+        x: 4473,
+        y: 3764,
         greeting: 'Uma boa joia muda o destino de uma batalha. Veja as pecas que acabei de lapidar.'
     }),
     npc({
@@ -176,8 +176,8 @@ export const SHOP_NPCS: NpcDef[] = [
         role: 'shopkeeper',
         mapKey: 'city',
         mapId: 'Z1',
-        x: 4200,
-        y: 3960,
+        x: 4329,
+        y: 3824,
         greeting: 'Mantimentos, reagentes e utilidades para quem vai alem da ponte.'
     })
 ];
@@ -190,8 +190,8 @@ export const CHEST_NPCS: NpcDef[] = [
         role: 'chest_keeper',
         mapKey: 'city',
         mapId: 'Z1',
-        x: 3640,
-        y: 3960,
+        x: 3512,
+        y: 3824,
         greeting: 'Seu bau pessoal esta seguro comigo.'
     })
 ];

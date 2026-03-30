@@ -1,5 +1,6 @@
 import { PlayerRuntime } from '../models/types';
 import { Wallet } from '../utils/currency';
+import { type NpcDef } from '../content/npcs';
 type SendRawFn = (ws: any, payload: any) => void;
 type PersistPlayerFn = (player: PlayerRuntime) => void;
 type PersistPlayerCriticalFn = (player: PlayerRuntime, reason?: string) => void;
@@ -9,6 +10,10 @@ type GrantXpFn = (player: PlayerRuntime, amount: number, context?: {
 }) => void;
 type GrantItemFn = (player: PlayerRuntime, templateId: string, quantity: number) => number;
 type GrantCurrencyFn = (player: PlayerRuntime, reward: Partial<Wallet>, sourceLabel: string) => void;
+type ProjectToWalkableFn = (mapKey: string, x: number, y: number) => {
+    x: number;
+    y: number;
+};
 type GetDungeonUiStateFn = (player: PlayerRuntime, npcId: string) => Record<string, any> | null;
 export declare class QuestService {
     private readonly sendRaw;
@@ -17,8 +22,10 @@ export declare class QuestService {
     private readonly grantXp;
     private readonly grantRewardItem;
     private readonly grantCurrency;
+    private readonly projectToWalkable?;
     private readonly getDungeonUiState?;
-    constructor(sendRaw: SendRawFn, persistPlayer: PersistPlayerFn, persistPlayerCritical: PersistPlayerCriticalFn, grantXp: GrantXpFn, grantRewardItem: GrantItemFn, grantCurrency: GrantCurrencyFn, getDungeonUiState?: GetDungeonUiStateFn | undefined);
+    private readonly projectedNpcCache;
+    constructor(sendRaw: SendRawFn, persistPlayer: PersistPlayerFn, persistPlayerCritical: PersistPlayerCriticalFn, grantXp: GrantXpFn, grantRewardItem: GrantItemFn, grantCurrency: GrantCurrencyFn, projectToWalkable?: ProjectToWalkableFn | undefined, getDungeonUiState?: GetDungeonUiStateFn | undefined);
     getNpcsForMap(mapKey: string, mapId: string): {
         id: string;
         name: string;
@@ -38,7 +45,7 @@ export declare class QuestService {
         };
         interactRange: number;
     }[];
-    getNpcById(npcId: string): import("../content/npcs").NpcDef;
+    getNpcById(npcId: string): NpcDef | null;
     getShopOffers(npcId: string): ({
         offerId: string;
         npcId: string;
@@ -63,6 +70,7 @@ export declare class QuestService {
     } | null)[];
     sendQuestState(player: PlayerRuntime): void;
     handleNpcInteract(player: PlayerRuntime, msg: any): void;
+    private projectNpc;
     private getDungeonEntryForNpc;
     handleQuestAccept(player: PlayerRuntime, msg: any): void;
     handleQuestComplete(player: PlayerRuntime, msg: any): void;

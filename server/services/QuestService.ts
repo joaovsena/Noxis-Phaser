@@ -2,7 +2,7 @@ import { PlayerRuntime } from '../models/types';
 import { distance } from '../utils/math';
 import { BUILTIN_ITEM_TEMPLATE_BY_ID, NPC_SHOPS, resolveClassEquipmentTemplateId, resolveClassWeaponTemplateId } from '../config';
 import { Wallet } from '../utils/currency';
-import { NPCS, NPC_BY_ID, NPC_INTERACT_RANGE } from '../content/npcs';
+import { NPCS, NPC_BY_ID, NPC_INTERACT_RANGE, type NpcDef } from '../content/npcs';
 import { DUNGEON_BY_ENTRY_NPC } from '../content/dungeons';
 
 type SendRawFn = (ws: any, payload: any) => void;
@@ -11,6 +11,7 @@ type PersistPlayerCriticalFn = (player: PlayerRuntime, reason?: string) => void;
 type GrantXpFn = (player: PlayerRuntime, amount: number, context?: { mapKey?: string; mapId?: string }) => void;
 type GrantItemFn = (player: PlayerRuntime, templateId: string, quantity: number) => number;
 type GrantCurrencyFn = (player: PlayerRuntime, reward: Partial<Wallet>, sourceLabel: string) => void;
+type ProjectToWalkableFn = (mapKey: string, x: number, y: number) => { x: number; y: number };
 type GetDungeonUiStateFn = (player: PlayerRuntime, npcId: string) => Record<string, any> | null;
 
 type EquipmentRewardSlot = 'helmet' | 'chest' | 'pants' | 'gloves' | 'boots' | 'ring' | 'necklace';
@@ -361,6 +362,8 @@ const QUESTS: QuestDef[] = [
 const QUEST_BY_ID = Object.fromEntries(QUESTS.map((q) => [q.id, q])) as Record<string, QuestDef>;
 
 export class QuestService {
+    private readonly projectedNpcCache = new Map<string, NpcDef>();
+
     constructor(
         private readonly sendRaw: SendRawFn,
         private readonly persistPlayer: PersistPlayerFn,
@@ -368,25 +371,30 @@ export class QuestService {
         private readonly grantXp: GrantXpFn,
         private readonly grantRewardItem: GrantItemFn,
         private readonly grantCurrency: GrantCurrencyFn,
+        private readonly projectToWalkable?: ProjectToWalkableFn,
         private readonly getDungeonUiState?: GetDungeonUiStateFn
     ) {}
 
     getNpcsForMap(mapKey: string, mapId: string) {
-        return NPCS.filter((n) => n.mapKey === mapKey && n.mapId === mapId).map((n) => ({
-            id: n.id,
-            name: n.name,
-            x: n.x,
-            y: n.y,
-            role: n.role,
-            spriteKey: n.spriteKey || null,
-            hitbox: n.hitbox || { w: 54, h: 80, offsetX: 0, offsetY: 0 },
-            anchor: n.anchor || { x: 0.5, y: 1 },
-            interactRange: Number(n.interactRange || NPC_INTERACT_RANGE)
-        }));
+        return NPCS.filter((n) => n.mapKey === mapKey && n.mapId === mapId).map((n) => {
+            const projected = this.projectNpc(n);
+            return {
+                id: projected.id,
+                name: projected.name,
+                x: projected.x,
+                y: projected.y,
+                role: projected.role,
+                spriteKey: n.spriteKey || null,
+                hitbox: n.hitbox || { w: 54, h: 80, offsetX: 0, offsetY: 0 },
+                anchor: n.anchor || { x: 0.5, y: 1 },
+                interactRange: Number(n.interactRange || NPC_INTERACT_RANGE)
+            };
+        });
     }
 
     getNpcById(npcId: string) {
-        return NPC_BY_ID[String(npcId || '')] || null;
+        const npc = NPC_BY_ID[String(npcId || '')];
+        return npc ? this.projectNpc(npc) : null;
     }
 
     getShopOffers(npcId: string) {
@@ -425,7 +433,7 @@ export class QuestService {
 
     handleNpcInteract(player: PlayerRuntime, msg: any) {
         const npcId = String(msg?.npcId || '');
-        const npc = NPC_BY_ID[npcId];
+        const npc = this.getNpcById(npcId);
         if (!npc) return;
         if (npc.mapKey !== player.mapKey || npc.mapId !== player.mapId) return;
         const interactRange = Number(npc.interactRange || NPC_INTERACT_RANGE);
@@ -473,6 +481,21 @@ export class QuestService {
         });
 
         if (changedByTalk) this.sendQuestState(player);
+    }
+
+    private projectNpc(npc: NpcDef) {
+        const cached = this.projectedNpcCache.get(npc.id);
+        if (cached) return cached;
+        const projected = this.projectToWalkable
+            ? this.projectToWalkable(npc.mapKey, Number(npc.x || 0), Number(npc.y || 0))
+            : { x: Number(npc.x || 0), y: Number(npc.y || 0) };
+        const resolved: NpcDef = {
+            ...npc,
+            x: Number(projected.x || npc.x || 0),
+            y: Number(projected.y || npc.y || 0)
+        };
+        this.projectedNpcCache.set(npc.id, resolved);
+        return resolved;
     }
 
     private getDungeonEntryForNpc(npcId: string, player?: PlayerRuntime) {

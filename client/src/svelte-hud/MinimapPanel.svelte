@@ -6,6 +6,7 @@
     leaveDungeon,
     mapSettingsStore,
     playerMetaStore,
+    returnToCharacterSelect,
     selectedAutoAttackStore,
     selectedMobStore,
     setSelectedAutoAttack,
@@ -247,6 +248,10 @@
         </select>
       </div>
 
+      <div class="settings-actions">
+        <button class="leave-button secondary" type="button" on:click={returnToCharacterSelect}>Trocar personagem</button>
+      </div>
+
       {#if $playerMetaStore.isDungeon}
         <button class="leave-button" type="button" on:click={leaveDungeon}>Sair da dungeon</button>
       {/if}
@@ -483,5 +488,15 @@
     border-radius: 8px;
     padding: 0 10px;
     justify-self: start;
+  }
+
+  .settings-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .leave-button.secondary {
+    background: linear-gradient(180deg, rgba(72, 86, 104, 0.96), rgba(35, 42, 52, 0.98));
   }
 </style>

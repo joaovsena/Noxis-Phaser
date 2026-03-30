@@ -30,7 +30,6 @@
   import BottomBar from './BottomBar.svelte';
   import {
     activateHotbarBinding,
-    activePetStore,
     activeEventsStore,
     adminStore,
     appStore,
@@ -50,7 +49,6 @@
     playerMetaStore,
     playerStats,
     questTrackerStore,
-    returnToCharacterSelect,
     selectedMobStore,
     selectedPlayerStore,
     sendUiMessage,
@@ -120,10 +118,7 @@
   $: isNecromancer = playerClassToken === 'necromancer';
   $: graveCharges = Math.max(0, Number($attributesStore.player?.graveCharges || 0));
   $: activeSummonCount = Math.max(0, Number($attributesStore.player?.activeSummonCount || 0));
-  $: graveFamilyLabel = String($attributesStore.player?.graveFamily || '')
-    .split(':')
-    .filter(Boolean)
-    .pop() || 'vazio';
+  $: showPlayerMetaGrid = Boolean($attributesStore.player?.afkActive || isNecromancer);
 
   function pulseHotkey(key: string) {
     const safeKey = String(key || '').toLowerCase();
@@ -270,7 +265,7 @@
     }, 100);
     const handleWindowPointerDown = (event: PointerEvent) => {
       const target = event.target as HTMLElement | null;
-      if (target?.closest('.player-actions')) return;
+      if (target?.closest('.player-mode-control')) return;
       pvpMenuOpen = false;
     };
     window.addEventListener('pointerdown', handleWindowPointerDown);
@@ -302,8 +297,34 @@
           <div class="player-frame-body">
             <div class="player-frame-header">
               <div class="player-headline">
-                <div class="player-mode">Modo {playerModeLabel.toLowerCase()}</div>
-                <div class="player-nameplate">{$attributesStore.player?.name || 'Aventureiro'}</div>
+                <div class="player-name-row">
+                  <div class="player-nameplate">{$attributesStore.player?.name || 'Aventureiro'}</div>
+                  <div class="player-mode-control">
+                    <button class="player-mode-trigger" type="button" aria-label="Trocar modo PvP" on:click={() => pvpMenuOpen = !pvpMenuOpen}>
+                      {playerModeLabel}
+                    </button>
+                    {#if pvpMenuOpen}
+                      <div class="player-pvp-menu">
+                        {#each [
+                          { id: 'peace', label: 'Paz' },
+                          { id: 'group', label: 'Grupo' },
+                          { id: 'evil', label: 'Mal' }
+                        ] as mode}
+                          <button
+                            class:active={$playerMetaStore.pvpMode === mode.id}
+                            type="button"
+                            on:click={() => {
+                              setPvpMode(mode.id as 'peace' | 'group' | 'evil');
+                              pvpMenuOpen = false;
+                            }}
+                          >
+                            {mode.label}
+                          </button>
+                        {/each}
+                      </div>
+                    {/if}
+                  </div>
+                </div>
               </div>
 
               <div class="player-status-cluster">
@@ -324,65 +345,20 @@
                 <span>{playerSecondaryLabel}</span>
               </div>
             </div>
-
-            <div class="player-footer-line">
-              <span>{playerClassToken}</span>
-              <span>Nv. {$playerStats.level}</span>
-              <span>{$playerMetaStore.currentInstance}</span>
-            </div>
           </div>
         </div>
 
-        <div class="player-utility-row">
-          <div class="player-actions">
-            <button class="hud-btn mini ghost" type="button" on:click={returnToCharacterSelect}>Trocar</button>
-            <button class="hud-btn mini" type="button" on:click={() => pvpMenuOpen = !pvpMenuOpen}>
-              PvP {playerModeLabel}
-            </button>
-            {#if pvpMenuOpen}
-              <div class="player-pvp-menu">
-                {#each [
-                  { id: 'peace', label: 'Paz' },
-                  { id: 'group', label: 'Grupo' },
-                  { id: 'evil', label: 'Mal' }
-                ] as mode}
-                  <button
-                    class:active={$playerMetaStore.pvpMode === mode.id}
-                    type="button"
-                    on:click={() => {
-                      setPvpMode(mode.id as 'peace' | 'group' | 'evil');
-                      pvpMenuOpen = false;
-                    }}
-                  >
-                    {mode.label}
-                  </button>
-                {/each}
-              </div>
-            {/if}
-          </div>
-
+        {#if showPlayerMetaGrid}
           <div class="player-meta-grid">
-            {#if $playerStats.unspentPoints > 0}
-              <span class="hud-pill warning">Atributos {$playerStats.unspentPoints}</span>
-            {/if}
-            {#if Number($attributesStore.player?.skillPointsAvailable || 0) > 0}
-              <span class="hud-pill positive">Skills {Number($attributesStore.player?.skillPointsAvailable || 0)}</span>
-            {/if}
             {#if $attributesStore.player?.afkActive}
               <span class="hud-pill">AFK</span>
-            {/if}
-            {#if $activePetStore.activeWorldPet}
-              <span class="hud-pill">Pet {$activePetStore.activeWorldPet.name}</span>
             {/if}
             {#if isNecromancer}
               <span class="hud-pill arcane">Grave {graveCharges}/10</span>
               <span class="hud-pill arcane">Invoc. {activeSummonCount}</span>
-              {#if graveCharges > 0}
-                <span class="hud-pill arcane soft">{graveFamilyLabel}</span>
-              {/if}
             {/if}
           </div>
-        </div>
+        {/if}
       </section>
 
       {#if showPlayerBuffs}
@@ -742,9 +718,7 @@
     gap: 4px;
   }
 
-  .player-frame-header,
-  .player-utility-row,
-  .player-footer-line {
+  .player-frame-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -753,18 +727,19 @@
 
   .player-headline {
     min-width: 0;
-    display: grid;
-    gap: 1px;
+    flex: 1 1 auto;
   }
 
-  .player-mode {
-    color: rgba(249, 235, 191, 0.84);
-    font-size: 0.62rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
+  .player-name-row {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 7px;
   }
 
   .player-nameplate {
+    min-width: 0;
+    flex: 1 1 auto;
     color: #fff5e6;
     font-family: var(--hud-font-display);
     font-size: 0.88rem;
@@ -772,6 +747,30 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .player-mode-control {
+    position: relative;
+    flex-shrink: 0;
+  }
+
+  .player-mode-trigger {
+    min-height: 22px;
+    padding: 0 9px;
+    border-radius: 999px;
+    border: 1px solid rgba(220, 194, 130, 0.34);
+    background: rgba(18, 16, 16, 0.78);
+    color: rgba(249, 235, 191, 0.9);
+    font-family: var(--hud-font-display);
+    font-size: 0.58rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    box-shadow: inset 0 1px 0 rgba(255, 236, 193, 0.08);
+  }
+
+  .player-mode-trigger:hover {
+    border-color: rgba(242, 211, 139, 0.5);
+    color: #fff3cd;
   }
 
   .player-status-cluster {
@@ -863,31 +862,13 @@
     letter-spacing: 0.02em;
   }
 
-  .player-footer-line {
-    justify-content: flex-start;
-    flex-wrap: wrap;
-    gap: 7px;
-    color: rgba(235, 224, 202, 0.74);
-    font-size: 0.58rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-
-  .player-actions {
-    position: relative;
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-    justify-content: flex-start;
-  }
-
   .player-pvp-menu {
     position: absolute;
-    top: calc(100% + 8px);
+    top: calc(100% + 6px);
     left: 0;
-    min-width: 150px;
-    padding: 10px;
-    border-radius: 14px;
+    min-width: 112px;
+    padding: 8px;
+    border-radius: 12px;
     border: 1px solid rgba(201, 168, 106, 0.22);
     background: rgba(8, 10, 14, 0.96);
     box-shadow: 0 16px 28px rgba(0, 0, 0, 0.34);
@@ -897,12 +878,14 @@
   }
 
   .player-pvp-menu button {
-    min-height: 34px;
-    border-radius: 10px;
+    min-height: 28px;
+    border-radius: 8px;
     border: 1px solid rgba(201, 168, 106, 0.18);
     background: rgba(16, 19, 24, 0.92);
     color: var(--hud-gold);
     font-family: var(--hud-font-display);
+    font-size: 0.64rem;
+    letter-spacing: 0.05em;
     text-transform: uppercase;
   }
 
@@ -917,6 +900,7 @@
 
   .player-meta-grid {
     display: flex;
+    align-items: center;
     gap: 6px;
     justify-content: flex-end;
   }
@@ -1092,8 +1076,7 @@
       font-size: 0.7rem;
     }
 
-    .player-utility-row {
-      flex-direction: column;
+    .player-frame-header {
       align-items: flex-start;
     }
 

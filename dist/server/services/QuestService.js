@@ -306,30 +306,36 @@ const QUESTS = [
 ];
 const QUEST_BY_ID = Object.fromEntries(QUESTS.map((q) => [q.id, q]));
 class QuestService {
-    constructor(sendRaw, persistPlayer, persistPlayerCritical, grantXp, grantRewardItem, grantCurrency, getDungeonUiState) {
+    constructor(sendRaw, persistPlayer, persistPlayerCritical, grantXp, grantRewardItem, grantCurrency, projectToWalkable, getDungeonUiState) {
         this.sendRaw = sendRaw;
         this.persistPlayer = persistPlayer;
         this.persistPlayerCritical = persistPlayerCritical;
         this.grantXp = grantXp;
         this.grantRewardItem = grantRewardItem;
         this.grantCurrency = grantCurrency;
+        this.projectToWalkable = projectToWalkable;
         this.getDungeonUiState = getDungeonUiState;
+        this.projectedNpcCache = new Map();
     }
     getNpcsForMap(mapKey, mapId) {
-        return npcs_1.NPCS.filter((n) => n.mapKey === mapKey && n.mapId === mapId).map((n) => ({
-            id: n.id,
-            name: n.name,
-            x: n.x,
-            y: n.y,
-            role: n.role,
-            spriteKey: n.spriteKey || null,
-            hitbox: n.hitbox || { w: 54, h: 80, offsetX: 0, offsetY: 0 },
-            anchor: n.anchor || { x: 0.5, y: 1 },
-            interactRange: Number(n.interactRange || npcs_1.NPC_INTERACT_RANGE)
-        }));
+        return npcs_1.NPCS.filter((n) => n.mapKey === mapKey && n.mapId === mapId).map((n) => {
+            const projected = this.projectNpc(n);
+            return {
+                id: projected.id,
+                name: projected.name,
+                x: projected.x,
+                y: projected.y,
+                role: projected.role,
+                spriteKey: n.spriteKey || null,
+                hitbox: n.hitbox || { w: 54, h: 80, offsetX: 0, offsetY: 0 },
+                anchor: n.anchor || { x: 0.5, y: 1 },
+                interactRange: Number(n.interactRange || npcs_1.NPC_INTERACT_RANGE)
+            };
+        });
     }
     getNpcById(npcId) {
-        return npcs_1.NPC_BY_ID[String(npcId || '')] || null;
+        const npc = npcs_1.NPC_BY_ID[String(npcId || '')];
+        return npc ? this.projectNpc(npc) : null;
     }
     getShopOffers(npcId) {
         const defs = config_1.NPC_SHOPS[String(npcId || '')] || [];
@@ -366,7 +372,7 @@ class QuestService {
     }
     handleNpcInteract(player, msg) {
         const npcId = String(msg?.npcId || '');
-        const npc = npcs_1.NPC_BY_ID[npcId];
+        const npc = this.getNpcById(npcId);
         if (!npc)
             return;
         if (npc.mapKey !== player.mapKey || npc.mapId !== player.mapId)
@@ -414,6 +420,21 @@ class QuestService {
         });
         if (changedByTalk)
             this.sendQuestState(player);
+    }
+    projectNpc(npc) {
+        const cached = this.projectedNpcCache.get(npc.id);
+        if (cached)
+            return cached;
+        const projected = this.projectToWalkable
+            ? this.projectToWalkable(npc.mapKey, Number(npc.x || 0), Number(npc.y || 0))
+            : { x: Number(npc.x || 0), y: Number(npc.y || 0) };
+        const resolved = {
+            ...npc,
+            x: Number(projected.x || npc.x || 0),
+            y: Number(projected.y || npc.y || 0)
+        };
+        this.projectedNpcCache.set(npc.id, resolved);
+        return resolved;
     }
     getDungeonEntryForNpc(npcId, player) {
         const dungeon = dungeons_1.DUNGEON_BY_ENTRY_NPC[String(npcId || '')];
