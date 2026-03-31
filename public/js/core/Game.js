@@ -71,6 +71,25 @@ export class Game {
         this.targetInviteBtn = document.getElementById('target-invite-btn');
         this.targetFriendBtn = document.getElementById('target-friend-btn');
         this.targetClearDistance = 900;
+        this.hudPortraitPaths = {
+            knight: {
+                male: '/assets/ui/hud/class-portraits/knight-male.png',
+                female: '/assets/ui/hud/class-portraits/knight-female.png'
+            },
+            archer: {
+                male: '/assets/ui/hud/class-portraits/archer-male.png',
+                female: '/assets/ui/hud/class-portraits/archer-female.png'
+            },
+            druid: {
+                male: '/assets/ui/hud/class-portraits/druid-male.png',
+                female: '/assets/ui/hud/class-portraits/druid-female.png'
+            },
+            assassin: {
+                male: '/assets/ui/hud/class-portraits/assassin-male.png',
+                female: '/assets/ui/hud/class-portraits/assassin-female.png'
+            }
+        };
+        this.hudPortraitStatus = new Map();
 
         this.minimapWrap = document.getElementById('minimap-wrap');
         this.minimapCanvas = document.getElementById('minimap-canvas');
@@ -5274,7 +5293,7 @@ export class Game {
     updatePlayerCard() {
         if (!this.localId || !this.players[this.localId]) return;
         const me = this.players[this.localId];
-        this.applyClassAvatar(this.playerAvatar, me.class);
+        this.applyHudPortraitAvatar(this.playerAvatar, me.class, me.gender);
         this.playerName.textContent = me.name;
         const mode = me.pvpMode === 'evil' ? 'evil' : me.pvpMode === 'group' ? 'group' : 'peace';
         this.playerPvpToggle.textContent = mode === 'evil' ? 'Mal' : mode === 'group' ? 'Grupo' : 'Paz';
@@ -5342,7 +5361,7 @@ export class Game {
         }
         const target = this.players[this.selectedPlayerId];
         const hpPercent = target.maxHp > 0 ? target.hp / target.maxHp : 0;
-        this.applyClassAvatar(this.targetPlayerAvatar, target.class);
+        this.applyHudPortraitAvatar(this.targetPlayerAvatar, target.class, target.gender);
         this.targetPlayerAvatar.style.background = '';
         if (this.targetNameText) this.targetNameText.textContent = `${target.name} Lv.${target.level}`;
         this.targetPlayerHpFill.style.width = `${Math.max(0, Math.min(1, hpPercent)) * 100}%`;
@@ -5879,6 +5898,71 @@ export class Game {
         if (className === 'archer') return 'A';
         if (className === 'assassin' || className === 'bandit') return 'D';
         return '?';
+    }
+
+    normalizeHudPortraitClass(className) {
+        const normalized = String(className || '').trim().toLowerCase();
+        if (normalized === 'shifter') return 'druid';
+        if (normalized === 'bandit') return 'assassin';
+        if (normalized === 'archer' || normalized === 'druid' || normalized === 'assassin') return normalized;
+        return 'knight';
+    }
+
+    normalizeHudPortraitGender(gender) {
+        return String(gender || '').trim().toLowerCase() === 'female' ? 'female' : 'male';
+    }
+
+    getHudPortraitPath(className, gender) {
+        const normalizedClass = this.normalizeHudPortraitClass(className);
+        const normalizedGender = this.normalizeHudPortraitGender(gender);
+        return this.hudPortraitPaths?.[normalizedClass]?.[normalizedGender] || '';
+    }
+
+    ensureHudPortraitLoaded(path) {
+        if (!path) return 'missing';
+        if (this.hudPortraitStatus.has(path)) return this.hudPortraitStatus.get(path);
+        this.hudPortraitStatus.set(path, 'loading');
+        const img = new Image();
+        img.decoding = 'async';
+        img.onload = () => {
+            this.hudPortraitStatus.set(path, 'loaded');
+            window.requestAnimationFrame(() => this.refreshHudPortraitAvatars());
+        };
+        img.onerror = () => {
+            this.hudPortraitStatus.set(path, 'missing');
+            window.requestAnimationFrame(() => this.refreshHudPortraitAvatars());
+        };
+        img.src = path;
+        return 'loading';
+    }
+
+    clearHudPortraitAvatar(el) {
+        if (!el) return;
+        el.classList.remove('hud-portrait-ready');
+        el.style.removeProperty('--hud-avatar-image');
+    }
+
+    applyHudPortraitAvatar(el, className, gender) {
+        this.applyClassAvatar(el, className);
+        if (!el) return;
+        const portraitPath = this.getHudPortraitPath(className, gender);
+        const portraitStatus = this.ensureHudPortraitLoaded(portraitPath);
+        if (portraitStatus === 'loaded') {
+            el.classList.add('hud-portrait-ready');
+            el.style.setProperty('--hud-avatar-image', `url("${portraitPath}")`);
+            el.textContent = '';
+            return;
+        }
+        this.clearHudPortraitAvatar(el);
+    }
+
+    refreshHudPortraitAvatars() {
+        if (this.localId && this.players[this.localId]) {
+            this.updatePlayerCard();
+        }
+        if (this.selectedPlayerId || this.selectedMobId) {
+            this.updateTargetPlayerCard();
+        }
     }
 
     applyClassAvatar(el, className) {

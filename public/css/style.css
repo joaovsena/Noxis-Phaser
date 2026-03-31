@@ -1816,11 +1816,18 @@ body.hud-ultra-compact .menu-btn {
 }
 
 #target-player-avatar {
+    --hud-avatar-image: none;
     width: 26px;
     height: 26px;
     border-radius: 6px;
     border: 1px solid #6b7280;
     flex: 0 0 auto;
+    overflow: hidden;
+    background-color: rgba(19, 14, 10, 0.96);
+    background-image: var(--hud-avatar-image);
+    background-position: center 24%;
+    background-repeat: no-repeat;
+    background-size: cover;
 }
 
 .target-card-meta {
@@ -2310,12 +2317,25 @@ label {
 }
 
 #player-avatar {
+    --hud-avatar-image: none;
     width: 56px;
     height: 56px;
     border-radius: 14px;
     border: 1px solid rgba(226, 193, 125, 0.42);
-    background:
+    overflow: hidden;
+    background-image:
+        var(--hud-avatar-image),
         radial-gradient(circle at 30% 30%, rgba(255, 240, 203, 0.34), rgba(90, 69, 38, 0.18) 48%, rgba(25, 17, 10, 0.96) 100%);
+    background-position: center 24%, center;
+    background-repeat: no-repeat, no-repeat;
+    background-size: cover, auto;
+}
+
+#player-avatar.hud-portrait-ready,
+#target-player-avatar.hud-portrait-ready {
+    font-size: 0;
+    color: transparent;
+    text-shadow: none;
 }
 
 .player-name-row {
